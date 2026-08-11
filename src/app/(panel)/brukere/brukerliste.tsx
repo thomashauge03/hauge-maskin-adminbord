@@ -3,6 +3,9 @@ import type { System } from '@/lib/typer'
 import { Feilstripe, Kort, KortTittel, Merke, Tallkort } from '@/components/ui'
 import { visSiden } from '@/lib/format'
 import { settSperret } from './actions'
+import { giTilgangTilSystem, taBortTilgangFraSystem } from './tilgang-actions'
+import { TilgangsCelle } from './tilgangs-celle'
+import { hentAlleRoller, hentTilgangsoppsett } from '@/lib/tilgang'
 import { BrukerHandlinger } from './bruker-handlinger'
 
 /**
@@ -18,9 +21,24 @@ export async function Brukerliste({
 }) {
   // Bare eier utløser reserveveien, som bruker systemenes service
   // role-nøkler. Se kommentaren på hentBrukereISystem.
-  const { lister, hentetMs: naa } = await hentAlleBrukere(systemer, {
-    brukReserve: erEier,
-  })
+  const [{ lister, hentetMs: naa }, rollerPerSystem] = await Promise.all([
+    hentAlleBrukere(systemer, { brukReserve: erEier }),
+    hentAlleRoller(),
+  ])
+
+  /*
+   * Hvilke systemer er nøklet på auth-id.
+   *
+   * De krever at brukeren finnes i det systemets auth.users først, så der
+   * må cellen kunne oppgi et midlertidig passord. De e-postnøklede appene
+   * trenger det ikke – der ER raden i rolletabellen hele tilgangen.
+   */
+  const oppsett = await Promise.all(
+    systemer.map(async (s) => [s.id, await hentTilgangsoppsett(s.id)] as const),
+  )
+  const krevArPassord = new Map(
+    oppsett.map(([id, o]) => [id, o?.brukerNokkel === 'auth_id']),
+  )
   const personer = samlePåEpost(lister)
 
   const feilende = lister.filter((l) => l.feil)
@@ -118,15 +136,39 @@ export async function Brukerliste({
                   <td className="px-4 py-2 font-semibold">{p.epost}</td>
                   {medDatabase.map((l) => {
                     const bruker = p.iSystem.get(l.system.slug)
+
+                    // Bare eier kan endre tilgang. For drift er cellen en
+                    // ren visning – ingen knapp som later som.
+                    if (!erEier) {
+                      return (
+                        <td key={l.system.id} className="px-2 py-2 text-center">
+                          {!bruker ? (
+                            <span className="text-[var(--blekk-svak)]">–</span>
+                          ) : bruker.aktivISystem === false ? (
+                            <Merke type="rød">sperret</Merke>
+                          ) : (
+                            <Merke type="grønn">ja</Merke>
+                          )}
+                        </td>
+                      )
+                    }
+
                     return (
-                      <td key={l.system.id} className="px-2 py-2 text-center">
-                        {!bruker ? (
-                          <span className="text-[var(--blekk-svak)]">–</span>
-                        ) : bruker.aktivISystem === false ? (
-                          <Merke type="rød">sperret</Merke>
-                        ) : (
-                          <Merke type="grønn">ja</Merke>
-                        )}
+                      <td key={l.system.id} className="px-2 py-2 text-center align-top">
+                        <TilgangsCelle
+                          epost={p.epost}
+                          navn={p.epost.split('@')[0]}
+                          systemNavn={l.system.navn}
+                          harTilgang={Boolean(bruker)}
+                          sperret={bruker?.aktivISystem === false}
+                          roller={rollerPerSystem.get(l.system.id) ?? []}
+                          krevArPassord={krevArPassord.get(l.system.id) ?? false}
+                          gi={giTilgangTilSystem.bind(null, l.system.id)}
+                          taBort={async () => {
+                            'use server'
+                            await taBortTilgangFraSystem(l.system.id, p.epost)
+                          }}
+                        />
                       </td>
                     )
                   })}
