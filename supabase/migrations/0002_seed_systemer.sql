@@ -7,9 +7,13 @@
 -- bruker. Der navnene sprikte, er det navnet fra sider.json som gjelder:
 -- det er det Thomas ser i menyen hver dag.
 --
--- To ting er lett å ta feil av her:
+-- Tre ting er lett å ta feil av her:
 --   * «Leveringseddel» er grus-appen. Repoet heter haugemaskin-grus,
 --     men ingen kaller den grus i bruk.
+--   * .env-filene i de andre repoene er ikke til å stole på som kilde til
+--     hvilket prosjekt som er i drift. Den i hauge-maskin-grus peker på et
+--     utgått prosjekt under en annen konto. Refene under er derfor
+--     verifisert ved å telle rader, ikke lest av en .env.
 --   * Den LEVENDE tilbudssiden er tilbudssystem-mal, altså
 --     flerkundeversjonen. hauge-tilbudssystem er forgjengeren og står
 --     ikke i menyen lenger.
@@ -43,11 +47,13 @@ insert into public.systemer (
    'FLERKUNDE. Data skilles på tenant_id, og tenant_users kobler auth-bruker til kunde via current_tenant_id(). Den felles innloggingen skal bare gjelde Hauge Maskin-tenanten – andre kunder beholder sin egen innlogging.'),
 
   ('leveringseddel', 'Leveringseddel', 'Grussalg med lager, priser, leveringssedler og faktura.',
-   'erpcayowvmdcsbpdilak', 'https://erpcayowvmdcsbpdilak.supabase.co',
+   'mrdcsqlmxftwgdjdogxv', 'https://mrdcsqlmxftwgdjdogxv.supabase.co',
    null, 'haugemaskin-grus',
    'thomashauge03/haugemaskin-grus', 'https://haugemaskin-grus.vercel.app/admin',
    20, true,
-   'Heter haugemaskin-grus i repoet, Leveringseddel i menyen. Vite + React. Rollen ligger i super_admin_users.'),
+   'Heter haugemaskin-grus i repoet, Leveringseddel i menyen. Vite + React. Tilgang i system_users, nøklet på e-post.'
+   || E'\n\nRef-en er verifisert ved å telle rader: 348 deliveries, 41 inventory, 30 product_prices.'
+   || E'\n\nADVARSEL: den lokale .env i hauge-maskin-grus peker på erpcayowvmdcsbpdilak – et ANNET prosjekt under en annen konto. Kjører du appen lokalt, snakker du med feil database. Det var også grunnen til at registeret først hadde feil ref her.'),
 
   ('utleie', 'Utleie', 'Maskinutleie med QR-kode på maskinen, retur og verkstedsoppfølging.',
    'xghaogvmohevcgvnapvu', 'https://xghaogvmohevcgvnapvu.supabase.co',
