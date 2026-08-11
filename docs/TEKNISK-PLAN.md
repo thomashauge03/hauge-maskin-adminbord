@@ -58,6 +58,39 @@ er ikke en passordbok man leser fra.
 **Alt loggføres.** `hendelseslogg` har ingen update- eller delete-policy, og
 skrives bare med service role. En logg den loggede kan endre er ingen logg.
 
+## Appene ligger under ulike Supabase-kontoer
+
+Dette er en forutsetning som former hele lesemodellen, og den er lett å overse:
+**et personal access token ser bare prosjekter i organisasjoner den kontoen er med
+i.** Ett token dekker altså ikke automatisk alle systemene.
+
+Konsekvensen er at brukerlisten har **to veier inn**, og at begge trengs:
+
+| | Vei 1: Management-token | Vei 2: systemets service role-nøkkel |
+|---|---|---|
+| Krever | ett token for den kontoen | en lagret nøkkel per system |
+| Uavhengig av eierskap | nei | **ja** |
+| Brukerliste | ja, med sperret/sist innlogget | ja, men `banned_until` er ikke alltid med |
+| Databasestatus, helse, diskbruk | ja | **nei** |
+| Radtall og tabelliste | ja | nei |
+| Opprette/endre brukere | nei | ja |
+
+Rekkefølgen er 1 så 2. Vei 1 er rikere og krever ingen lagret nøkkel; faller den,
+prøves vei 2 før det meldes feil. Kom listen fram på vei 2, sier grensesnittet det
+– ikke som en feil, men fordi det er forklaringen på at databasestatus mangler for
+nettopp de systemene.
+
+**Vei 2 er forbeholdt eier-rollen.** Å bruke en nøkkel er ikke det samme som å se
+den, men skillet mellom eier og drift er nettopp at drift ikke skal utløse noe som
+rører produksjonsnøklene. En leseliste som gjorde det i det stille ville uthult
+rollen uten at noen bestemte det. For drift vises slike systemer som
+utilgjengelige framfor tomme – som er riktigere, for det er de.
+
+Det som IKKE kan hentes uten et token for den eiende kontoen er databasestatus,
+tjenestehelse og diskbruk. De hører til Supabase sitt kontrollplan, og service
+role rekker ikke dit. Vil du ha driftsstatus for et system under en annen konto,
+må du legge inn et token for den kontoen også.
+
 ## Hvorfor nøkler for det meste ikke trengs likevel
 
 Supabase sitt Management-API kan kjøre lesespørringer i et prosjekt uten at vi

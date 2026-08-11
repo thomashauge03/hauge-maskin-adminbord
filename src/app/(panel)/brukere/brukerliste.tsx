@@ -16,11 +16,16 @@ export async function Brukerliste({
   systemer: System[]
   erEier: boolean
 }) {
-  const { lister, hentetMs: naa } = await hentAlleBrukere(systemer)
+  // Bare eier utløser reserveveien, som bruker systemenes service
+  // role-nøkler. Se kommentaren på hentBrukereISystem.
+  const { lister, hentetMs: naa } = await hentAlleBrukere(systemer, {
+    brukReserve: erEier,
+  })
   const personer = samlePåEpost(lister)
 
   const feilende = lister.filter((l) => l.feil)
   const medDatabase = lister.filter((l) => l.brukere)
+  const medReserve = lister.filter((l) => l.merknad)
 
   return (
     <div className="space-y-6">
@@ -34,6 +39,30 @@ export async function Brukerliste({
             ))}
           </ul>
         </Feilstripe>
+      )}
+
+      {/* Systemer som kom fram på reserveveien. Ikke en feil – listen er
+          riktig – men det forklarer hvorfor databasestatus mangler for
+          nettopp disse, og det er verdt å si framfor å la det se
+          tilfeldig ut. */}
+      {medReserve.length > 0 && (
+        <Kort>
+          <KortTittel
+            handling={<Merke type="gul">{medReserve.length} system</Merke>}
+          >
+            Lest med systemets egen nøkkel
+          </KortTittel>
+          <ul className="divide-y divide-[var(--kant)]">
+            {medReserve.map((l) => (
+              <li key={l.system.id} className="px-4 py-2.5">
+                <p className="text-sm font-semibold">{l.system.navn}</p>
+                <p className="mt-0.5 text-xs text-[var(--blekk-svak)]">
+                  {l.merknad}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </Kort>
       )}
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
