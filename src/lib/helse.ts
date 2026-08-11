@@ -1,4 +1,11 @@
-import type { Maaling, System, SystemStatus, Tilstand } from '@/lib/typer'
+import type {
+  Kilde,
+  Maaling,
+  StatusMaaling,
+  System,
+  SystemStatus,
+  Tilstand,
+} from '@/lib/typer'
 import {
   hentSupabaseProsjekter,
   type ProsjektStatus,
@@ -117,6 +124,40 @@ export function verste(tilstander: Tilstand[]): Tilstand {
   return tilstander.reduce((a, b) => (vekt[b] > vekt[a] ? b : a))
 }
 
+/** Samme nøkkelform som hentReserveMaalinger bruker. */
+function nøkkel(systemId: string, kilde: Kilde): string {
+  return `${systemId}:${kilde}`
+}
+
+/**
+ * Bytter en «uvisst»-måling mot siste lagrede, om den finnes.
+ *
+ * Bare `ukjent` byttes. En måling som faktisk fikk svar – også et dårlig
+ * svar – skal aldri overskrives av noe eldre: da ville et system som
+ * nettopp gikk ned blitt vist som grønt fordi det var grønt i morges.
+ */
+function brukReserve(
+  maaling: Maaling,
+  systemId: string,
+  reserve: Map<string, StatusMaaling>,
+): Maaling {
+  if (maaling.tilstand !== 'ukjent') return maaling
+
+  const lagret = reserve.get(nøkkel(systemId, maaling.kilde))
+  if (!lagret) return maaling
+
+  return {
+    kilde: maaling.kilde,
+    tilstand: lagret.tilstand,
+    melding: lagret.melding,
+    detaljer: lagret.detaljer,
+    // Svartiden er fra det feilede kallet, ikke fra den lagrede
+    // målingen: det er den som sier noe om hva som skjer nå.
+    svartidMs: maaling.svartidMs,
+    fraLager: lagret.maltTid,
+  }
+}
+
 export type Oversikt = {
   systemer: SystemStatus[]
   /**
@@ -145,8 +186,21 @@ export type Oversikt = {
  * De to plattformkallene startes samtidig og ventes på sammen. Kjørte de
  * etter hverandre, ville forsiden brukt summen av begge tidsfristene –
  * seksten sekunder i verste fall – i stedet for den lengste.
+ *
+ * `reserve` er nyeste lagrede måling per system og kilde, fra
+ * hentReserveMaalinger. Er den oppgitt, brukes den når et live-kall
+ * feiler, med alderen synlig i visningen. «Pauset, fra kl. 07:15» er
+ * kvalitativt bedre enn «Uvisst».
+ *
+ * Cron-ruten sender den bevisst IKKE: den skal skrive det den faktisk
+ * målte nå. Ellers ville en 429 blitt lagret som en fersk måling av noe
+ * som skjedde seks timer før, og historikken – som er hele grunnen til
+ * at tabellen finnes – ville forfalsket seg selv.
  */
-export async function hentOversikt(systemer: System[]): Promise<Oversikt> {
+export async function hentOversikt(
+  systemer: System[],
+  reserve?: Map<string, StatusMaaling>,
+): Promise<Oversikt> {
   const vercelLøfte = hentVercelProsjekter()
   const supabaseLøfte = hentSupabaseProsjekter()
 
@@ -274,10 +328,22 @@ export async function hentOversikt(systemer: System[]): Promise<Oversikt> {
       }
     }
 
+    /*
+     * Bytter ut «uvisst» med siste lagrede måling der vi har en.
+     *
+     * Gjøres her, etter at alle kildene er samlet, i stedet for inne i
+     * hver gren over. Ellers måtte det samme oppslaget gjentas seks
+     * steder, og den ene grenen som ble glemt ville sett tilfeldig
+     * dårligere ut enn de andre.
+     */
+    const medReserve = reserve
+      ? maalinger.map((m) => brukReserve(m, system.id, reserve))
+      : maalinger
+
     return {
       system,
-      maalinger,
-      samletTilstand: verste(maalinger.map((m) => m.tilstand)),
+      maalinger: medReserve,
+      samletTilstand: verste(medReserve.map((m) => m.tilstand)),
     }
   })
 

@@ -1,5 +1,6 @@
 import { Merke, type MerkeType } from '@/components/ui'
 import type { Kilde, Tilstand } from '@/lib/typer'
+import { visDatoTid, visSiden } from '@/lib/format'
 
 /**
  * Ett sted som bestemmer hvilken farge en tilstand har.
@@ -47,15 +48,25 @@ export function visKilde(kilde: Kilde): string {
  * Kilde og tilstand på én linje, slik den vises i systemkortene.
  * Teksten fra målingen står ved siden av merket, aldri i stedet for det:
  * «Pauset» alene sier ikke om det er greit.
+ *
+ * Er `fraLager` satt, kommer tilstanden fra en lagret måling fordi
+ * live-kallet feilet. Da MÅ alderen vises. Uten den er «Pauset» en
+ * påstand om nåtiden vi ikke kan stå for – og det er nettopp den
+ * forskjellen mellom «vet» og «visste» som gjør et adminbord til å
+ * stole på.
  */
 export function Kildelinje({
   kilde,
   tilstand,
   melding,
+  fraLager,
+  naa,
 }: {
   kilde: Kilde
   tilstand: Tilstand
   melding: string | null
+  fraLager?: string | null
+  naa: number
 }) {
   return (
     <div className="flex items-center justify-between gap-3 border-t border-[var(--kant)] px-4 py-2 first:border-t-0">
@@ -65,6 +76,14 @@ export function Kildelinje({
       <span className="flex items-center gap-2 text-right">
         {melding && (
           <span className="text-sm text-[var(--blekk-svak)]">{melding}</span>
+        )}
+        {fraLager && (
+          <span
+            className="text-xs text-[var(--blekk-svak)] italic"
+            title={`Live-kallet feilet. Dette er siste lagrede måling, gjort ${visDatoTid(fraLager)}.`}
+          >
+            {visSiden(fraLager, naa)}
+          </span>
         )}
         <TilstandsMerke tilstand={tilstand} />
       </span>

@@ -48,7 +48,13 @@ export type SupabaseProsjekt = {
   region: string
   status: ProsjektStatus
   opprettet: string
-  organisasjonId: string
+  /*
+   * Slug, ikke id. Både `id` og `organization_id` er merket utfaset i
+   * Supabase sitt eget skjema, med «Use `ref` instead» og «Use
+   * `organization_slug` instead». De ligger fortsatt i svaret, men skal
+   * ikke lagres som nøkler noe sted.
+   */
+  organisasjonSlug: string
   databaseVert: string | null
   postgresVersjon: string | null
 }
@@ -57,9 +63,16 @@ export type SupabaseProsjekt = {
 export const TJENESTER = ['auth', 'db', 'rest', 'realtime', 'storage'] as const
 export type Tjeneste = (typeof TJENESTER)[number]
 
+/**
+ * MERK at `status` – ikke `healthy` – er det feltet som skal brukes.
+ *
+ * Boolean-en `healthy` er merket utfaset i Supabase sitt skjema, med
+ * teksten «Deprecated. Use `status` instead.» Den er dessuten dårligere:
+ * den kollapser tre tilstander til to, slik at en tjeneste som starter
+ * opp ser identisk ut med en som er nede.
+ */
 export type TjenesteHelse = {
   navn: string
-  frisk: boolean
   status: 'ACTIVE_HEALTHY' | 'COMING_UP' | 'UNHEALTHY'
   feil: string | null
 }
@@ -94,13 +107,12 @@ export async function hentSupabaseProsjekter(): Promise<
 
   const svar = await hentJson<
     {
-      id: string
       ref: string
       name: string
       region: string
       status: ProsjektStatus
       created_at: string
-      organization_id: string
+      organization_slug: string
       database?: { host: string; version: string }
     }[]
   >(`${BASIS}/v1/projects`, { token: env.SUPABASE_MANAGEMENT_TOKEN })
@@ -116,7 +128,7 @@ export async function hentSupabaseProsjekter(): Promise<
       region: p.region,
       status: p.status,
       opprettet: p.created_at,
-      organisasjonId: p.organization_id,
+      organisasjonSlug: p.organization_slug,
       databaseVert: p.database?.host ?? null,
       postgresVersjon: p.database?.version ?? null,
     })),
@@ -143,7 +155,6 @@ export async function hentProsjektHelse(
   const svar = await hentJson<
     {
       name: string
-      healthy: boolean
       status: 'ACTIVE_HEALTHY' | 'COMING_UP' | 'UNHEALTHY'
       error?: string
     }[]
@@ -155,7 +166,6 @@ export async function hentProsjektHelse(
     svartidMs: svar.svartidMs,
     data: svar.data.map((t) => ({
       navn: t.name,
-      frisk: t.healthy,
       status: t.status,
       feil: t.error ?? null,
     })),

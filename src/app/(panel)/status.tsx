@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { hentOversikt } from '@/lib/helse'
+import { hentReserveMaalinger } from '@/lib/data'
 import type { System } from '@/lib/typer'
 import { Feilstripe, Kodebit, Kort, KortTittel, Merke, Tallkort } from '@/components/ui'
 import { Kildelinje, TilstandsMerke } from '@/components/tilstand'
@@ -12,7 +13,14 @@ import { førsteLinje, visSiden } from '@/lib/format'
  * inn etterpå – i stedet for at hele siden står tom i to sekunder.
  */
 export async function Statusdel({ systemer }: { systemer: System[] }) {
-  const oversikt = await hentOversikt(systemer)
+  /*
+   * Reserven hentes først, ikke parallelt med plattformkallene. Det er
+   * en lokal spørring på noen titalls millisekunder, mot en tidsfrist på
+   * åtte sekunder – å flette dem sammen ville spart intet og gjort
+   * signaturen til hentOversikt verre.
+   */
+  const reserve = await hentReserveMaalinger()
+  const oversikt = await hentOversikt(systemer, reserve)
 
   // Tidspunktet kommer med målingen, ikke fra klokka her. Se
   // kommentaren på Oversikt.hentetMs for hvorfor.
@@ -92,6 +100,8 @@ export async function Statusdel({ systemer }: { systemer: System[] }) {
                     kilde={m.kilde}
                     tilstand={m.tilstand}
                     melding={m.melding}
+                    fraLager={m.fraLager}
+                    naa={naa}
                   />
                 ))}
               </div>

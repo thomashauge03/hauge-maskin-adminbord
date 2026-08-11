@@ -1,6 +1,21 @@
 import { hentDatabasedetalj } from '@/lib/systemdetalj'
-import { Kort, KortTittel, Merke, Tallkort } from '@/components/ui'
+import { Kort, KortTittel, Merke, Tallkort, type MerkeType } from '@/components/ui'
+import type { TjenesteHelse } from '@/lib/plattform/supabase-api'
 import { visBytes, visProsent } from '@/lib/format'
+
+type TjenesteStatus = TjenesteHelse['status']
+
+const tjenesteFarge: Record<TjenesteStatus, MerkeType> = {
+  ACTIVE_HEALTHY: 'grønn',
+  COMING_UP: 'gul',
+  UNHEALTHY: 'rød',
+}
+
+const tjenesteOrd: Record<TjenesteStatus, string> = {
+  ACTIVE_HEALTHY: 'oppe',
+  COMING_UP: 'starter',
+  UNHEALTHY: 'nede',
+}
 
 /**
  * Databasedelen av systemsiden. Egen komponent bak sin egen
@@ -51,6 +66,10 @@ export async function Databasedel({ prosjektRef }: { prosjektRef: string }) {
             <p className="px-4 py-3 text-sm text-[var(--blekk-svak)]">
               {d.tjenesterFeil}
             </p>
+          ) : (d.tjenester ?? []).length === 0 ? (
+            <p className="px-4 py-3 text-sm text-[var(--blekk-svak)]">
+              Ingen tjenester rapportert.
+            </p>
           ) : (
             <ul>
               {(d.tjenester ?? []).map((t) => (
@@ -65,12 +84,10 @@ export async function Databasedel({ prosjektRef }: { prosjektRef: string }) {
                         {t.feil}
                       </span>
                     )}
-                    <Merke
-                      type={
-                        t.frisk ? 'grønn' : t.status === 'COMING_UP' ? 'gul' : 'rød'
-                      }
-                    >
-                      {t.frisk ? 'oppe' : t.status}
+                    {/* Tre tilstander, ikke to. En tjeneste som starter
+                        opp er ikke nede, og skal ikke se ut som det. */}
+                    <Merke type={tjenesteFarge[t.status]}>
+                      {tjenesteOrd[t.status]}
                     </Merke>
                   </span>
                 </li>

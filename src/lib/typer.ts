@@ -75,6 +75,13 @@ export type Maaling = {
   melding: string | null
   detaljer: Record<string, unknown>
   svartidMs: number
+  /*
+   * Satt når det live-kallet feilet og vi viser siste lagrede måling i
+   * stedet. Verdien er tidspunktet målingen ble gjort, og visningen MÅ
+   * vise den – «Pauset» uten alder er en påstand om nåtiden vi ikke kan
+   * stå for. Null betyr at målingen er fersk.
+   */
+  fraLager?: string | null
 }
 
 /** Et system med alt som skal vises på oversikten. */

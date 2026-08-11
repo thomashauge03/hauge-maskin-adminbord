@@ -1,3 +1,4 @@
+import { cache } from 'react'
 import { redirect } from 'next/navigation'
 import { lagServerKlient } from '@/lib/supabase/server'
 import type { AdminBruker, AdminRolle } from '@/lib/typer'
@@ -6,8 +7,20 @@ import 'server-only'
 /** Siden brukeren sendes til når passordet må byttes. */
 export const BYTT_PASSORD_STI = '/bytt-passord'
 
-/** Henter innlogget bruker, eller null om ingen er logget inn. */
-export async function hentAdmin(): Promise<AdminBruker | null> {
+/**
+ * Henter innlogget bruker, eller null om ingen er logget inn.
+ *
+ * Pakket i React sin `cache()`, som dedupliserer innenfor én
+ * forespørsel. Uten den kjører dette to nettverkskall – getUser mot
+ * Supabase og et oppslag i admin_brukere – én gang i layouten, én gang i
+ * siden og én gang i hver strømmede underkomponent. Det er fire til seks
+ * ekstra rundturer per navigasjon, foran en layout som blokkerer.
+ *
+ * `cache()` er per forespørsel, ikke et varig hurtiglager. Det er
+ * poenget: en deaktivert bruker skal være ute ved neste sidelast, ikke
+ * når et hurtiglager utløper.
+ */
+export const hentAdmin = cache(async (): Promise<AdminBruker | null> => {
   const supabase = await lagServerKlient()
 
   const {
@@ -42,7 +55,7 @@ export async function hentAdmin(): Promise<AdminBruker | null> {
     aktiv: true,
     maByttePassord: data.ma_bytte_passord ?? false,
   }
-}
+})
 
 /**
  * Krever innlogget bruker, uten å tvinge passordbytte.

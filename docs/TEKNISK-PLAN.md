@@ -130,11 +130,34 @@ i registerrekkefølge, må man lese alle tolv for å finne det ene røde.
 
 Status vises alltid med **tekst**, aldri farge alene.
 
-## Statushistorikk
+## Statushistorikk – og reserven
 
 Oversikten henter live. Cron-ruten `/api/status/oppdater` lagrer likevel en
-måling tre ganger om dagen, fordi spørsmålet man faktisk stiller er «hvor lenge
-har dette vært nede» – og det kan ikke besvares fra en tabell som overskrives.
+måling tre ganger om dagen, av to grunner.
+
+Den ene er historikk: spørsmålet man faktisk stiller er «hvor lenge har dette
+vært nede», og det kan ikke besvares fra en tabell som overskrives.
+
+Den andre er **reserve**. Når et live-kall feiler – 429, tidsavbrudd, nettverk –
+slår oversikten opp siste lagrede måling for det systemet og den kilden, og viser
+den med alderen synlig:
+
+> Database — **Pauset** · for 3 timer siden
+
+Det er kvalitativt bedre enn «Uvisst». Tre regler holder det ærlig:
+
+1. **Bare `ukjent` byttes.** En måling som faktisk fikk svar – også et dårlig
+   svar – overskrives aldri av noe eldre. Ellers ville et system som nettopp gikk
+   ned blitt vist som grønt fordi det var grønt i morges.
+2. **Alderen vises alltid.** «Pauset» uten alder er en påstand om nåtiden vi ikke
+   kan stå for.
+3. **Eldre enn seks timer faller bort.** Et døgn gammelt «OK» leses som «OK nå».
+   Da er «Uvisst» det ærlige svaret.
+
+Cron-ruten sender bevisst *ikke* reserven inn i `hentOversikt`: den skal skrive
+det den faktisk målte nå. Ellers ville en 429 blitt lagret som en fersk måling av
+noe som skjedde seks timer før, og historikken forfalsket seg selv.
+
 Målinger eldre enn 60 dager slettes, etter at svaret er sendt, med `after()`.
 
 Ruten krever `CRON_SECRET` som Bearer-token. Uten sjekken er det et åpent
@@ -226,3 +249,13 @@ manglende variabel tatt ned også siden som forklarer hva som mangler.
   valideringsfeil, ikke alle tjenestene.
 - Lesespørringer via Management-API-et svarer **201**, ikke 200, og krever
   skjemakvalifiserte tabellnavn.
+- Tre felt i Supabase-svarene er merket utfaset og skal ikke brukes:
+  `healthy` på helsesjekken (bruk `status`, som dessuten skiller `COMING_UP`
+  fra `UNHEALTHY`), `id` på prosjektet (bruk `ref`) og `organization_id`
+  (bruk `organization_slug`). Alle tre ligger fortsatt i svaret, så feilen er
+  usynlig til dagen de forsvinner.
+- Supabase sine ratebegrensninger er **120/min per prosjekt**, ikke globalt.
+  Kontonivå-kall som `GET /v1/projects` er en egen bøtte.
+- `hentAdmin` er pakket i React sin `cache()`. Uten den kjører den to
+  nettverkskall per kallsted, og den kalles fra layouten, siden og hver
+  strømmede underkomponent.

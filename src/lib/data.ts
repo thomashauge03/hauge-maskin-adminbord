@@ -142,6 +142,59 @@ export async function hentSisteMaalinger(
   }))
 }
 
+/**
+ * Nyeste lagrede måling per system og kilde, som reserve når et
+ * live-kall feiler.
+ *
+ * Nøkkelen er `${systemId}:${kilde}`.
+ *
+ * Henter de siste 300 radene og plukker den nyeste per nøkkel i
+ * JavaScript, framfor en `distinct on`-spørring. Grunnen er at
+ * PostgREST ikke har `distinct on`, og alternativet – en databasevisning
+ * – ville lagt en migrasjon til for noe som med ti systemer og tre
+ * målinger om dagen er tretti rader i døgnet.
+ *
+ * `maksAlderTimer` finnes fordi en gammel måling er verre enn ingen: et
+ * døgn gammelt «OK» leses som «OK nå». Er reserven for gammel, får
+ * kallstedet ingenting og viser «uvisst», som er det ærlige svaret.
+ */
+export async function hentReserveMaalinger(
+  maksAlderTimer = 6,
+): Promise<Map<string, StatusMaaling>> {
+  const supabase = await lagServerKlient()
+  const grense = new Date(
+    Date.now() - maksAlderTimer * 60 * 60 * 1000,
+  ).toISOString()
+
+  const { data } = await supabase
+    .from('status_maalinger')
+    .select('*')
+    .gte('malt_tid', grense)
+    .order('malt_tid', { ascending: false })
+    .limit(300)
+
+  const kart = new Map<string, StatusMaaling>()
+
+  for (const r of data ?? []) {
+    const nøkkel = `${r.system_id}:${r.kilde}`
+    // Radene kommer nyeste først, så den første vi ser er den vi vil ha.
+    if (kart.has(nøkkel)) continue
+
+    kart.set(nøkkel, {
+      id: r.id as number,
+      systemId: r.system_id as string,
+      kilde: r.kilde as StatusMaaling['kilde'],
+      tilstand: r.tilstand as StatusMaaling['tilstand'],
+      melding: r.melding as string | null,
+      detaljer: (r.detaljer ?? {}) as Record<string, unknown>,
+      svartidMs: r.svartid_ms as number | null,
+      maltTid: r.malt_tid as string,
+    })
+  }
+
+  return kart
+}
+
 export async function hentHendelser(antall = 100): Promise<Hendelse[]> {
   const supabase = await lagServerKlient()
   const { data } = await supabase
