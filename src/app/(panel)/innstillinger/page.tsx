@@ -16,6 +16,7 @@ import {
 import { visDatoTid } from '@/lib/format'
 import { byttKontoToken, fjernKontoToken } from './actions'
 import { TokenSkjema } from './token-skjema'
+import { Feildetalj } from '@/components/tilstand'
 
 /**
  * Hvor ofte tokenene skal byttes.
@@ -304,9 +305,7 @@ async function KontoProve({
 
   const svar = await hentSupabaseProsjekter(token)
 
-  if (!svar.ok) {
-    return <p className="font-semibold text-hm-red-ink">{svar.feil.melding}</p>
-  }
+  if (!svar.ok) return <Feildetalj feil={svar.feil} />
 
   // Ser tokenet færre prosjekter enn vi har registrert på kontoen, er
   // minst ett av dem registrert på feil konto. Det er verdt å si rett ut.
@@ -315,7 +314,8 @@ async function KontoProve({
   return (
     <div className="space-y-1">
       <p>
-        Ser <strong>{svar.data.length}</strong> prosjekter ({svar.svartidMs} ms).
+        Ser <strong>{svar.data.length}</strong> prosjekter ({svar.svartidMs} ms
+        {svar.gjenstaaende !== undefined && `, ${svar.gjenstaaende} kall igjen`}).
       </p>
       {forFå && (
         <p className="text-xs font-semibold text-hm-red-ink">
@@ -330,13 +330,12 @@ async function KontoProve({
 async function VercelProve() {
   const svar = await hentVercelProsjekter()
 
-  if (!svar.ok) {
-    return <p className="font-semibold text-hm-red-ink">{svar.feil.melding}</p>
-  }
+  if (!svar.ok) return <Feildetalj feil={svar.feil} />
 
   return (
     <p>
-      Ser <strong>{svar.data.length}</strong> prosjekter ({svar.svartidMs} ms).
+      Ser <strong>{svar.data.length}</strong> prosjekter ({svar.svartidMs} ms
+      {svar.gjenstaaende !== undefined && `, ${svar.gjenstaaende} kall igjen`}).
     </p>
   )
 }

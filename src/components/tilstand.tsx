@@ -1,6 +1,7 @@
 import { Merke, type MerkeType } from '@/components/ui'
 import type { Kilde, Tilstand } from '@/lib/typer'
 import { visDatoTid, visSiden } from '@/lib/format'
+import { slagNavn, type HentFeil } from '@/lib/plattform/hent'
 
 /**
  * Ett sted som bestemmer hvilken farge en tilstand har.
@@ -32,6 +33,50 @@ export function TilstandsMerke({
   tekst?: string
 }) {
   return <Merke type={farge[tilstand]}>{tekst ?? ord[tilstand]}</Merke>
+}
+
+/**
+ * Alt vi vet om en feil, i én blokk.
+ *
+ * Slaget og statuskoden står alltid framme; den rå svarkroppen ligger bak
+ * «Vis rått svar». Grunnen er at den pene meldingen av og til utelater
+ * nettopp det som forklarer feilen, og alternativet da er å reprodusere
+ * kallet med curl. Det skal man ikke måtte.
+ */
+export function Feildetalj({ feil }: { feil: HentFeil }) {
+  const merker = [
+    slagNavn[feil.slag],
+    feil.status !== undefined ? `HTTP ${feil.status}` : null,
+    feil.kode ?? null,
+    feil.gjenstaaende !== undefined ? `${feil.gjenstaaende} kall igjen` : null,
+    feil.nullstillesOm !== undefined ? `nullstilles om ${feil.nullstillesOm} s` : null,
+  ].filter((m): m is string => Boolean(m))
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {merker.map((m) => (
+          <span
+            key={m}
+            className="hm-kode border border-hm-red/50 bg-hm-red/10 px-1.5 py-0.5 text-[11px] text-hm-red-ink"
+          >
+            {m}
+          </span>
+        ))}
+      </div>
+      <p className="text-sm text-[var(--blekk-svak)]">{feil.melding}</p>
+      {feil.raatt && (
+        <details>
+          <summary className="cursor-pointer text-xs text-[var(--blekk-svak)] underline">
+            Vis rått svar
+          </summary>
+          <pre className="hm-kode mt-1 overflow-x-auto border border-[var(--kant)] bg-[var(--flate-2)] p-2 text-[11px] whitespace-pre-wrap">
+            {feil.raatt}
+          </pre>
+        </details>
+      )}
+    </div>
+  )
 }
 
 const kildeNavn: Record<Kilde, string> = {
