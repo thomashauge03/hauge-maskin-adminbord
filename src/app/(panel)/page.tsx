@@ -4,8 +4,14 @@ import { krevAdmin } from '@/lib/auth'
 import { hentSystemer } from '@/lib/data'
 import { KNAPP_SEKUNDÆR, Seksjonstittel, TomTilstand } from '@/components/ui'
 import { Statusdel, StatusSkjelett } from './status'
+import { lesSortering, Sorteringsvelger } from './sortering'
 
-export default async function Oversikt() {
+export default async function Oversikt({
+  searchParams,
+}: {
+  // searchParams er en Promise i Next 16. Synkron lesing er fjernet.
+  searchParams: Promise<{ [k: string]: string | string[] | undefined }>
+}) {
   /*
    * Tilgangssjekken og systemlisten startes samtidig.
    *
@@ -15,16 +21,26 @@ export default async function Oversikt() {
    * sjekk som er ferdig. Hver runde man fjerner er merkbar på en side
    * som gjør flere på rad.
    */
-  const [, systemer] = await Promise.all([krevAdmin(), hentSystemer()])
+  const [, systemer, params] = await Promise.all([
+    krevAdmin(),
+    hentSystemer(),
+    searchParams,
+  ])
+  const sortering = lesSortering(params.sort)
 
   return (
     <div className="space-y-7">
       <Seksjonstittel
         under="Driftsstatus for alle Hauge Maskin-systemer. Hentes direkte fra Supabase og Vercel hver gang siden lastes."
         handling={
-          <Link href="/systemer" className={KNAPP_SEKUNDÆR}>
-            Systemregister
-          </Link>
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Bare vist når det er noe å sortere. Én valgmulighet på ett
+                kort er støy. */}
+            {systemer.length > 1 && <Sorteringsvelger aktiv={sortering} />}
+            <Link href="/systemer" className={KNAPP_SEKUNDÆR}>
+              Systemregister
+            </Link>
+          </div>
         }
       >
         Oversikt
@@ -45,7 +61,7 @@ export default async function Oversikt() {
          * knappene også, og da blinker menyen hver gang man går hit.
          */
         <Suspense fallback={<StatusSkjelett antall={systemer.length} />}>
-          <Statusdel systemer={systemer} />
+          <Statusdel systemer={systemer} sortering={sortering} />
         </Suspense>
       )}
     </div>

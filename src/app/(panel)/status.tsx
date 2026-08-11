@@ -5,6 +5,7 @@ import type { System } from '@/lib/typer'
 import { Feilstripe, Kort, KortTittel, Tallkort } from '@/components/ui'
 import { Kildelinje, TilstandsMerke } from '@/components/tilstand'
 import { førsteLinje, visSiden } from '@/lib/format'
+import type { Sortering } from './sortering'
 
 /**
  * Statusdelen av oversikten. Egen komponent fordi den er den eneste
@@ -12,7 +13,13 @@ import { førsteLinje, visSiden } from '@/lib/format'
  * Suspense-grense, kommer tittel og meny med én gang og status strømmer
  * inn etterpå – i stedet for at hele siden står tom i to sekunder.
  */
-export async function Statusdel({ systemer }: { systemer: System[] }) {
+export async function Statusdel({
+  systemer,
+  sortering = 'verst',
+}: {
+  systemer: System[]
+  sortering?: Sortering
+}) {
   const reserve = await hentReserveMaalinger()
   const oversikt = await hentOversikt(systemer, reserve)
 
@@ -29,16 +36,37 @@ export async function Statusdel({ systemer }: { systemer: System[] }) {
   }
 
   /*
-   * Sorterer verst først. Oversikten skal svare på «er noe galt» før den
-   * svarer på «hva har jeg» – står de i registerrekkefølge, må man lese
-   * alle tolv kortene for å finne det ene røde.
+   * To sorteringer, fordi det er to ulike spørsmål.
+   *
+   * `verst`: er noe galt. Står kortene i registerrekkefølge, må man lese
+   * alle tolv for å finne det ene røde.
+   *
+   * `aktivitet`: hva er på vei til å pauses. Da vil man ha den som har
+   * ligget stille lengst øverst – og det er en helt annen rekkefølge enn
+   * «mest ødelagt».
    */
   const rekkefølge = { nede: 0, advarsel: 1, ukjent: 2, ok: 3 } as const
-  const sortert = [...oversikt.systemer].sort(
-    (a, b) =>
+  const sortert = [...oversikt.systemer].sort((a, b) => {
+    if (sortering === 'aktivitet') {
+      /*
+       * Systemer vi ikke VET aktiviteten for havner nederst, ikke øverst.
+       * `null` betyr «ingen måling», og å sortere ukjent som «uendelig
+       * lenge siden» ville satt dem foran de som faktisk er i faresonen –
+       * altså skjult nettopp det sorteringen er til for.
+       */
+      const av = a.aktivitet?.dagerSiden
+      const bv = b.aktivitet?.dagerSiden
+      if (av == null && bv == null) return a.system.sortering - b.system.sortering
+      if (av == null) return 1
+      if (bv == null) return -1
+      return bv - av || a.system.sortering - b.system.sortering
+    }
+
+    return (
       rekkefølge[a.samletTilstand] - rekkefølge[b.samletTilstand] ||
-      a.system.sortering - b.system.sortering,
-  )
+      a.system.sortering - b.system.sortering
+    )
+  })
 
   return (
     <div className="space-y-6">
