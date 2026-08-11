@@ -10,8 +10,14 @@ import {
   Seksjonstittel,
   TomTilstand,
 } from '@/components/ui'
-import { opprettSystem } from './actions'
+import {
+  opprettSystem,
+  settOvervakes,
+  settSystemAktiv,
+  slettSystem,
+} from './actions'
 import { SystemSkjema } from './system-skjema'
+import { RadHandlinger } from './rad-handlinger'
 
 export const metadata: Metadata = { title: 'Systemer' }
 
@@ -105,10 +111,31 @@ export default async function SystemerSide() {
                       )}
                     </td>
                     <td className="px-4 py-2.5">
-                      <span className="flex flex-wrap justify-end gap-1.5">
-                        {!s.aktiv && <Merke>Inaktiv</Merke>}
-                        {s.aktiv && !s.overvakes && <Merke>Uten tilsyn</Merke>}
-                      </span>
+                      <div className="flex flex-col items-end gap-1.5">
+                        <span className="flex flex-wrap justify-end gap-1.5">
+                          {!s.aktiv && <Merke>Skjult</Merke>}
+                          {s.aktiv && !s.overvakes && <Merke>Uten tilsyn</Merke>}
+                        </span>
+                        {meg.rolle === 'eier' && (
+                          <RadHandlinger
+                            navn={s.navn}
+                            aktiv={s.aktiv}
+                            overvakes={s.overvakes}
+                            settAktiv={async (aktiv: boolean) => {
+                              'use server'
+                              await settSystemAktiv(s.id, aktiv)
+                            }}
+                            settTilsyn={async (overvakes: boolean) => {
+                              'use server'
+                              await settOvervakes(s.id, overvakes)
+                            }}
+                            slett={async () => {
+                              'use server'
+                              await slettSystem(s.id)
+                            }}
+                          />
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}

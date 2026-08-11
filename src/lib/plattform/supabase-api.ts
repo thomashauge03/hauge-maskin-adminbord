@@ -263,6 +263,108 @@ export async function hentDiskbruk(
   }
 }
 
+/** Dager uten trafikk før Supabase pauser et gratisprosjekt. */
+export const PAUSEGRENSE_DAGER = 7
+
+export type Aktivitet = {
+  /** Siste døgn med trafikk, ISO-dato. Null når det ikke var noe på sju dager. */
+  sisteAktivitet: string | null
+  /** Hele døgn siden da. Null når vi ikke vet. */
+  dagerSiden: number | null
+  /**
+   * Anslåtte dager til Supabase pauser prosjektet.
+   *
+   * ANSLAG, ikke et løfte. Supabase sier «pauses etter én uke uten
+   * aktivitet» uten å definere presist hva som teller som aktivitet – vi
+   * regner på API-forespørsler, som er det vi kan se. Negativt eller null
+   * betyr at grensen er passert, og at prosjektet enten alt er pauset
+   * eller er på vei.
+   */
+  dagerTilPause: number | null
+  /** Trafikk per døgn, nyeste sist. Bare døgn MED trafikk er med. */
+  perDøgn: { dato: string; forespørsler: number }[]
+}
+
+/**
+ * Når hadde databasen sist trafikk?
+ *
+ * Dette er varselet før appen går ned: et gratisprosjekt uten trafikk i
+ * sju døgn blir pauset, og da svarer det ikke på noe. Statusen sier
+ * ACTIVE_HEALTHY helt til det skjer, så uten dette tallet er det ingen
+ * forvarsel – bare en app som plutselig er død.
+ *
+ * MERK at API-et bare returnerer døgn MED trafikk. Tomme døgn er ikke
+ * nuller i lista, de mangler. Derfor er siste element i `result` det
+ * siste døgnet noe skjedde, og ikke nødvendigvis i dag.
+ */
+export async function hentAktivitet(
+  token: string | null,
+  ref: string,
+): Promise<HentResultat<Aktivitet>> {
+  if (!token) return ikkeSattOpp()
+
+  const url = new URL(
+    `${BASIS}/v1/projects/${encodeURIComponent(ref)}/analytics/endpoints/usage.api-counts`,
+  )
+  url.searchParams.set('interval', '7day')
+
+  const svar = await hentJson<{
+    result?: {
+      timestamp: string
+      total_auth_requests: number
+      total_realtime_requests: number
+      total_rest_requests: number
+      total_storage_requests: number
+    }[]
+    // Dette endepunktet kan svare 200 med en feil i kroppen. Sjekkes under.
+    error?: string | { message?: string } | null
+  }>(url.toString(), { token })
+
+  if (!svar.ok) return svar
+
+  if (svar.data.error) {
+    const melding =
+      typeof svar.data.error === 'string'
+        ? svar.data.error
+        : (svar.data.error.message ?? 'Ukjent feil fra analysedata')
+    return {
+      ok: false,
+      svartidMs: svar.svartidMs,
+      feil: { slag: 'ugyldig_svar', melding },
+    }
+  }
+
+  const perDøgn = (svar.data.result ?? [])
+    .map((r) => ({
+      dato: r.timestamp,
+      forespørsler:
+        r.total_auth_requests +
+        r.total_realtime_requests +
+        r.total_rest_requests +
+        r.total_storage_requests,
+    }))
+    .filter((r) => r.forespørsler > 0)
+    .sort((a, b) => a.dato.localeCompare(b.dato))
+
+  const siste = perDøgn.at(-1) ?? null
+  const dagerSiden = siste
+    ? Math.floor(
+        (Date.now() - new Date(siste.dato).getTime()) / (24 * 60 * 60 * 1000),
+      )
+    : null
+
+  return {
+    ok: true,
+    svartidMs: svar.svartidMs,
+    data: {
+      sisteAktivitet: siste?.dato ?? null,
+      dagerSiden,
+      dagerTilPause: dagerSiden === null ? null : PAUSEGRENSE_DAGER - dagerSiden,
+      perDøgn,
+    },
+  }
+}
+
 export type ProsjektNøkkel = {
   navn: string
   slag: 'legacy' | 'publishable' | 'secret' | null

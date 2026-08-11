@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { hentOversikt } from '@/lib/helse'
+import { hentOversikt, VARSLE_DAGER_FOR_PAUSE } from '@/lib/helse'
 import { hentReserveMaalinger } from '@/lib/data'
 import type { System } from '@/lib/typer'
 import { Feilstripe, Kodebit, Kort, KortTittel, Merke, Tallkort } from '@/components/ui'
@@ -79,7 +79,7 @@ export async function Statusdel({ systemer }: { systemer: System[] }) {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {sortert.map(({ system, maalinger, samletTilstand }) => (
+        {sortert.map(({ system, maalinger, samletTilstand, aktivitet }) => (
           <Kort key={system.id} className="hm-inn">
             <KortTittel handling={<TilstandsMerke tilstand={samletTilstand} />}>
               <Link href={`/systemer/${system.slug}`} className="hover:underline">
@@ -106,6 +106,28 @@ export async function Statusdel({ systemer }: { systemer: System[] }) {
                 ))}
               </div>
             )}
+
+            {/* Pause-nedtellingen. En pauset gratisdatabase betyr at
+                appen er nede, og statusen sier ACTIVE_HEALTHY helt til
+                det skjer – uten dette tallet finnes det ingen forvarsel. */}
+            {aktivitet?.dagerTilPause !== null &&
+              aktivitet?.dagerTilPause !== undefined && (
+                <p
+                  className={`border-t border-[var(--kant)] px-4 py-2 text-xs ${
+                    aktivitet.dagerTilPause <= VARSLE_DAGER_FOR_PAUSE
+                      ? 'bg-hm-amber/15 font-semibold text-hm-amber'
+                      : 'bg-[var(--flate-2)] text-[var(--blekk-svak)]'
+                  }`}
+                >
+                  {aktivitet.dagerTilPause <= 0
+                    ? `Ingen trafikk på ${aktivitet.dagerSiden} døgn – pausegrensen er passert`
+                    : `Sist trafikk ${
+                        aktivitet.dagerSiden === 0
+                          ? 'i dag'
+                          : `for ${aktivitet.dagerSiden} døgn siden`
+                      } · pauses om ${aktivitet.dagerTilPause} døgn uten bruk`}
+                </p>
+              )}
 
             {/* Siste utrulling nederst: det er det som endrer seg
                 oftest, og det første man vil vite når noe plutselig

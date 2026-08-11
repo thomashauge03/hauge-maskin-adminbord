@@ -99,6 +99,17 @@ export type SystemStatus = {
   maalinger: Maaling[]
   /** Verste tilstand blant målingene – det oversikten sorterer på. */
   samletTilstand: Tilstand
+  /**
+   * Hvor lenge siden databasen hadde trafikk, og hvor nær en pause den er.
+   *
+   * Null når vi ikke kunne måle det – prosjektet mangler token, er alt
+   * pauset, eller har ingen database.
+   */
+  aktivitet: {
+    sisteAktivitet: string | null
+    dagerSiden: number | null
+    dagerTilPause: number | null
+  } | null
 }
 
 // ── Hemmeligheter ─────────────────────────────────────────────

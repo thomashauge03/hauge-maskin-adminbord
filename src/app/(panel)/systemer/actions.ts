@@ -169,6 +169,56 @@ export async function endreSystem(
 }
 
 /**
+ * Skjuler eller viser et system, uten å slette det.
+ *
+ * Dette er nesten alltid det man vil framfor sletting. Et skjult system
+ * blir borte fra oversikten og fra brukerlisten, men beholder
+ * prosjektref, nøkler, notater og statushistorikk – så det kan hentes
+ * tilbake med ett klikk. Sletter man i stedet, må alt legges inn på nytt,
+ * og historikken er borte for godt.
+ */
+export async function settSystemAktiv(systemId: string, aktiv: boolean) {
+  const meg = await krevEier()
+
+  const supabase = await lagServerKlient()
+  await supabase.from('systemer').update({ aktiv }).eq('id', systemId)
+
+  await logg(aktiv ? 'system.vist' : 'system.skjult', {
+    utfortAv: meg.id,
+    utfortAvEpost: meg.epost,
+    systemId,
+  })
+
+  revalidatePath('/systemer')
+  revalidatePath('/')
+  revalidatePath('/brukere')
+}
+
+/**
+ * Skrur overvåking av eller på for et system som blir stående.
+ *
+ * Forskjellen fra å skjule: systemet vises fortsatt i registeret og på
+ * oversikten, men lyser ikke rødt. Det er riktig for en mal eller en base
+ * som med vilje står stille – den skal ikke gi et varsel hver dag, men
+ * man vil se at den finnes.
+ */
+export async function settOvervakes(systemId: string, overvakes: boolean) {
+  const meg = await krevEier()
+
+  const supabase = await lagServerKlient()
+  await supabase.from('systemer').update({ overvakes }).eq('id', systemId)
+
+  await logg(overvakes ? 'system.tilsyn_på' : 'system.tilsyn_av', {
+    utfortAv: meg.id,
+    utfortAvEpost: meg.epost,
+    systemId,
+  })
+
+  revalidatePath('/systemer')
+  revalidatePath('/')
+}
+
+/**
  * Sletter et system fra registeret.
  *
  * Rører ingenting hos Supabase eller Vercel – bare registeret her.

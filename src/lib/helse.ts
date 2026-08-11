@@ -8,6 +8,7 @@ import type {
 } from '@/lib/typer'
 import { hentTokenKart, tokenFor } from '@/lib/kontoar'
 import {
+  hentAktivitet,
   hentSupabaseProsjekter,
   type ProsjektStatus,
   type SupabaseProsjekt,
@@ -115,6 +116,15 @@ function fraDeployTilstand(tilstand: DeployTilstand): {
       return { tilstand: 'nede', melding: 'Slettet' }
   }
 }
+
+/**
+ * Hvor mange døgn før en ventet pause vi begynner å varsle.
+ *
+ * To, fordi Supabase kan pause hvor som helst i det sjuende døgnet, og
+ * fordi det må være tid til å faktisk gjøre noe. Ett døgn ville betydd
+ * at varselet kom samtidig som pausen.
+ */
+export const VARSLE_DAGER_FOR_PAUSE = 2
 
 /** Verste tilstand vinner. Ett rødt system skal ikke skjules bak ni grønne. */
 const vekt: Record<Tilstand, number> = {
@@ -263,10 +273,38 @@ export async function hentOversikt(
     if (!s.ok) feilPerKonto.set(kontoOppslag[i].kontoId, s.feil.melding)
   })
 
-  const supabaseSvartid = Math.max(
-    0,
-    ...kontoSvar.map((s) => s.svartidMs),
+  const supabaseSvartid = Math.max(0, ...kontoSvar.map((s) => s.svartidMs))
+
+  /*
+   * Aktivitet per prosjekt: nar hadde databasen sist trafikk.
+   *
+   * Dette er forvarselet for appen gar ned. Et gratisprosjekt uten
+   * trafikk i sju dogn blir pauset, og statusen sier ACTIVE_HEALTHY helt
+   * til det skjer. Uten dette tallet er det ingen advarsel - bare en app
+   * som plutselig er dod.
+   *
+   * Ett kall per prosjekt, alle samtidig. Analysendepunktene har egen
+   * ratebegrensning per prosjekt, sa atte samtidige kall er trygt.
+   */
+  const medRef = systemer.filter(
+    (s) => s.supabaseProsjektRef && tokenFor(tokenKart, s.kontoId),
   )
+  const aktivitetSvar = await Promise.all(
+    medRef.map((s) =>
+      hentAktivitet(tokenFor(tokenKart, s.kontoId), s.supabaseProsjektRef!),
+    ),
+  )
+  const aktivitetKart = new Map<string, SystemStatus['aktivitet']>()
+  medRef.forEach((s, i) => {
+    const a = aktivitetSvar[i]
+    if (a.ok) {
+      aktivitetKart.set(s.id, {
+        sisteAktivitet: a.data.sisteAktivitet,
+        dagerSiden: a.data.dagerSiden,
+        dagerTilPause: a.data.dagerTilPause,
+      })
+    }
+  })
 
   const vercelKart = new Map(vercelListe.map((p) => [p.id, p]))
   const vercelNavnKart = new Map(vercelListe.map((p) => [p.navn, p]))
@@ -411,10 +449,29 @@ export async function hentOversikt(
       ? maalinger.map((m) => brukReserve(m, system.id, reserve))
       : maalinger
 
+    const aktivitet = aktivitetKart.get(system.id) ?? null
+
+    /*
+     * Naer pause er en advarsel i seg selv.
+     *
+     * To dogn er valgt fordi Supabase kan pause hvor som helst i det
+     * sjuende dognet, og fordi det ma vaere tid til a rekke a gjore noe.
+     * Vi eskalerer bare til advarsel - aldri til nede, for databasen
+     * virker fortsatt akkurat na.
+     */
+    const naerPause =
+      aktivitet?.dagerTilPause !== null &&
+      aktivitet?.dagerTilPause !== undefined &&
+      aktivitet.dagerTilPause <= VARSLE_DAGER_FOR_PAUSE
+
+    const tilstander = medReserve.map((m) => m.tilstand)
+    if (naerPause) tilstander.push('advarsel')
+
     return {
       system,
       maalinger: medReserve,
-      samletTilstand: verste(medReserve.map((m) => m.tilstand)),
+      samletTilstand: verste(tilstander),
+      aktivitet,
     }
   })
 
