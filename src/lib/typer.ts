@@ -100,6 +100,14 @@ export type SystemStatus = {
   /** Verste tilstand blant målingene – det oversikten sorterer på. */
   samletTilstand: Tilstand
   /**
+   * Supabase-innloggingen prosjektet ligger under.
+   *
+   * Vises på kortet fordi det er svaret på «hvor logger jeg inn for å
+   * gjøre noe med dette». Med fire kontoer er det ikke opplagt, og å måtte
+   * slå det opp hver gang er nettopp det adminbordet skal fjerne.
+   */
+  kontoEpost: string | null
+  /**
    * Hvor lenge siden databasen hadde trafikk, og hvor nær en pause den er.
    *
    * Null når vi ikke kunne måle det – prosjektet mangler token, er alt

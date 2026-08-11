@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { hentOversikt, VARSLE_DAGER_FOR_PAUSE } from '@/lib/helse'
 import { hentReserveMaalinger } from '@/lib/data'
 import type { System } from '@/lib/typer'
-import { Feilstripe, Kodebit, Kort, KortTittel, Merke, Tallkort } from '@/components/ui'
+import { Feilstripe, Kort, KortTittel, Tallkort } from '@/components/ui'
 import { Kildelinje, TilstandsMerke } from '@/components/tilstand'
 import { førsteLinje, visSiden } from '@/lib/format'
 
@@ -79,13 +79,24 @@ export async function Statusdel({ systemer }: { systemer: System[] }) {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {sortert.map(({ system, maalinger, samletTilstand, aktivitet }) => (
+        {sortert.map(
+          ({ system, maalinger, samletTilstand, kontoEpost, aktivitet }) => (
           <Kort key={system.id} className="hm-inn">
             <KortTittel handling={<TilstandsMerke tilstand={samletTilstand} />}>
               <Link href={`/systemer/${system.slug}`} className="hover:underline">
                 {system.navn}
               </Link>
             </KortTittel>
+
+            {/* Hvilken Supabase-innlogging prosjektet ligger under. Med
+                fire kontoer er dette svaret på «hvor logger jeg inn for å
+                gjøre noe med dette», og å slå det opp hver gang er nettopp
+                det adminbordet skal fjerne. */}
+            {kontoEpost && (
+              <p className="hm-kode border-b border-[var(--kant)] px-4 py-1.5 text-[11px] text-[var(--blekk-svak)]">
+                {kontoEpost}
+              </p>
+            )}
 
             {maalinger.length === 0 ? (
               <p className="px-4 py-4 text-sm text-[var(--blekk-svak)]">
@@ -146,70 +157,10 @@ export async function Statusdel({ systemer }: { systemer: System[] }) {
                 </p>
               ))}
           </Kort>
-        ))}
+          ),
+        )}
       </div>
 
-      {(oversikt.ukobledeSupabase.length > 0 ||
-        oversikt.ukobledeVercel.length > 0) && (
-        <Kort>
-          <KortTittel>Finnes ute, står ikke i registeret</KortTittel>
-          <div className="space-y-4 px-4 py-4">
-            {/* Dette er halve grunnen til at adminbordet finnes: å se
-                hva som ligger og koster penger uten at noen husker det. */}
-            {oversikt.ukobledeSupabase.length > 0 && (
-              <div>
-                <p className="mb-2 text-xs font-bold tracking-widest text-[var(--blekk-svak)] uppercase">
-                  Supabase-prosjekter
-                </p>
-                <ul className="space-y-1.5">
-                  {oversikt.ukobledeSupabase.map((p) => (
-                    <li key={p.ref} className="flex flex-wrap items-center gap-2 text-sm">
-                      <span className="font-semibold">{p.navn}</span>
-                      <Kodebit>{p.ref}</Kodebit>
-                      <Merke>{p.region}</Merke>
-                      <Merke
-                        type={p.status === 'ACTIVE_HEALTHY' ? 'grønn' : 'gul'}
-                      >
-                        {p.status}
-                      </Merke>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {oversikt.ukobledeVercel.length > 0 && (
-              <div>
-                <p className="mb-2 text-xs font-bold tracking-widest text-[var(--blekk-svak)] uppercase">
-                  Vercel-prosjekter
-                </p>
-                <ul className="space-y-1.5">
-                  {oversikt.ukobledeVercel.map((p) => (
-                    <li key={p.id} className="flex flex-wrap items-center gap-2 text-sm">
-                      <span className="font-semibold">{p.navn}</span>
-                      {p.rammeverk && <Merke>{p.rammeverk}</Merke>}
-                      {p.githubRepo && <Kodebit>{p.githubRepo}</Kodebit>}
-                      {p.produksjon && (
-                        <span className="text-xs text-[var(--blekk-svak)]">
-                          {visSiden(p.produksjon.opprettet, naa)}
-                        </span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            <p className="text-sm text-[var(--blekk-svak)]">
-              Legg dem inn under{' '}
-              <Link href="/systemer" className="underline">
-                Systemer
-              </Link>{' '}
-              om de skal overvåkes.
-            </p>
-          </div>
-        </Kort>
-      )}
     </div>
   )
 }

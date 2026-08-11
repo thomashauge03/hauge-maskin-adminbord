@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { krevAdmin } from '@/lib/auth'
@@ -17,6 +18,7 @@ import {
   slettSystem,
 } from './actions'
 import { SystemSkjema } from './system-skjema'
+import { Ukobla, UkoblaSkjelett } from './ukobla'
 import { RadHandlinger } from './rad-handlinger'
 
 export const metadata: Metadata = { title: 'Systemer' }
@@ -144,6 +146,12 @@ export default async function SystemerSide() {
           </div>
         </Kort>
       )}
+
+      {/* Uregistrerte prosjekter hoerer her, ikke pa forsiden. Egen
+          Suspense-grense fordi den koster fem API-kall. */}
+      <Suspense fallback={<UkoblaSkjelett />}>
+        <Ukobla systemer={systemer} />
+      </Suspense>
 
       {meg.rolle === 'eier' ? (
         <Kort>

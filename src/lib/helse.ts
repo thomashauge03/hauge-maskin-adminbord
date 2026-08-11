@@ -6,7 +6,7 @@ import type {
   SystemStatus,
   Tilstand,
 } from '@/lib/typer'
-import { hentTokenKart, tokenFor } from '@/lib/kontoar'
+import { hentKontoar, hentTokenKart, tokenFor } from '@/lib/kontoar'
 import {
   hentAktivitet,
   hentSupabaseProsjekter,
@@ -199,6 +199,62 @@ export type Oversikt = {
 }
 
 /**
+ * Bare de uregistrerte prosjektene, uten all statusen rundt.
+ *
+ * Egen funksjon fordi denne lista hører på registersiden og ikke på
+ * forsiden. Forsiden skal svare på «er noe galt med det jeg driver»;
+ * «her er fem prosjekter du har glemt» er en oppryddingsjobb, og den
+ * hører der man rydder.
+ *
+ * Koster de samme fem kallene som oversikten, men på en egen sidelast.
+ */
+export async function hentUkobledeProsjekter(systemer: System[]): Promise<{
+  supabase: SupabaseProsjekt[]
+  vercel: VercelProsjekt[]
+  feil: string | null
+}> {
+  const tokenKart = await hentTokenKart()
+
+  const kontoerIBruk = [
+    ...new Set(
+      systemer.filter((s) => s.supabaseProsjektRef).map((s) => s.kontoId ?? null),
+    ),
+  ]
+  const tokens = kontoerIBruk
+    .map((k) => tokenFor(tokenKart, k))
+    .filter((t): t is string => Boolean(t))
+
+  const [vercelSvar, ...kontoSvar] = await Promise.all([
+    hentVercelProsjekter(),
+    ...tokens.map((t) => hentSupabaseProsjekter(t)),
+  ])
+
+  /*
+   * Sammenligner mot ALLE systemer, også skjulte og utgåtte. Et prosjekt
+   * som er registrert på et skjult system er ikke ukjent – det er
+   * registrert, og skal ikke dukke opp her og be om oppmerksomhet igjen.
+   */
+  const brukteRefer = new Set(
+    systemer.map((s) => s.supabaseProsjektRef).filter(Boolean),
+  )
+  const brukteVercel = new Set(
+    systemer.flatMap((s) =>
+      [s.vercelProsjektId, s.vercelProsjektNavn].filter(Boolean),
+    ),
+  )
+
+  return {
+    supabase: kontoSvar
+      .flatMap((s) => (s.ok ? s.data : []))
+      .filter((p) => !brukteRefer.has(p.ref)),
+    vercel: (vercelSvar.ok ? vercelSvar.data : []).filter(
+      (p) => !brukteVercel.has(p.id) && !brukteVercel.has(p.navn),
+    ),
+    feil: vercelSvar.ok ? null : vercelSvar.feil.melding,
+  }
+}
+
+/**
  * Henter status for alle systemer.
  *
  * De to plattformkallene startes samtidig og ventes på sammen. Kjørte de
@@ -231,7 +287,8 @@ export async function hentOversikt(
    * grensesnittet viser som en egen beskjed – det er en
    * oppsettsmangel, ikke et driftsavvik.
    */
-  const tokenKart = await hentTokenKart()
+  const [tokenKart, kontoar] = await Promise.all([hentTokenKart(), hentKontoar()])
+  const epostFor = new Map(kontoar.map((k) => [k.id, k.epost]))
 
   const kontoerIBruk = [
     ...new Set(
@@ -471,6 +528,9 @@ export async function hentOversikt(
       system,
       maalinger: medReserve,
       samletTilstand: verste(tilstander),
+      kontoEpost: system.kontoId
+        ? (epostFor.get(system.kontoId) ?? null)
+        : null,
       aktivitet,
     }
   })
