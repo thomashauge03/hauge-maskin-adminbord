@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { hentTokenKart, tokenFor } from '@/lib/kontoar'
 import { lesSpørring, skrivSpørring } from '@/lib/plattform/supabase-api'
@@ -501,6 +502,38 @@ export async function giTilgang({
 
   let melding = `${epost} har nå tilgang${rolle ? ` som ${rolle}` : ''}.`
 
+  /*
+   * E-postnøklede systemer: opprett kontoen med, hvis den mangler.
+   *
+   * Raden ER tilgangen i disse appene, så skrivingen over er nok for at
+   * tilgangen finnes. Men uten en auth-bruker kan personen ikke logge inn, og
+   * cellen sto som «ingen konto» – som ser ut som at noe feilet. Det gjorde det
+   * ikke; det var bare halvferdig.
+   *
+   * Auth-nøklede systemer treffer ikke denne grenen: der MÅ kontoen finnes før
+   * raden kan skrives, så sikreAuthBruker har alt gjort jobben lenger opp.
+   */
+  let nyttPassord: string | null = null
+  let innloggingsproblem: string | null = null
+  if (oppsett.brukerNokkel === 'epost') {
+    const finnes = await finnAuthId(token, prosjektRef, epost)
+    if (finnes.ok && !finnes.id) {
+      const laget = await opprettInnlogging(systemId, epost, midlertidigPassord)
+      if (laget.ok) nyttPassord = laget.passord
+      /*
+       * Tilgangen ER gitt – raden står. At innloggingen ikke kunne opprettes er
+       * en halvferdig tilstand, ikke en feilet handling, og meldingen må si
+       * begge deler. Å returnere feil her ville fått det til å se ut som
+       * ingenting skjedde.
+       *
+       * Lagres framfor å skrives inn i `melding` med en gang: grenen under kan
+       * overskrive meldingen, og da ville advarselen forsvunnet i nettopp det
+       * tilfellet der raden fantes fra før – som er det vanligste.
+       */
+      else innloggingsproblem = laget.feil
+    }
+  }
+
   if (svar.data.length === 0) {
     // Raden fantes. Da er dette en ENDRING, og den må faktisk skrives.
     const endret = await oppdaterEksisterende({
@@ -515,7 +548,78 @@ export async function giTilgang({
   }
 
   await speilTilgang({ systemId, epost, navn, rolle, skrevet: true })
+
+  if (nyttPassord) {
+    // Passordet vises ÉN gang. Adminbordet har ingen SMTP, så det finnes ingen
+    // invitasjon å sende – den som gir tilgang må formidle det videre.
+    melding += ` Innlogging er opprettet med det midlertidige passordet ${nyttPassord} – formidle det videre, og be om at det byttes. Har du mistet det, sett et nytt fra brukerlisten nederst på siden.`
+  }
+  if (innloggingsproblem) {
+    melding += ` MEN innloggingen kunne ikke opprettes: ${innloggingsproblem} Tilgangen står klar og virker fra første innlogging – kontoen må lages i systemet selv.`
+  }
+
   return { ok: true, melding }
+}
+
+/**
+ * Lager en innlogging i et annet system, med et passord ingen har valgt.
+ *
+ * Passordet genereres framfor å kreves i skjemaet. Grunnen er at eieren
+ * forventer at det skjer automatisk – tilgangen er gitt, og en konto man ikke
+ * kan logge inn på er ikke et halvt resultat, det er et forvirrende resultat.
+ * Alternativet, et påkrevd felt, gjør den vanlige handlingen tyngre for å dekke
+ * et tilfelle der man sjelden har en mening om passordet.
+ *
+ * Er et passord OPPGITT, brukes det. Da har noen bestemt seg.
+ */
+async function opprettInnlogging(
+  systemId: string,
+  epost: string,
+  oppgitt: string | null | undefined,
+): Promise<{ ok: true; passord: string } | { ok: false; feil: string }> {
+  const fremmed = await lagFremmedKlient(systemId)
+  if (!fremmed.ok) return { ok: false, feil: fremmed.grunn }
+
+  const passord = oppgitt || lagPassord()
+
+  /*
+   * email_confirm: true er ikke en bekvemmelighet.
+   *
+   * Den felles innloggingen kobler en portalinnlogging til en eksisterende
+   * konto bare når e-posten er BEKREFTET. En bruker med email_confirmed_at =
+   * null får en helt ny auth-rad når portalen tas i bruk, og den gamle raden
+   * med all tilgangen ligger igjen ved siden av. Se docs/INNLOGGINGSPORTAL.md.
+   */
+  const { error } = await fremmed.klient.auth.admin.createUser({
+    email: epost.toLowerCase(),
+    password: passord,
+    email_confirm: true,
+  })
+
+  if (error) {
+    return {
+      ok: false,
+      feil: error.message.includes('already')
+        ? 'Det finnes allerede en innlogging med denne e-posten.'
+        : error.message,
+    }
+  }
+  return { ok: true, passord }
+}
+
+/**
+ * Midlertidig passord som kan leses opp over telefon.
+ *
+ * Ingen 0/O eller 1/l/I: passordet blir nesten alltid formidlet muntlig eller
+ * i en melding, og et tegn man tar feil av koster en runde til. Fire grupper på
+ * fire tegn fra et alfabet på 30 gir rundt 78 bits – rikelig for noe som skal
+ * byttes.
+ */
+function lagPassord(): string {
+  const alfabet = 'abcdefghjkmnpqrstuvwxyz23456789'
+  const bytes = randomBytes(16)
+  const tegn = Array.from(bytes, (b) => alfabet[b % alfabet.length])
+  return [0, 4, 8, 12].map((i) => tegn.slice(i, i + 4).join('')).join('-')
 }
 
 /**

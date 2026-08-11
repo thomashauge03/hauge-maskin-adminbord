@@ -149,15 +149,33 @@ export function TilgangsCelle({
               </select>
             )}
 
-            {krevArPassord && !harKonto && (
-              <input
-                name="midlertidigPassord"
-                type="text"
-                autoComplete="off"
-                placeholder="midlertidig passord"
-                className={`${FELT} py-1 text-sm`}
-                aria-label="Midlertidig passord"
-              />
+            {/* Personen mangler innlogging. For auth-nøklede systemer MÅ den
+                lages før tilgangsraden kan skrives, så passordet er påkrevd.
+                For e-postnøklede lages den etterpå, og passordet genereres om
+                feltet står tomt – da er det et valg, ikke et krav. */}
+            {!harKonto && (
+              <label className="block">
+                <input
+                  name="midlertidigPassord"
+                  type="text"
+                  autoComplete="off"
+                  required={krevArPassord}
+                  minLength={8}
+                  placeholder={
+                    krevArPassord
+                      ? 'midlertidig passord (påkrevd)'
+                      : 'midlertidig passord (valgfritt)'
+                  }
+                  className={`${FELT} py-1 text-sm`}
+                  aria-label="Midlertidig passord"
+                />
+                {!krevArPassord && (
+                  <span className="mt-0.5 block text-[10px] text-[var(--blekk-svak)]">
+                    Står feltet tomt, lages innloggingen med et generert passord
+                    som vises her etterpå.
+                  </span>
+                )}
+              </label>
             )}
 
             <button
