@@ -223,12 +223,46 @@ export async function slettBrukerISystem(
     epost,
   })
 
+  /*
+   * STOPP hvis steg 1 feilet.
+   *
+   * Koden gikk tidligere videre og slettet auth-brukeren uansett, og meldte
+   * «Tilgangen er fjernet, men …» selv når den ikke var det. Sannheten lå i
+   * loggdetaljene, der ingen ser den. Det motsier kommentaren rett over: hele
+   * grunnen til at rolleraden fjernes FØRST er at «tilgang uten bruker» ikke
+   * skal kunne oppstå – og det var nøyaktig den tilstanden man endte i.
+   *
+   * Unntaket er systemer der det ikke FINNES en rad å fjerne. Der er «ingen
+   * tilgangsvei å skrive i» det forventede svaret, ikke en feil, og kontoen
+   * ER tilgangen.
+   */
+  const ingenRadÅFjerne =
+    !fjernet.ok &&
+    (fjernet.feil.includes('alle med konto har full tilgang') ||
+      fjernet.feil.includes('ingen tilgangsvei'))
+
+  if (!fjernet.ok && !ingenRadÅFjerne) {
+    await logg('bruker.slett_feilet', {
+      utfortAv: meg.id,
+      utfortAvEpost: meg.epost,
+      systemId,
+      detaljer: { epost, brukerId, steg: 'tilgang', feil: fjernet.feil },
+    })
+    return {
+      feil: `Stoppet før sletting: tilgangen kunne ikke fjernes (${fjernet.feil}) Brukeren er IKKE slettet – å slette innloggingen mens tilgangsraden står igjen ville etterlatt en tilgang uten bruker.`,
+    }
+  }
+
+  // Hva som faktisk skjedde i steg 1, så meldingene under ikke påstår noe
+  // annet. «Tilgangen er fjernet» sto her uansett utfall.
+  const steg1 = ingenRadÅFjerne
+    ? 'Systemet har ingen tilgangsrad å fjerne – kontoen ER tilgangen'
+    : 'Tilgangen er fjernet'
+
   // 2. Selve auth-brukeren.
   const fremmed = await lagFremmedKlient(systemId)
   if (!fremmed.ok) {
-    return {
-      feil: `Tilgangen er fjernet, men brukeren kunne ikke slettes: ${fremmed.grunn}`,
-    }
+    return { feil: `${steg1}, men brukeren kunne ikke slettes: ${fremmed.grunn}` }
   }
 
   const { error } = await fremmed.klient.auth.admin.deleteUser(brukerId)
@@ -248,7 +282,7 @@ export async function slettBrukerISystem(
   revalidatePath('/brukere')
 
   if (error) {
-    return { feil: `Tilgangen er fjernet, men sletting feilet: ${error.message}` }
+    return { feil: `${steg1}, men sletting feilet: ${error.message}` }
   }
   return {
     ok: `${epost} er slettet fra ${system?.navn ?? 'systemet'}. Rader i appen som pekte på brukeren peker nå på en id som ikke finnes – det er normalt, men verdt å vite om hvis noe ser rart ut i historikken.`,

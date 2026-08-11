@@ -176,22 +176,44 @@ export async function endreSystem(
  * prosjektref, nøkler, notater og statushistorikk – så det kan hentes
  * tilbake med ett klikk. Sletter man i stedet, må alt legges inn på nytt,
  * og historikken er borte for godt.
+ *
+ * Returnerer et resultat. Gjorde det ikke før, og siden klienten bruker
+ * lagServerKlient() – altså går gjennom RLS – er et avvist update helt stille:
+ * knappen ser ut som den virket, loggen sier «system.skjult», og systemet står
+ * der det sto.
  */
-export async function settSystemAktiv(systemId: string, aktiv: boolean) {
+export async function settSystemAktiv(
+  systemId: string,
+  aktiv: boolean,
+  _forrige?: SystemTilstand,
+  _formData?: FormData,
+): Promise<SystemTilstand> {
   const meg = await krevEier()
 
   const supabase = await lagServerKlient()
-  await supabase.from('systemer').update({ aktiv }).eq('id', systemId)
+  const { error } = await supabase
+    .from('systemer')
+    .update({ aktiv })
+    .eq('id', systemId)
 
-  await logg(aktiv ? 'system.vist' : 'system.skjult', {
-    utfortAv: meg.id,
-    utfortAvEpost: meg.epost,
-    systemId,
-  })
+  await logg(
+    error ? 'system.endre_feilet' : aktiv ? 'system.vist' : 'system.skjult',
+    {
+      utfortAv: meg.id,
+      utfortAvEpost: meg.epost,
+      systemId,
+      ...(error ? { detaljer: { feil: error.message, felt: 'aktiv' } } : {}),
+    },
+  )
+
+  if (error) {
+    return { feil: `Kunne ikke ${aktiv ? 'vise' : 'skjule'} systemet: ${error.message}` }
+  }
 
   revalidatePath('/systemer')
   revalidatePath('/')
   revalidatePath('/brukere')
+  return { ok: aktiv ? 'Systemet vises igjen.' : 'Systemet er skjult.' }
 }
 
 /**
@@ -202,20 +224,43 @@ export async function settSystemAktiv(systemId: string, aktiv: boolean) {
  * som med vilje står stille – den skal ikke gi et varsel hver dag, men
  * man vil se at den finnes.
  */
-export async function settOvervakes(systemId: string, overvakes: boolean) {
+export async function settOvervakes(
+  systemId: string,
+  overvakes: boolean,
+  _forrige?: SystemTilstand,
+  _formData?: FormData,
+): Promise<SystemTilstand> {
   const meg = await krevEier()
 
   const supabase = await lagServerKlient()
-  await supabase.from('systemer').update({ overvakes }).eq('id', systemId)
+  const { error } = await supabase
+    .from('systemer')
+    .update({ overvakes })
+    .eq('id', systemId)
 
-  await logg(overvakes ? 'system.tilsyn_på' : 'system.tilsyn_av', {
-    utfortAv: meg.id,
-    utfortAvEpost: meg.epost,
-    systemId,
-  })
+  await logg(
+    error
+      ? 'system.endre_feilet'
+      : overvakes
+        ? 'system.tilsyn_på'
+        : 'system.tilsyn_av',
+    {
+      utfortAv: meg.id,
+      utfortAvEpost: meg.epost,
+      systemId,
+      ...(error ? { detaljer: { feil: error.message, felt: 'overvakes' } } : {}),
+    },
+  )
+
+  if (error) {
+    return { feil: `Kunne ikke endre tilsynet: ${error.message}` }
+  }
 
   revalidatePath('/systemer')
   revalidatePath('/')
+  return {
+    ok: overvakes ? 'Tilsynet er slått på.' : 'Tilsynet er slått av.',
+  }
 }
 
 /**
@@ -226,7 +271,11 @@ export async function settOvervakes(systemId: string, overvakes: boolean) {
  * produksjonsdatabase ved et uhell, og et Supabase-prosjekt slettes
  * sjelden nok at det kan gjøres i konsollet.
  */
-export async function slettSystem(systemId: string) {
+export async function slettSystem(
+  systemId: string,
+  _forrige?: SystemTilstand,
+  _formData?: FormData,
+): Promise<SystemTilstand> {
   const meg = await krevEier()
 
   const supabase = await lagServerKlient()
@@ -236,7 +285,35 @@ export async function slettSystem(systemId: string) {
     .eq('id', systemId)
     .single()
 
-  await supabase.from('systemer').delete().eq('id', systemId)
+  /*
+   * `returning` gjennom .select(): uten den er «ingen rad slettet» og «raden er
+   * borte» samme svar. RLS-en har ingen delete-policy for systemer utenom
+   * er_eier(), så et avvist delete var stille – og koden loggførte
+   * «system.slettet» og sendte brukeren til /systemer, der systemet fortsatt
+   * sto. Det ser ut som en visningsfeil og er det motsatte.
+   */
+  const { data: slettet, error } = await supabase
+    .from('systemer')
+    .delete()
+    .eq('id', systemId)
+    .select('id')
+
+  if (error || !slettet || slettet.length === 0) {
+    await logg('system.slett_feilet', {
+      utfortAv: meg.id,
+      utfortAvEpost: meg.epost,
+      systemId,
+      detaljer: {
+        slug: data?.slug ?? null,
+        feil: error?.message ?? 'ingen rad ble slettet',
+      },
+    })
+    return {
+      feil: error
+        ? `Kunne ikke slette systemet: ${error.message}`
+        : 'Ingen rad ble slettet. Systemet står fortsatt i registeret.',
+    }
+  }
 
   await logg('system.slettet', {
     utfortAv: meg.id,
@@ -302,10 +379,32 @@ export async function lagreHemmelighet(
   return { ok: 'Nøkkelen er lagret kryptert.' }
 }
 
-export async function slettHemmelighet(hemmelighetId: string, systemId: string) {
+export async function slettHemmelighet(
+  hemmelighetId: string,
+  systemId: string,
+  slug?: string,
+): Promise<SystemTilstand> {
   const meg = await krevEier()
 
-  await supabaseAdmin.from('hemmeligheter').delete().eq('id', hemmelighetId)
+  const { data, error } = await supabaseAdmin
+    .from('hemmeligheter')
+    .delete()
+    .eq('id', hemmelighetId)
+    .select('id')
+
+  if (error || !data || data.length === 0) {
+    await logg('hemmelighet.slett_feilet', {
+      utfortAv: meg.id,
+      utfortAvEpost: meg.epost,
+      systemId,
+      detaljer: { feil: error?.message ?? 'ingen rad ble slettet' },
+    })
+    return {
+      feil: error
+        ? `Kunne ikke slette nøkkelen: ${error.message}`
+        : 'Ingen nøkkel ble slettet. Den kan allerede være borte – last siden på nytt.',
+    }
+  }
 
   await logg('hemmelighet.slettet', {
     utfortAv: meg.id,
@@ -314,6 +413,10 @@ export async function slettHemmelighet(hemmelighetId: string, systemId: string) 
   })
 
   revalidatePath('/systemer')
+  // Skjemaet står på systemsiden, ikke på lista. Uten denne må man laste
+  // siden hardt for å se at nøkkelen er borte.
+  if (slug) revalidatePath(`/systemer/${slug}`)
+  return { ok: 'Nøkkelen er slettet.' }
 }
 
 /**

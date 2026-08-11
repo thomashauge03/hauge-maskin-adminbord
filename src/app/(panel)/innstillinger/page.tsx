@@ -1,6 +1,6 @@
 import { Suspense } from 'react'
 import type { Metadata } from 'next'
-import { krevAdmin } from '@/lib/auth'
+import { krevEier } from '@/lib/auth'
 import { hentKontoar, hentTokenKart, tokenFor, type Konto } from '@/lib/kontoar'
 import { hentSupabaseProsjekter } from '@/lib/plattform/supabase-api'
 import { hentVercelProsjekter, vercelKlar } from '@/lib/plattform/vercel'
@@ -49,7 +49,18 @@ function rotasjon(konto: Konto, naa: number) {
  * databasedump verdiløs.
  */
 export default async function InnstillingerSide() {
-  await krevAdmin()
+  /*
+   * krevEier, ikke krevAdmin.
+   *
+   * Sto som krevAdmin, og handlingene sjekket krevEier, så drift kunne ikke
+   * SKRIVE noe. Men siden dekrypterer og BRUKER kontoenes personal access
+   * tokens for å prøve dem, og viser tokenhint. Skillet mellom eier og drift er
+   * nettopp at drift ikke skal utløse noe som rører produksjonsnøklene – se
+   * begrunnelsen på hentBrukereISystem i src/lib/brukere.ts og
+   * docs/TEKNISK-PLAN.md. En lesetilgang som starter bruk av fem tokens er
+   * ikke en lesetilgang.
+   */
+  await krevEier()
 
   const [{ kontoar, hentetMs: naa }, systemer] = await Promise.all([
     hentKontoar(),

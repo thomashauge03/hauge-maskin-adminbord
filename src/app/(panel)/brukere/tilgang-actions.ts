@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { krevEier } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { giTilgang, taBortTilgang } from '@/lib/tilgang'
+import { giTilgang, hentSystemRoller, taBortTilgang } from '@/lib/tilgang'
 import { logg } from '@/lib/data'
 
 export type CelleTilstand = { feil?: string; ok?: string }
@@ -13,7 +13,19 @@ const giSkjema = z.object({
   epost: z.email('Ugyldig e-postadresse'),
   navn: z.string().trim().default(''),
   rolle: z.string().trim().nullable().default(null),
-  midlertidigPassord: z.string().trim().nullable().default(null),
+  /*
+   * Samme minstekrav som nyBrukerSkjema.
+   *
+   * Sto uten lengdekrav, mens verdien går rett til auth.admin.createUser i et
+   * annet systems produksjonsbase. Å opprette en konto med passordet «a» i
+   * tilbudssystemet er verre enn å ikke kunne opprette den.
+   */
+  midlertidigPassord: z
+    .string()
+    .trim()
+    .min(8, 'Det midlertidige passordet må være minst 8 tegn')
+    .nullable()
+    .default(null),
 })
 
 /** Henter det giTilgang trenger om systemet, i ett oppslag. */
@@ -50,6 +62,25 @@ export async function giTilgangTilSystem(
 
   const system = await hentSystemFelt(systemId)
   if (!system) return { feil: 'Fant ikke systemet.' }
+
+  /*
+   * Rollen må være en av systemets EGNE roller.
+   *
+   * Verdien kom fra et skjemafelt og gikk rett inn i en insert mot en fremmed
+   * produksjonstabell. Rollekolonnen i tenant_users har ingen CHECK, så en
+   * skrivefeil ga en rad som ser gitt ut og oppfører seg som ingenting – og
+   * omvendt er `admin` der plattform-admin over tre bedrifter, inkludert
+   * sletting av en hel kunde. Da skal verdien komme fra registeret, ikke fra
+   * det klienten sendte.
+   */
+  if (felter.data.rolle) {
+    const roller = await hentSystemRoller(systemId)
+    if (roller.length > 0 && !roller.some((r) => r.verdi === felter.data.rolle)) {
+      return {
+        feil: `«${felter.data.rolle}» er ikke en rolle i ${system.navn}. Gyldige: ${roller.map((r) => r.verdi).join(', ')}.`,
+      }
+    }
+  }
 
   const svar = await giTilgang({
     systemId,

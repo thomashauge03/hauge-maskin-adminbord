@@ -47,10 +47,25 @@ export async function byttPassord(
    * drift-bruker som nettopp har byttet passord ville derfor blitt
    * stående med flagget satt – og sendt hit igjen ved neste sidelast.
    */
-  await supabaseAdmin
+  const { data: nullstilt, error: flaggFeil } = await supabaseAdmin
     .from('admin_brukere')
     .update({ ma_bytte_passord: false })
     .eq('id', bruker.id)
+    .select('id')
+
+  /*
+   * Utfallet MÅ sjekkes, og det er ikke pedanteri.
+   *
+   * Feiler denne, er passordet byttet men flagget står. Da sender redirect('/')
+   * brukeren til krevAdmin, som sender hen tilbake hit, som bytter passordet
+   * igjen … en evig løkke uten en eneste melding om hva som er galt. Resultatet
+   * ble kastet her før.
+   */
+  if (flaggFeil || !nullstilt || nullstilt.length === 0) {
+    return {
+      feil: `Passordet er endret, men flagget «må bytte passord» kunne ikke fjernes${flaggFeil ? `: ${flaggFeil.message}` : ' – ingen rad ble oppdatert, så kontoen mangler kanskje en rad i admin_brukere'}. Logg inn med det nye passordet; blir du sendt hit igjen, må flagget fjernes i databasen.`,
+    }
+  }
 
   redirect('/')
 }

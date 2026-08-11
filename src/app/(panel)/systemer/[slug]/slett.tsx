@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useActionState, useState } from 'react'
 import { KNAPP_FARLIG, KNAPP_LITEN } from '@/components/ui'
+import type { SystemTilstand } from '../actions'
 
 /**
  * Sletting i to trinn.
@@ -16,9 +17,18 @@ export function SlettSystem({
   slett,
 }: {
   navn: string
-  slett: () => Promise<void>
+  slett: (
+    forrige: SystemTilstand,
+    formData: FormData,
+  ) => Promise<SystemTilstand>
 }) {
   const [åpen, settÅpen] = useState(false)
+  /*
+   * Utfallet må vises. Handlingen går gjennom RLS, og et avvist delete var
+   * stille: loggen sa «system.slettet», brukeren ble sendt til /systemer, og
+   * systemet sto der. Det ser ut som en visningsfeil og er det motsatte.
+   */
+  const [tilstand, send, sletter] = useActionState(slett, {} as SystemTilstand)
 
   if (!åpen) {
     return (
@@ -34,14 +44,19 @@ export function SlettSystem({
         Fjerne <strong>{navn}</strong> fra registeret? Databasen og
         Vercel-prosjektet blir stående.
       </p>
-      <form action={slett}>
-        <button type="submit" className={KNAPP_FARLIG}>
-          Ja, fjern
+      <form action={send}>
+        <button type="submit" disabled={sletter} className={KNAPP_FARLIG}>
+          {sletter ? 'Fjerner …' : 'Ja, fjern'}
         </button>
       </form>
       <button onClick={() => settÅpen(false)} className={KNAPP_LITEN}>
         Avbryt
       </button>
+      {tilstand.feil && (
+        <p role="alert" className="text-sm font-semibold text-hm-red-ink">
+          {tilstand.feil}
+        </p>
+      )}
     </div>
   )
 }

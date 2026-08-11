@@ -118,23 +118,22 @@ export default async function SystemerSide() {
                           {!s.aktiv && <Merke>Skjult</Merke>}
                           {s.aktiv && !s.overvakes && <Merke>Uten tilsyn</Merke>}
                         </span>
+                        {/* Måltilstanden bindes her, der vi vet hva raden står
+                            i nå – ikke som en veksling i nettleseren, som
+                            bommer hvis siden ble hentet før noen andre endret
+                            systemet. */}
                         {meg.rolle === 'eier' && (
                           <RadHandlinger
                             navn={s.navn}
                             aktiv={s.aktiv}
                             overvakes={s.overvakes}
-                            settAktiv={async (aktiv: boolean) => {
-                              'use server'
-                              await settSystemAktiv(s.id, aktiv)
-                            }}
-                            settTilsyn={async (overvakes: boolean) => {
-                              'use server'
-                              await settOvervakes(s.id, overvakes)
-                            }}
-                            slett={async () => {
-                              'use server'
-                              await slettSystem(s.id)
-                            }}
+                            settAktiv={settSystemAktiv.bind(null, s.id, !s.aktiv)}
+                            settTilsyn={settOvervakes.bind(
+                              null,
+                              s.id,
+                              !s.overvakes,
+                            )}
+                            slett={slettSystem.bind(null, s.id)}
                           />
                         )}
                       </div>

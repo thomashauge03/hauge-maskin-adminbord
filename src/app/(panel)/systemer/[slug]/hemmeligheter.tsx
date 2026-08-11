@@ -25,6 +25,49 @@ type Handling = (
 ) => Promise<SystemTilstand>
 
 /**
+ * Én lagret nøkkel, med slett-knappen.
+ *
+ * Egen komponent bare for at hver rad kan ha sin egen ventetilstand og sitt
+ * eget feilfelt. Alternativet – useActionState inne i en map – er en hook i en
+ * løkke, og det er ikke lov. Uten den var slettingen et rent `form action` som
+ * forkastet utfallet: en nøkkel som ikke ble slettet så helt lik ut som en som
+ * ble det.
+ */
+function NøkkelRad({
+  hemmelighet: h,
+  slett,
+}: {
+  hemmelighet: Hemmelighet
+  slett: (hemmelighetId: string) => Promise<SystemTilstand>
+}) {
+  const [tilstand, send, sletter] = useActionState(() => slett(h.id), start)
+
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-3 py-2 first:pt-0">
+      <span className="flex flex-wrap items-center gap-2">
+        <Merke type={h.slag === 'service_role' ? 'svart' : 'nøytral'}>
+          {h.slag === 'annet' ? h.navn || 'annet' : h.slag}
+        </Merke>
+        <Kodebit>{h.hint}</Kodebit>
+        <span className="text-xs text-[var(--blekk-svak)]">
+          lagret {visDatoTid(h.endret)}
+        </span>
+        {tilstand.feil && (
+          <span role="alert" className="text-xs font-semibold text-hm-red-ink">
+            {tilstand.feil}
+          </span>
+        )}
+      </span>
+      <form action={send}>
+        <button type="submit" disabled={sletter} className={KNAPP_FARLIG}>
+          {sletter ? 'Sletter …' : 'Slett'}
+        </button>
+      </form>
+    </li>
+  )
+}
+
+/**
  * Nøkler for et system.
  *
  * Verdiene vises aldri igjen etter at de er lagret – bare et hint på
@@ -41,7 +84,7 @@ export function Hemmeligheter({
   hemmeligheter: Hemmelighet[]
   lagre: Handling
   hentAutomatisk: Handling | null
-  slett: (hemmelighetId: string) => Promise<void>
+  slett: (hemmelighetId: string) => Promise<SystemTilstand>
   harProsjektRef: boolean
 }) {
   const [tilstand, send, venter] = useActionState(lagre, start)
@@ -67,25 +110,7 @@ export function Hemmeligheter({
         ) : (
           <ul className="divide-y divide-[var(--kant)]">
             {hemmeligheter.map((h) => (
-              <li
-                key={h.id}
-                className="flex flex-wrap items-center justify-between gap-3 py-2 first:pt-0"
-              >
-                <span className="flex flex-wrap items-center gap-2">
-                  <Merke type={h.slag === 'service_role' ? 'svart' : 'nøytral'}>
-                    {h.slag === 'annet' ? h.navn || 'annet' : h.slag}
-                  </Merke>
-                  <Kodebit>{h.hint}</Kodebit>
-                  <span className="text-xs text-[var(--blekk-svak)]">
-                    lagret {visDatoTid(h.endret)}
-                  </span>
-                </span>
-                <form action={() => slett(h.id)}>
-                  <button type="submit" className={KNAPP_FARLIG}>
-                    Slett
-                  </button>
-                </form>
-              </li>
+              <NøkkelRad key={h.id} hemmelighet={h} slett={slett} />
             ))}
           </ul>
         )}

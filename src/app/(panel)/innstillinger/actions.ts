@@ -131,7 +131,7 @@ export async function fjernKontoToken(kontoId: string) {
     .eq('id', kontoId)
     .single()
 
-  await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from('supabase_kontoar')
     .update({
       token_kryptert: null,
@@ -140,6 +140,28 @@ export async function fjernKontoToken(kontoId: string) {
       antall_prosjekter: null,
     })
     .eq('id', kontoId)
+    .select('id')
+
+  /*
+   * Utfallet sjekkes. Å tro at et token er fjernet når det står igjen er verre
+   * enn å få en feilmelding: man går videre og lager et nytt token i den tro at
+   * det gamle er dødt, og da lever to.
+   */
+  if (error || !data || data.length === 0) {
+    await logg('konto.token_fjern_feilet', {
+      utfortAv: meg.id,
+      utfortAvEpost: meg.epost,
+      detaljer: {
+        konto: konto?.epost ?? null,
+        feil: error?.message ?? 'ingen rad ble oppdatert',
+      },
+    })
+    return {
+      feil: error
+        ? `Kunne ikke fjerne tokenet: ${error.message} Det ligger fortsatt lagret.`
+        : 'Ingen konto ble oppdatert – tokenet ligger fortsatt lagret. Last siden på nytt.',
+    }
+  }
 
   await logg('konto.token_fjernet', {
     utfortAv: meg.id,
@@ -149,4 +171,7 @@ export async function fjernKontoToken(kontoId: string) {
 
   revalidatePath('/innstillinger')
   revalidatePath('/')
+  return {
+    ok: `Tokenet for ${konto?.epost ?? 'kontoen'} er fjernet. Husk å slette det i Supabase-konsollet også – det er fortsatt gyldig der.`,
+  }
 }

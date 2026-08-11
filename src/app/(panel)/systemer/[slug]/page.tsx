@@ -169,7 +169,10 @@ export default async function SystemSide({
             }
             slett={async (hemmelighetId: string) => {
               'use server'
-              await slettHemmelighet(hemmelighetId, system.id)
+              // Slug-en sendes med, slik at handlingen kan revalidere DENNE
+              // siden. Uten den måtte man laste hardt for å se at nøkkelen
+              // faktisk er borte.
+              return slettHemmelighet(hemmelighetId, system.id, system.slug)
             }}
           />
         </section>
@@ -194,10 +197,7 @@ export default async function SystemSide({
             </Link>
             <SlettSystem
               navn={system.navn}
-              slett={async () => {
-                'use server'
-                await slettSystem(system.id)
-              }}
+              slett={slettSystem.bind(null, system.id)}
             />
           </div>
         </section>
