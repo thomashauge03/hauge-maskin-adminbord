@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { krevEier } from '@/lib/auth'
 import { hentTokenKart, tokenFor } from '@/lib/kontoar'
 import {
-  hentAktivitet,
+  hentTimesaktivitet,
   hentProsjektNøkler,
   finnAnon,
 } from '@/lib/plattform/supabase-api'
@@ -33,11 +33,17 @@ export type LiveTilstand = {
  * kall til prosjektets auth-tjeneste – altså trafikk på dataplanet, ikke
  * på kontrollplanet slik et Management-API-kall er.
  *
- * ÆRLIGHET OM VIRKNINGEN: Supabase dokumenterer ikke presist hva som
- * teller som «aktivitet» for pause-timeren. Derfor leser denne funksjonen
- * trafikktelleren FØR og ETTER, og rapporterer hva den så. Den sier aldri
- * «ferdig» uten å ha sjekket – en knapp som later som er verre enn ingen
- * knapp, fordi man da tror problemet er løst.
+ * VERIFISERT AT DET TELLER: health-kallet dukket opp som `auth=1` i
+ * timesbøtta til utleie-prosjektet fem minutter etter et klikk. Supabase
+ * dokumenterer ikke presist hva som teller som «aktivitet», så funksjonen
+ * leser likevel telleren FØR og ETTER og rapporterer hva den så. Den sier
+ * aldri «ferdig» uten å ha sjekket.
+ *
+ * OPPLØSNINGEN ER TIMER, IKKE DØGN. Første versjon leste døgnbøttene, og
+ * de ruller opp seint – knappen fikk samme tall før og etter, og måtte si
+ * «uvisst» om noe som faktisk hadde virket. Timesbøtta oppdateres innen
+ * minutter. Til pause-nedtellingen er døgn fortsatt riktig: der spør vi
+ * hvilket DØGN det sist var trafikk, ikke om det kom et kall nå.
  */
 export async function holdILive(
   systemId: string,
@@ -68,16 +74,12 @@ export async function holdILive(
     }
   }
 
-  // ── 1. Trafikktelleren før ──
-  const før = await hentAktivitet(token, ref)
-  const førTall = før.ok
-    ? (før.data.perDøgn.at(-1)?.forespørsler ?? 0)
-    : null
+  // ── 1. Trafikktelleren før, i TIMESoppløsning ──
+  const før = await hentTimesaktivitet(token, ref)
+  const førTall = før.ok ? før.data.forespørsler : null
   linjer.push(
     før.ok
-      ? `Før: siste døgn med trafikk hadde ${førTall} forespørsler${
-          før.data.dagerSiden !== null ? `, for ${før.data.dagerSiden} døgn siden` : ''
-        }`
+      ? `Før: ${førTall} forespørsler i timen ${før.data.time ?? '(ingen bøtte ennå)'}`
       : `Før: kunne ikke lese telleren (${før.feil.melding})`,
   )
 
@@ -137,19 +139,17 @@ export async function holdILive(
 
   // ── 4. Telleren etter ──
   /*
-   * Analysedataene ligger etter, ofte et par minutter. Vi leser likevel
-   * med en gang og sier hva vi ser – framfor å hevde at det virket.
-   * Gikk telleren opp, er det bevist. Gikk den ikke opp, er det uavklart,
-   * og da skal det stå uavklart.
+   * Analysedataene ligger noen minutter etter, selv i timesoppløsning. Vi
+   * leser likevel med en gang og sier hva vi ser – framfor å hevde at det
+   * virket. Gikk telleren opp, er det bevist her og nå. Gikk den ikke opp,
+   * er det etter alt å dømme bare forsinkelsen, og da skal det stå slik.
    */
-  const etter = await hentAktivitet(token, ref)
-  const etterTall = etter.ok
-    ? (etter.data.perDøgn.at(-1)?.forespørsler ?? 0)
-    : null
+  const etter = await hentTimesaktivitet(token, ref)
+  const etterTall = etter.ok ? etter.data.forespørsler : null
 
   linjer.push(
     etter.ok
-      ? `Etter: siste døgn har ${etterTall} forespørsler`
+      ? `Etter: ${etterTall} forespørsler i timen ${etter.data.time ?? '(ingen bøtte ennå)'}`
       : `Etter: kunne ikke lese telleren (${etter.feil.melding})`,
   )
 
@@ -163,6 +163,6 @@ export async function holdILive(
     logg: linjer,
     ok: gikkOpp
       ? `Databasen svarte, og trafikktelleren gikk opp fra ${førTall} til ${etterTall}. Pause-klokka skal være nullstilt.`
-      : `Databasen svarte HTTP 200, så den er i live. Men trafikktelleren har ikke gått opp ennå – analysedataene ligger typisk et par minutter etter, så det er ikke et tegn på at det ikke virket. Last siden om litt for å se om tallet flytter seg.`,
+      : `Databasen svarte HTTP 200, så livstegnet kom fram og pause-klokka skal være nullstilt. Trafikktelleren har ikke oppdatert seg ennå – analysedataene ligger noen minutter etter. Trykk igjen om et par minutter om du vil se tallet bekrefte det.`,
   }
 }

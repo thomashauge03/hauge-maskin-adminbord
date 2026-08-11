@@ -398,6 +398,66 @@ export async function hentAktivitet(
   }
 }
 
+/**
+ * Trafikk i inneværende TIME, ikke i inneværende døgn.
+ *
+ * Finnes fordi `hentAktivitet` leser `interval=7day` – døgnbøtter – og de
+ * ruller opp seint. Et kall man nettopp gjorde vises i timesbøtta innen
+ * minutter, men kan mangle i døgnbøtta i en time eller mer.
+ *
+ * Det gjorde at «hold i live»-knappen ikke kunne se sin egen virkning:
+ * den leste døgntallet før og etter, fikk samme tall, og måtte si «uvisst»
+ * om noe som faktisk hadde skjedd. Verifisert mot utleie-prosjektet:
+ * timesbøtta for 21:00 viste auth=1 fem minutter etter kallet, mens
+ * døgnbøtta fortsatt sto på det gamle tallet.
+ *
+ * Til pause-nedtellingen er døgn fortsatt riktig oppløsning – der spør vi
+ * om hvilket DØGN det sist var trafikk, ikke om det kom en forespørsel nå.
+ */
+export async function hentTimesaktivitet(
+  token: string | null,
+  ref: string,
+): Promise<HentResultat<{ time: string | null; forespørsler: number }>> {
+  if (!token) return ikkeSattOpp()
+
+  const url = new URL(
+    `${BASIS}/v1/projects/${encodeURIComponent(ref)}/analytics/endpoints/usage.api-counts`,
+  )
+  url.searchParams.set('interval', '1day')
+
+  const svar = await hentJson<{
+    result?: {
+      timestamp: string
+      total_auth_requests: number
+      total_realtime_requests: number
+      total_rest_requests: number
+      total_storage_requests: number
+    }[]
+    error?: unknown
+  }>(url.toString(), { token })
+
+  if (!svar.ok) return svar
+
+  const bøtter = (svar.data.result ?? []).sort((a, b) =>
+    a.timestamp.localeCompare(b.timestamp),
+  )
+  const siste = bøtter.at(-1)
+
+  return {
+    ok: true,
+    svartidMs: svar.svartidMs,
+    data: {
+      time: siste?.timestamp ?? null,
+      forespørsler: siste
+        ? siste.total_auth_requests +
+          siste.total_realtime_requests +
+          siste.total_rest_requests +
+          siste.total_storage_requests
+        : 0,
+    },
+  }
+}
+
 export type ProsjektNøkkel = {
   navn: string
   slag: 'legacy' | 'publishable' | 'secret' | null
