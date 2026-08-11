@@ -74,10 +74,27 @@ create table if not exists public.tilgangsoppsett (
   tabell text not null
     check (tabell ~ '^[a-z_][a-z0-9_]*$'),
 
-  -- Kolonnen som holder auth.users-id-en. Heter 'id' i noen apper,
-  -- 'user_id' i andre.
+  -- Kolonnen som identifiserer brukeren. Heter 'id' i utleien,
+  -- 'user_id' i tilbudssystemet, 'email' i de to lager-appene.
   bruker_kolonne text not null default 'id'
     check (bruker_kolonne ~ '^[a-z_][a-z0-9_]*$'),
+
+  /*
+   * HVA som skal stå i den kolonnen.
+   *
+   * Dette er den viktigste forskjellen mellom appene, og den som er
+   * lettest å ta feil av. Utleien og tilbudssystemet peker på
+   * auth.users-id-en. Rørlageret og leveringsseddelen bruker
+   * E-POSTEN som nøkkel – de har ingen referanse til auth.users i det
+   * hele tatt, og sjekker tilgang mot auth.email().
+   *
+   * Konsekvensen er større enn den ser ut: for de to e-postnøklede
+   * appene kan adminbordet gi tilgang FØR brukeren har logget inn en
+   * eneste gang, og en ny innlogging gjennom portalen treffer riktig rad
+   * automatisk. For de to id-nøklede må auth-brukeren finnes først.
+   */
+  bruker_nokkel text not null default 'auth_id'
+    check (bruker_nokkel in ('auth_id', 'epost')),
 
   -- Null når tabellen ikke har rolle i det hele tatt – da er det å ha
   -- en rad der hele tilgangen, og nivå finnes ikke i den appen.
@@ -142,68 +159,120 @@ alter table public.system_tilgang
   add column if not exists siste_feil text;
 
 
--- ── Rollene i de fire systemene som skal inn i portalen ───────
+-- ═══════════════════════════════════════════════════════════
+-- De fire systemene som skal inn i den felles innloggingen
 --
--- Verdiene er lest ut av migrasjonene og koden i hvert repo, ikke
--- gjettet. Kilder:
---   utleie          – admin_brukere.rolle check (admin|service),
---                     src/lib/auth.ts
---   rorlager        – supabase/migrations/20260810100100_rorlager_admins.sql
---   leveringseddel  – supabase/migrations/20260729200000_super_admin_users.sql
---   tilbudssystem   – tenant_users, current_tenant_id() i
---                     20260616000000_initial_multitenant_schema.sql
+-- ALT under er lest ut av koden og de levende databasene, ikke gjettet.
+-- De fire appene ligner mindre på hverandre enn man skulle tro:
+--
+--   system          tabell           nøkkel        rollekolonne  roller
+--   ──────────────  ───────────────  ────────────  ────────────  ─────────────────────
+--   utleie          admin_brukere    id (auth)     rolle         admin, service
+--   rorlager        system_users     email         role          admin, kontor, lager
+--   leveringseddel  system_users     email         role          admin, kontor, sjafor
+--   tilbudssystem   tenant_users     user_id+tenant role         admin, member
+--
+-- Kilder:
+--   utleie          src/lib/auth.ts, src/app/admin/(panel)/brukere/actions.ts
+--   rorlager        src/pages/AdminUsers.tsx (ROLES), migrasjon
+--                   20260810100100_rorlager_admins.sql
+--   leveringseddel  src/pages/AdminUsers.tsx (SelectItem-verdiene), migrasjon
+--                   20260729200000_super_admin_users.sql
+--   tilbudssystem   tenant_users i den levende basen, og
+--                   20260616000000_initial_multitenant_schema.sql
+-- ═══════════════════════════════════════════════════════════
 
 insert into public.system_roller (system_id, verdi, etikett, beskrivelse, er_standard, sortering)
 select s.id, r.verdi, r.etikett, r.beskrivelse, r.er_standard, r.sortering
 from public.systemer s
 join (values
-  ('utleie',         'admin',   'Administrator',    'Full tilgang: maskiner, kunder, leier, innstillinger.', true,  10),
-  ('utleie',         'service', 'Servicearbeider',  'Bare verkstedet. Sendes dit ved innlogging, og slipper ikke inn i kundelister.', false, 20),
-  ('rorlager',       'admin',   'Administrator',    'Full tilgang til lager, ordrer og faktura.', true, 10),
-  ('leveringseddel', 'super_admin', 'Administrator', 'Full tilgang til lager, priser og leveringssedler.', true, 10)
+  -- Utleien. Rollene står i en check-constraint på admin_brukere.rolle,
+  -- og service sendes til verkstedet ved innlogging.
+  ('utleie', 'admin',   'Administrator',   'Full tilgang: maskiner, kunder, leier, innstillinger.', true,  10),
+  ('utleie', 'service', 'Servicearbeider', 'Bare verkstedet. Sendes dit ved innlogging, og slipper ikke inn i kundelister.', false, 20),
+
+  -- Rørlageret.
+  ('rorlager', 'admin',  'Admin',  'Full tilgang til lager, ordrer, priser og faktura.', true,  10),
+  ('rorlager', 'kontor', 'Kontor', 'Kontorfunksjoner.', false, 20),
+  ('rorlager', 'lager',  'Lager',  'Lagerfunksjoner.',  false, 30),
+
+  -- Leveringsseddelen. Merk sjafor uten å – slik står den i koden, og
+  -- verdien må stemme på tegnet.
+  ('leveringseddel', 'admin',  'Admin',  'Full tilgang til leveringer, varelager, priser og faktura.', true,  10),
+  ('leveringseddel', 'kontor', 'Kontor', 'Kontorfunksjoner.', false, 20),
+  ('leveringseddel', 'sjafor', 'Sjåfør', 'Sjåførfunksjoner.', false, 30),
+
+  -- Tilbudssystemet. Kolonnen heter `role` – den appen er skrevet på
+  -- engelsk. member er standard fordi det er det de fleste eksisterende
+  -- radene har.
+  ('tilbudssystem', 'admin',  'Administrator', 'Full tilgang til Hauge Maskin sine tilbud og innstillinger.', false, 10),
+  ('tilbudssystem', 'member', 'Bruker',        'Vanlig tilgang til Hauge Maskin sine tilbud.',                true,  20)
 ) as r(system_slug, verdi, etikett, beskrivelse, er_standard, sortering)
   on r.system_slug = s.slug
 on conflict (system_id, verdi) do nothing;
 
--- Tilbudssystemet har ingen rollekolonne: tilgangen ER å ha en rad i
--- tenant_users for kunden. Nivå innad finnes ikke der i dag, så det
--- ville vært misvisende å tilby et valg.
-insert into public.system_roller (system_id, verdi, etikett, beskrivelse, er_standard, sortering)
-select s.id, 'bruker', 'Bruker', 'Tilgang til Hauge Maskin sine tilbud. Tilbudssystemet har ingen nivåer innad.', true, 10
-from public.systemer s where s.slug = 'tilbudssystem'
-on conflict (system_id, verdi) do nothing;
 
+-- ── Hvordan tilgangen skrives i hvert system ──────────────────
 
--- ── Hvordan rollen skrives i hvert system ─────────────────────
-
+/*
+ * De to e-postnøklede appene først.
+ *
+ * Rørlageret og leveringsseddelen har ingen referanse til auth.users:
+ * `system_users` er nøklet på email, og appene sjekker tilgang mot
+ * auth.email(). Det gjør dem enklere enn de andre to – adminbordet kan
+ * gi tilgang før brukeren noen gang har logget inn, og en innlogging
+ * gjennom portalen treffer riktig rad av seg selv.
+ *
+ * Navnekolonnen heter full_name, ikke navn.
+ */
 insert into public.tilgangsoppsett
-  (system_id, tabell, bruker_kolonne, rolle_kolonne, aktiv_kolonne, ekstra_kolonner, notat)
-select s.id, o.tabell, o.bruker_kolonne, o.rolle_kolonne, o.aktiv_kolonne,
-       o.ekstra::jsonb, o.notat
+  (system_id, tabell, bruker_kolonne, bruker_nokkel, rolle_kolonne,
+   aktiv_kolonne, ekstra_kolonner, notat)
+select s.id, 'system_users', 'email', 'epost', 'role',
+       null, '{"full_name": "{{navn}}"}'::jsonb, o.notat
 from public.systemer s
 join (values
-  ('utleie', 'admin_brukere', 'id', 'rolle', 'aktiv',
-   '{"navn": "{{navn}}", "epost": "{{epost}}", "ma_bytte_passord": false}',
-   'ma_bytte_passord settes false: brukeren har ikke fått noe midlertidig passord av oss – de kommer inn via portalen.'),
-
-  ('rorlager', 'admin_brukere', 'id', 'rolle', 'aktiv',
-   '{"navn": "{{navn}}", "epost": "{{epost}}"}',
-   null),
-
-  ('leveringseddel', 'super_admin_users', 'user_id', null, null,
-   '{}',
-   'Tabellen har ingen rollekolonne – å ha raden ER tilgangen. Sjekk kolonnenavnet mot migrasjonen før første skriving.')
-) as o(system_slug, tabell, bruker_kolonne, rolle_kolonne, aktiv_kolonne, ekstra, notat)
-  on o.system_slug = s.slug
+  ('rorlager',
+   'Nøklet på e-post. Ingen aktiv-kolonne: tilgang fjernes ved å slette raden. Det finnes også en super_admins-tabell, nøklet på e-post, for den som skal kunne styre brukere i appen selv.'),
+  ('leveringseddel',
+   'Nøklet på e-post. Samme tabellform som rørlageret – de to appene er i slekt. Ingen aktiv-kolonne.')
+) as o(system_slug, notat) on o.system_slug = s.slug
 on conflict (system_id) do nothing;
 
--- Tilbudssystemet, med tenant. tenant_verdi står som null her fordi
--- ID-en til Hauge Maskin-tenanten må leses ut av DEN databasen først –
--- den kan ikke gjettes. Adminbordet nekter å skrive tilgang til dette
--- systemet til verdien er satt, og sier hvorfor.
+/*
+ * Utleien. Den eneste som følger mønsteret jeg først antok for alle:
+ * admin_brukere nøklet på auth.users-id.
+ *
+ * navn og epost er NOT NULL der, så en insert uten dem feiler.
+ * ma_bytte_passord settes false fordi brukeren ikke har fått noe
+ * midlertidig passord av oss – de kommer inn gjennom portalen.
+ */
 insert into public.tilgangsoppsett
-  (system_id, tabell, bruker_kolonne, rolle_kolonne, aktiv_kolonne, tenant_kolonne, tenant_verdi, notat)
-select s.id, 'tenant_users', 'user_id', null, null, 'tenant_id', null,
-  'FLERKUNDE. tenant_verdi må settes til id-en for Hauge Maskin i tenants-tabellen før noen tilgang kan skrives. Kjør: select id, name from tenants; i tilbudssystemets database.'
+  (system_id, tabell, bruker_kolonne, bruker_nokkel, rolle_kolonne,
+   aktiv_kolonne, ekstra_kolonner, notat)
+select s.id, 'admin_brukere', 'id', 'auth_id', 'rolle', 'aktiv',
+  '{"navn": "{{navn}}", "epost": "{{epost}}", "ma_bytte_passord": false}'::jsonb,
+  'Nøklet på auth.users-id, så auth-brukeren må finnes i utleiens eget prosjekt før tilgang kan skrives. Har aktiv-kolonne, så tilgang kan skrus av uten å slette raden – det er å foretrekke, fordi leier og signaturer peker på brukeren.'
+from public.systemer s where s.slug = 'utleie'
+on conflict (system_id) do nothing;
+
+/*
+ * Tilbudssystemet, med tenant.
+ *
+ * tenant_verdi er ID-en til Hauge Maskin i tenants-tabellen, lest ut av
+ * den levende databasen. Den er hardkodet her med vilje: dette er den
+ * ENE verdien som hindrer at en tilgang gitt herfra havner hos en annen
+ * kunde. Basen har tre reelle kunder – Techauge, TT Anlegg og Hauge
+ * Maskin – og RLS skiller dem utelukkende på current_tenant_id(), som
+ * leser tenant_users. Skriver vi feil tenant her, får en Hauge
+ * Maskin-ansatt lese en annen bedrifts tilbud, og ingenting i appen
+ * ville stoppet det.
+ */
+insert into public.tilgangsoppsett
+  (system_id, tabell, bruker_kolonne, bruker_nokkel, rolle_kolonne,
+   aktiv_kolonne, tenant_kolonne, tenant_verdi, notat)
+select s.id, 'tenant_users', 'user_id', 'auth_id', 'role',
+  null, 'tenant_id', '95ee2a3d-6bd3-4a94-ab44-c000c49beae5'::uuid,
+  'FLERKUNDE med tre kunder i samme base. tenant_verdi er Hauge Maskin (slug hauge-maskin). Endres den, gis tilgang til feil bedrifts data. Nøklet på auth-id, så auth-brukeren må finnes i tilbudssystemets prosjekt først.'
 from public.systemer s where s.slug = 'tilbudssystem'
 on conflict (system_id) do nothing;
