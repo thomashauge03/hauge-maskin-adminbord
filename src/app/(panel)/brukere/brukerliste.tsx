@@ -58,10 +58,24 @@ export async function Brukerliste({
     (s, l) => s + (l.rader?.filter((r) => r.harKonto).length ?? 0),
     0,
   )
-  // Kontoer som kan logge inn uten å se noe. Dette tallet er hele grunnen
-  // til at matrisen ble bygget om: det sto som «tilgang» før.
+  /*
+   * Kontoer som kan logge inn uten å se noe. Dette tallet er hele grunnen til
+   * at matrisen ble bygget om: det sto som «tilgang» før.
+   *
+   * Andre kunders brukere holdes UTENFOR. Uten det ville kortet vært
+   * markedsført som ryddearbeid mens det talte Techauge- og TT
+   * Anlegg-ansatte, som ikke er våre å rydde i.
+   */
   const kunKonto = lest.reduce(
-    (s, l) => s + (l.rader?.filter((r) => r.harKonto && r.harTilgang === false).length ?? 0),
+    (s, l) =>
+      s +
+      (l.rader?.filter(
+        (r) => r.harKonto && r.harTilgang === false && r.annenKunde === 0,
+      ).length ?? 0),
+    0,
+  )
+  const annenKunde = lest.reduce(
+    (s, l) => s + (l.rader?.filter((r) => r.annenKunde > 0).length ?? 0),
     0,
   )
 
@@ -198,6 +212,14 @@ export async function Brukerliste({
         >
           Hvem har tilgang hvor
         </KortTittel>
+        {annenKunde > 0 && (
+          <p className="border-b border-[var(--kant)] px-4 py-2 text-xs text-[var(--blekk-svak)]">
+            {annenKunde} konto{annenKunde > 1 ? 'er' : ''} hører til andre
+            kunder i en delt base og er ikke vårt ryddearbeid. De er merket
+            «annen kunde», og innloggingen deres kan ikke sperres eller slettes
+            herfra.
+          </p>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -358,11 +380,26 @@ export async function Brukerliste({
                           </span>
                         </span>
 
+                        {/* ── Tenant-vakt ──
+                            auth.users er DELT mellom kundene i et
+                            flerkundesystem. Hører kontoen til en annen kunde og
+                            har ingen tilgang hos oss, er verken sperring eller
+                            sletting vår å gjøre – og «Slett» kaller
+                            deleteUser i en produksjonsbase. Knappene ble
+                            tilbudt for hver konto før. */}
+                        {r.authId && r.annenKunde > 0 && !r.harTilgang ? (
+                          <span className="max-w-md text-right text-xs text-[var(--blekk-svak)]">
+                            Tilhører en annen kunde i den delte basen. Sperring
+                            og sletting av innloggingen hører hos dem, ikke hos
+                            oss.
+                          </span>
+                        ) : null}
+
                         {/* Måltilstanden for sperring bindes her, der vi vet
                             hva kontoen står i nå – ikke som en veksling i
                             nettleseren, som bommer hvis siden ble hentet før
                             noen andre endret kontoen. */}
-                        {r.authId && (
+                        {r.authId && !(r.annenKunde > 0 && !r.harTilgang) && (
                           <BrukerHandlinger
                             systemId={l.system.id}
                             brukerId={r.authId}

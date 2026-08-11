@@ -212,6 +212,14 @@ export type TilgangsRad = {
   harTilgang: boolean | null
   /** Hver vei tilgangen kom fra. Tom når personen ikke har tilgang. */
   veier: Tilgangsvei[]
+  /**
+   * Rader personen har i SAMME tabell, hos en ANNEN kunde. Bare flerkunde.
+   *
+   * Over null betyr at kontoen tilhører noen andre. Da er «kun konto» ikke
+   * ryddearbeid, og verken sletting eller sperring av innloggingen er vår
+   * å gjøre – auth.users er delt mellom kundene.
+   */
+  annenKunde: number
   /** Den første rollen blant veiene, til den korte visningen i matrisen.
       `veier` er hele svaret; dette er sammendraget. */
   rolle: string | null

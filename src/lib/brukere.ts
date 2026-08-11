@@ -243,32 +243,41 @@ async function lesTilgangMedPostgrest(
     const kolonner = [v.brukerKolonne, v.rolleKolonne, v.aktivKolonne].filter(
       Boolean,
     ) as string[]
+    const flerkunde = Boolean(v.tenantKolonne && v.tenantVerdi)
 
-    let spørring = klient.from(v.tabell!).select(kolonner.join(','))
-    if (v.tenantKolonne && v.tenantVerdi) {
-      // Uten dette filteret havner andre kunders rader i listen – nøyaktig
-      // lekkasjen tilgangslesningen finnes for å stoppe.
-      spørring = spørring.eq(v.tenantKolonne, v.tenantVerdi)
-    }
-    // Samme grunn som i byggTilgangsspørring: uten rollefilteret vises hver
-    // rad som om den ga den makten veien beskriver.
-    if (v.rolleFilter && v.rolleKolonne) {
-      spørring = spørring.eq(v.rolleKolonne, v.rolleFilter)
-    }
+    // Flerkunde leses to ganger: vår kunde, og alle de andre. Den andre
+    // runden er ikke tilgang – den forklarer hvorfor kontoen finnes, og
+    // hindrer at systemkortet tilbyr sletting av en annen bedrifts innlogging.
+    for (const annenKunde of flerkunde ? [false, true] : [false]) {
+      let spørring = klient.from(v.tabell!).select(kolonner.join(','))
+      if (flerkunde) {
+        // Uten dette filteret havner andre kunders rader blant våre – nøyaktig
+        // lekkasjen tilgangslesningen finnes for å stoppe.
+        spørring = annenKunde
+          ? spørring.neq(v.tenantKolonne!, v.tenantVerdi!)
+          : spørring.eq(v.tenantKolonne!, v.tenantVerdi!)
+      }
+      // Samme grunn som i byggTilgangsspørring: uten rollefilteret vises hver
+      // rad som om den ga den makten veien beskriver.
+      if (v.rolleFilter && v.rolleKolonne) {
+        spørring = spørring.eq(v.rolleKolonne, v.rolleFilter)
+      }
 
-    const { data, error } = await spørring.limit(GRENSE)
-    if (error || !data) return null
+      const { data, error } = await spørring.limit(GRENSE)
+      if (error || !data) return null
 
-    for (const rad of data as unknown as Record<string, unknown>[]) {
-      const nøkkel = rad[v.brukerKolonne]
-      if (nøkkel == null) continue
-      ut.push({
-        nokkel: String(nøkkel),
-        nokkeltype: v.brukerNokkel,
-        vei: v.etikett,
-        rolle: v.rolleKolonne ? ((rad[v.rolleKolonne] as string) ?? null) : null,
-        aktiv: v.aktivKolonne ? ((rad[v.aktivKolonne] as boolean) ?? null) : null,
-      })
+      for (const rad of data as unknown as Record<string, unknown>[]) {
+        const nøkkel = rad[v.brukerKolonne]
+        if (nøkkel == null) continue
+        ut.push({
+          nokkel: String(nøkkel),
+          nokkeltype: v.brukerNokkel,
+          vei: v.etikett,
+          rolle: v.rolleKolonne ? ((rad[v.rolleKolonne] as string) ?? null) : null,
+          aktiv: v.aktivKolonne ? ((rad[v.aktivKolonne] as boolean) ?? null) : null,
+          slag: annenKunde ? 'annen_kunde' : 'tilgang',
+        })
+      }
     }
   }
 

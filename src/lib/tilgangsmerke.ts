@@ -54,17 +54,36 @@ export function tilgangsmerke(
 
   // ── Ingen tilgang ──
   if (!rad.harTilgang) {
-    return rad.harKonto
-      ? {
-          merke: 'nøytral',
-          tekst: 'kun konto',
-          forklaring: `Kan logge inn i ${systemNavn}, men har ingen tilgangsrad – ser altså ingenting. Dette sto tidligere som «ja».`,
-        }
-      : {
-          merke: 'nøytral',
-          tekst: '–',
-          forklaring: `Ingen tilgang i ${systemNavn}.`,
-        }
+    if (!rad.harKonto) {
+      return {
+        merke: 'nøytral',
+        tekst: '–',
+        forklaring: `Ingen tilgang i ${systemNavn}.`,
+      }
+    }
+
+    /*
+     * En annen kundes bruker er IKKE «kun konto».
+     *
+     * Sto som «kun konto … ser altså ingenting» først, og det er usant i et
+     * flerkundesystem: personen ser en hel del, bare ikke våre data. Skillet
+     * er ikke akademisk – «kun konto» leses som noe å rydde, og systemkortet
+     * tilbød «Slett» på en innlogging som tilhører en annen bedrift i en delt
+     * auth.users.
+     */
+    if (rad.annenKunde > 0) {
+      return {
+        merke: 'nøytral',
+        tekst: 'annen kunde',
+        forklaring: `Har konto i ${systemNavn} og hører til en annen kunde i den delte basen (${rad.annenKunde} rad${rad.annenKunde > 1 ? 'er' : ''}). Ingen tilgang til Hauge Maskin-dataene, og ingenting å rydde – dette er ikke vår bruker. Å gi tilgang her ville låst personen ut av hele appen, fordi appen slår opp medlemskapet med .single().`,
+      }
+    }
+
+    return {
+      merke: 'nøytral',
+      tekst: 'kun konto',
+      forklaring: `Kan logge inn i ${systemNavn}, men har ingen tilgangsrad – får ikke se noe. Dette sto tidligere som «ja».`,
+    }
   }
 
   /*

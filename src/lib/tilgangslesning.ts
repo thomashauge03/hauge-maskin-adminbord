@@ -65,6 +65,14 @@ export type RåTilgang = {
   vei: string
   rolle: string | null
   aktiv: boolean | null
+  /**
+   * 'annen_kunde' = raden finnes, men hos en ANNEN kunde i den delte basen.
+   *
+   * Hentes med vilje. Uten den ser en TT Anlegg-ansatt ut som «kun konto» –
+   * altså som ryddearbeid – og systemkortet tilbyr «Slett», som ville slettet
+   * en annen bedrifts innlogging fra en delt auth.users.
+   */
+  slag: 'tilgang' | 'annen_kunde'
 }
 
 /** Grensen i spørringene. Speiles i brukere.ts fordi avkorting skal SIES. */
@@ -110,7 +118,9 @@ export function byggTilgangsspørring(veier: Tilgangsoppsett[]): {
   if (medTabell.length === 0) return null
 
   const parametre: unknown[] = []
-  const deler = medTabell.map((v) => {
+
+  /** Én gren av union-en: én vei, eller dens «hos en annen kunde»-speiling. */
+  function gren(v: Tilgangsoppsett, annenKunde: boolean): string {
     const skjema = trygtNavn(v.skjema, 'skjema')
     const tabell = trygtNavn(v.tabell!, 'tabell')
     const brukerKol = trygtNavn(v.brukerKolonne, 'brukerkolonne')
@@ -125,11 +135,11 @@ export function byggTilgangsspørring(veier: Tilgangsoppsett[]): {
     if (v.tenantKolonne && v.tenantVerdi) {
       parametre.push(v.tenantVerdi)
       vilkår.push(
-        `${trygtNavn(v.tenantKolonne, 'tenant-kolonne')}::text = $${parametre.length}`,
+        `${trygtNavn(v.tenantKolonne, 'tenant-kolonne')}::text ${annenKunde ? '<>' : '='} $${parametre.length}`,
       )
     }
     /*
-     * Rollefilteret er det som skiller «har en rad» fra «har DENNE makten».
+     * Rollefilteret skiller «har en rad» fra «har DENNE makten».
      * Plattform-admin i tilbudssystemet leses uten tenant-vilkår, og uten
      * filteret ville hver `member` hos hver kunde blitt vist som plattform-
      * admin over Hauge Maskin.
@@ -152,14 +162,28 @@ export function byggTilgangsspørring(veier: Tilgangsoppsett[]): {
                    ${v.brukerNokkel === 'epost' ? `'epost'` : `'auth_id'`}::text as nokkeltype,
                    ${veiParam}::text as vei,
                    ${rolleKol ? `string_agg(distinct ${rolleKol}::text, ', ')` : 'null::text'} as rolle,
-                   ${aktivKol ? `bool_or(${aktivKol})` : 'null::boolean'} as aktiv
+                   ${aktivKol ? `bool_or(${aktivKol})` : 'null::boolean'} as aktiv,
+                   ${annenKunde ? `'annen_kunde'` : `'tilgang'`}::text as slag
               from ${skjema}.${tabell}
              ${vilkår.length ? `where ${vilkår.join(' and ')}` : ''}
              group by 1`
-  })
+  }
+
+  const deler: string[] = []
+  for (const v of medTabell) {
+    deler.push(gren(v, false))
+    /*
+     * Flerkunde: hent også radene som hører ANDRE kunder.
+     *
+     * Samme spørring, én gren mer – ingen ekstra rundtur. Uten den ser en TT
+     * Anlegg-ansatt ut som «kun konto», altså som noe å rydde, og systemkortet
+     * tilbyr «Slett» på en innlogging som ikke er vår.
+     */
+    if (v.tenantKolonne && v.tenantVerdi) deler.push(gren(v, true))
+  }
 
   return {
-    sql: `${deler.join('\n union all\n')}\n limit ${GRENSE * medTabell.length}`,
+    sql: `${deler.join('\n union all\n')}\n limit ${GRENSE * deler.length}`,
     parametre,
   }
 }
@@ -182,11 +206,22 @@ export function flettRader(
 
   const perAuthId = new Map<string, Tilgangsvei[]>()
   const perEpost = new Map<string, Tilgangsvei[]>()
+  // Antall rader personen har hos ANDRE kunder. Holdes utenfor `veier`, fordi
+  // det ikke er tilgang – det er en forklaring på at kontoen finnes.
+  const annenPerAuthId = new Map<string, number>()
+  const annenPerEpost = new Map<string, number>()
 
   for (const t of tilganger) {
+    const nøkkel = t.nokkeltype === 'epost' ? t.nokkel.toLowerCase() : t.nokkel
+
+    if (t.slag === 'annen_kunde') {
+      const kart = t.nokkeltype === 'epost' ? annenPerEpost : annenPerAuthId
+      kart.set(nøkkel, (kart.get(nøkkel) ?? 0) + 1)
+      continue
+    }
+
     const vei: Tilgangsvei = { etikett: t.vei, rolle: t.rolle, aktiv: t.aktiv }
     const kart = t.nokkeltype === 'epost' ? perEpost : perAuthId
-    const nøkkel = t.nokkeltype === 'epost' ? t.nokkel.toLowerCase() : t.nokkel
     if (!kart.has(nøkkel)) kart.set(nøkkel, [])
     kart.get(nøkkel)!.push(vei)
   }
@@ -215,6 +250,9 @@ export function flettRader(
       sistInnlogget: k.sist_innlogget,
       harTilgang: harOppsett ? veierHer.length > 0 : null,
       veier: veierHer,
+      annenKunde:
+        (annenPerAuthId.get(k.auth_id) ?? 0) +
+        (k.epost ? (annenPerEpost.get(k.epost) ?? 0) : 0),
       rolle: veierHer.map((v) => v.rolle).find((r) => r) ?? null,
       tilgangAktiv: veierHer.some((v) => v.aktiv === false)
         ? veierHer.every((v) => v.aktiv === false)
@@ -254,6 +292,8 @@ function utenKonto(
     sistInnlogget: null,
     harTilgang: true,
     veier,
+    // En tilgangsrad uten konto kan ikke samtidig være en annen kundes konto.
+    annenKunde: 0,
     rolle: veier.map((v) => v.rolle).find((r) => r) ?? null,
     tilgangAktiv: veier.every((v) => v.aktiv === false) ? false : null,
   }
