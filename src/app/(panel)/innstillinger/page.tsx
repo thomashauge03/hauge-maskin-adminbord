@@ -14,22 +14,44 @@ import {
   TomTilstand,
 } from '@/components/ui'
 import { visDatoTid } from '@/lib/format'
+import { byttKontoToken, fjernKontoToken } from './actions'
+import { TokenSkjema } from './token-skjema'
+
+/**
+ * Hvor ofte tokenene skal byttes.
+ *
+ * Eierens egen rutine, ikke et krav fra Supabase. Star her fordi et tall
+ * som bare finnes i noens hode ikke er en rutine.
+ */
+const ROTASJON_DAGER = 30
 
 export const metadata: Metadata = { title: 'Innstillinger' }
 
 /**
- * Innstillingssiden er lesbar, ikke redigerbar.
+ * Innstillingssiden viser om integrasjonene virker, og lar eieren bytte
+ * Supabase-tokenene.
  *
- * Tokens settes som miljøvariabler eller legges inn kryptert i
- * databasen – ikke i et skjema her. Et skjema ville betydd at
- * adminbordet kunne endre nøkkelen som gir adgang til alle prosjektene,
- * fra en nettleser, uten utrulling. Det er for stor makt for et skjema.
- * Siden viser i stedet HVA som mangler og hvor det settes.
+ * Den var først bevisst LESBAR og ikke redigerbar, med argumentet at et
+ * skjema her ville gi adminbordet makt til å endre nøkkelen til alle
+ * prosjektene fra en nettleser, uten utrulling. Det argumentet var riktig
+ * da tokenene lå i miljøvariabler. Nå ligger de kryptert i databasen og
+ * kan altså alt endres uten utrulling – skjemaet gir ingen ny makt, det
+ * gjør bare rotasjonen praktisk.
+ *
+ * Og rotasjonen er poenget: et personal access token kan ikke avgrenses,
+ * og skal byttes hver 30. dag. Et token som er en jobb å bytte blir ikke
+ * byttet, så en rotasjon som faktisk skjer er bedre sikkerhet enn en side
+ * som er trygg å se på.
+ *
+ * Grensen står fortsatt et sted: KRYPTONOKKEL og Vercel-tokenet er
+ * miljøvariabler og kan IKKE endres herfra. De byttes så sjelden at
+ * gevinsten er null, og KRYPTONOKKEL er dessuten det ene som gjør en
+ * databasedump verdiløs.
  */
 export default async function InnstillingerSide() {
   await krevAdmin()
 
-  const [kontoar, systemer] = await Promise.all([
+  const [{ kontoar, hentetMs: naa }, systemer] = await Promise.all([
     hentKontoar(),
     hentSystemer(true),
   ])
@@ -45,6 +67,7 @@ export default async function InnstillingerSide() {
   }
 
   const utenKonto = antallPerKonto.get(null) ?? 0
+
 
   return (
     <div className="space-y-7">
@@ -70,6 +93,7 @@ export default async function InnstillingerSide() {
                 key={k.id}
                 konto={k}
                 antallSystemer={antallPerKonto.get(k.id) ?? 0}
+                naa={naa}
               />
             ))}
           </div>
@@ -168,16 +192,38 @@ export default async function InnstillingerSide() {
 function KontoKort({
   konto,
   antallSystemer,
+  naa,
 }: {
   konto: Konto
   antallSystemer: number
+  naa: number
 }) {
+  /*
+   * Alder på tokenet, mot rutinen på 30 dager.
+   *
+   * `sist_bekreftet` settes hver gang et token legges inn eller byttes, så
+   * den er i praksis «byttet»-datoen. Er den over 30 dager, sier kortet
+   * det – en rotasjonsrutine man må huske selv er en rutine som glipper.
+   */
+  const dagerSidenBytte = konto.sistBekreftet
+    ? Math.floor(
+        (naa - new Date(konto.sistBekreftet).getTime()) / (24 * 60 * 60 * 1000),
+      )
+    : null
+  const forfalt = dagerSidenBytte !== null && dagerSidenBytte >= ROTASJON_DAGER
+
   return (
     <Kort>
       <KortTittel
         handling={
-          <Merke type={konto.harToken ? 'grønn' : 'gul'}>
-            {konto.harToken ? 'token satt' : 'mangler token'}
+          <Merke
+            type={!konto.harToken ? 'gul' : forfalt ? 'rød' : 'grønn'}
+          >
+            {!konto.harToken
+              ? 'mangler token'
+              : forfalt
+                ? 'bør byttes'
+                : 'token satt'}
           </Merke>
         }
       >
@@ -204,8 +250,13 @@ function KontoKort({
               <KontoProve kontoId={konto.id} antallSystemer={antallSystemer} />
             </Suspense>
             {konto.sistBekreftet && (
-              <p className="text-xs text-[var(--blekk-svak)]">
-                Sist bekreftet {visDatoTid(konto.sistBekreftet)}
+              <p
+                className={`text-xs ${forfalt ? 'font-semibold text-hm-red-ink' : 'text-[var(--blekk-svak)]'}`}
+              >
+                Byttet {visDatoTid(konto.sistBekreftet)}
+                {dagerSidenBytte !== null &&
+                  ` · for ${dagerSidenBytte} ${dagerSidenBytte === 1 ? 'dag' : 'dager'} siden`}
+                {forfalt && ` – over ${ROTASJON_DAGER} dager, bør byttes`}
               </p>
             )}
           </>
@@ -224,6 +275,16 @@ function KontoKort({
             vises systemene under denne kontoen som uvisst.
           </p>
         )}
+
+        <TokenSkjema
+          epost={konto.epost}
+          harToken={konto.harToken}
+          bytt={byttKontoToken.bind(null, konto.id)}
+          fjern={async () => {
+            'use server'
+            await fjernKontoToken(konto.id)
+          }}
+        />
       </div>
     </Kort>
   )

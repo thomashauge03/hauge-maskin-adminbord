@@ -38,7 +38,16 @@ export type Konto = {
  * Trygg å bruke i visninger: `harToken` og `hint` sier om et token
  * finnes og hvilket det er, uten å gi det ut.
  */
-export async function hentKontoar(): Promise<Konto[]> {
+/**
+ * `hentetMs` følger med fordi visningen trenger et tidspunkt å regne
+ * tokenets alder fra, og en komponent som leser klokka under rendring
+ * ikke er ren. Tidspunktet er en egenskap ved hentingen, ikke ved
+ * visningen – så det hører her.
+ */
+export async function hentKontoar(): Promise<{
+  kontoar: Konto[]
+  hentetMs: number
+}> {
   const { data } = await supabaseAdmin
     .from('supabase_kontoar')
     .select(
@@ -46,15 +55,18 @@ export async function hentKontoar(): Promise<Konto[]> {
     )
     .order('epost')
 
-  return (data ?? []).map((r) => ({
-    id: r.id as string,
-    epost: r.epost as string,
-    beskrivelse: r.beskrivelse as string | null,
-    harToken: Boolean(r.token_kryptert),
-    hint: r.hint as string | null,
-    sistBekreftet: r.sist_bekreftet as string | null,
-    antallProsjekter: r.antall_prosjekter as number | null,
-  }))
+  return {
+    hentetMs: Date.now(),
+    kontoar: (data ?? []).map((r) => ({
+      id: r.id as string,
+      epost: r.epost as string,
+      beskrivelse: r.beskrivelse as string | null,
+      harToken: Boolean(r.token_kryptert),
+      hint: r.hint as string | null,
+      sistBekreftet: r.sist_bekreftet as string | null,
+      antallProsjekter: r.antall_prosjekter as number | null,
+    })),
+  }
 }
 
 /**
