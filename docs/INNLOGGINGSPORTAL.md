@@ -123,11 +123,164 @@ oppskriften prøvd før du rører utleien.
 
 ---
 
-## Vei B – behold åtte prosjekter, føderer innloggingen
+## VALGT VEI: føderert innlogging for fire apper
 
-Om Vei A av en eller annen grunn ikke er aktuell, kan ett prosjekt gjøres til
-identitetsnav og de andre settes til å stole på det. Dette *virker*, men det er
-mange trinn og flere av dem er beta.
+Beslutningen er tatt: databasene forblir separate, og de fire appene i menyen –
+tilbudssystemet, leveringsseddelen, utleien og rørlageret – får felles innlogging
+gjennom adminbordet som identitetsnav. Tilbudssystemet er flerkunde, og portalen
+skal bare gjelde Hauge Maskin-tenanten.
+
+Kontrakten under er lest ut av GoTrue-kildekoden og verifisert av en
+uavhengig gjennomgang. Les [status og forbehold](#status-og-forbehold) før du
+begynner – ett av punktene der bør du kjenne før du bygger videre.
+
+### Rekkefølgen, og hvorfor den er slik
+
+`oauth_server_authorization_path` er en sti som limes på `site_url` med rå
+strengkonkatenering (`authorize.go:597-607`). Absolutte URL-er støttes ikke – det
+er en åpen feature request (supabase/auth #2408). **Konsekvensen er at hubens
+`site_url` må være det stedet som faktisk serverer samtykkesiden.** Står den på
+`https://<hub-ref>.supabase.co`, sendes brukeren til
+`…supabase.co/oauth/samtykke`, som 404-er.
+
+Adminbordet på Vercel er derfor ikke et sidespor, men forutsetningen:
+
+1. Adminbordet rullet ut, med en kjent produksjonsadresse
+2. `site_url` på huben satt til den adressen, og `oauth_server_enabled: true`
+3. Samtykkesiden på `/oauth/samtykke`
+4. Én app om gangen – rørlageret først, det er enklest
+
+### Samtykkesiden
+
+Dette er det eneste som må skrives fra scratch. Kontrakten:
+
+**Inn:** nøyaktig **én** parameter, `authorization_id` – et 32-tegns tilfeldig
+alfanumerisk streng, ikke en UUID. Ingen `client_id`, ingen `scope`, ingen
+`state`. Alt annet hentes selv. Stien må derfor **ikke** inneholde query-streng:
+`?` er hardkodet i `fmt.Sprintf`, så `/oauth/samtykke?a=1` gir `…?a=1?authorization_id=…`.
+
+**Hent detaljer:** `GET /auth/v1/oauth/authorizations/{id}` med `Authorization:
+Bearer <hub-brukerens access_token>` **og** `apikey`. Svaret har **to former**,
+begge med status 200:
+
+- Har brukeren samtykket før, er autorisasjonen alt godkjent server-side og
+  svaret er `{redirect_url}` – uten `authorization_id`. Da skal ingen knapp vises.
+- Ellers `{authorization_id, redirect_uri, client:{…}, user:{…}, scope}`.
+
+Skill på om `authorization_id` finnes. Viser du samtykkeknappen i første tilfelle,
+feiler neste kall med «authorization request is no longer pending».
+
+**Godkjenn/avvis:** `POST /auth/v1/oauth/authorizations/{id}/consent` med
+`{"action":"approve"}` eller `{"action":"deny"}` – samme rute for begge. Svaret er
+JSON med `redirect_url`; **GoTrue redirecter ikke selv**, det må siden gjøre.
+
+**Innlogging er ditt ansvar.** `GET /oauth/authorize` er registrert uten noen
+auth-middleware, og autorisasjonsraden opprettes med `user_id = NULL`. Huben har
+ingen forestilling om hvor en uinnlogget bruker skal sendes – det finnes ingen
+`login_path`. Siden må selv sjekke for hub-sesjon og ellers sende brukeren til sin
+egen innlogging med `authorization_id` bevart.
+
+Brukeren bindes til autorisasjonen **lazily**, ved første autentiserte
+`GET`: den som presenterer et gyldig Bearer-token først, *krever* den. En annen
+bruker får deretter 404. Derfor: aldri logg en `authorization_id`.
+
+**Kall endepunktene fra egen server, ikke fra nettleser-JS.** CORS-preflight for
+`/oauth/authorizations/*` er uverifisert, og `apikey`-kravet er udokumentert –
+etablert ved live-prøve, ikke fra dokumentasjon. Server-side kall omgår hele
+spørsmålet, og har heller ingen `Origin`-header å bli avvist på.
+
+### To flagg, ikke ett
+
+- På **huben**: `oauth_server_enabled: true`. Uten den svarer både
+  `/oauth/authorize` og hele `/admin/oauth/clients` med 404 `feature_disabled`.
+- På **hvert naboprosjekt**: `custom_oauth_enabled`. Standardverdien er `true`, så
+  det er sannsynligvis en avkryssingsboks og ikke en mur – men verifiser, for hele
+  `custom:`-dispatchen er gatet på den.
+
+Merk at `/.well-known/openid-configuration` er **ikke** gatet på flagget. Den
+svarer med `authorization_endpoint` og `token_endpoint` også når serveren er
+avslått. Det er et falskt signal, og det lurte meg én gang.
+
+### Eksisterende brukere beholder id-en sin – hvis du gjør to ting riktig
+
+Dette er detaljen som avgjør om migreringen er udramatisk eller et opprydningsmareritt.
+
+Supabase kobler **automatisk** en ny innlogging til en eksisterende konto når
+e-posten er den samme, og **beholder `auth.users.id`**. Kjeden er:
+`GetAccountLinkingDomain` gir isolerte domener bare til `sso:`-prefiksede
+leverandører, så `custom:hm` faller til «default» – samme domene som `email`,
+altså passordbrukerne. `DetermineAccountLinking` finner da den eksisterende raden
+og legger til en ny rad i `auth.identities` som henger på den.
+
+Konsekvensen er den vi ønsker: `auth.uid()` er uendret, RLS er uendret,
+`system_users` og `super_admins` er uendret, og alle fremmednøkler peker fortsatt
+riktig. Ingenting må migreres.
+
+**Men det finnes to måter å ødelegge det, og begge er stille:**
+
+1. **Leverandøren registreres uten `email` i `scopes`.** Da er e-postclaimet ikke
+   med i det hele tatt, og det finnes ingenting å matche på. Huben setter
+   `claims.Email` og `claims.EmailVerified` bare inne i `if hasEmailScope`.
+2. **Hub-brukeren har `email_confirmed_at = null`.** Linking krever
+   `email.Verified`, og huben setter `email_verified` fra
+   `params.User.IsConfirmed()`. En bruker opprettet via admin-API med
+   `email_confirm: false`, eller invitert og aldri bekreftet, blir aldri koblet.
+
+I begge tilfellene skjer det ikke en feil. Det opprettes en **ny** `auth.users`-rad
+med ny id, brukeren kommer inn, ser ingenting – og den gamle raden med all
+tilgangen ligger igjen ved siden av. Det er nesten umulig å feilsøke etterpå, og
+trivielt å unngå på forhånd.
+
+Derfor, som absolutt regel:
+
+- Registrer alltid custom-provideren med `email` blant scopene.
+- Sørg for at hver hub-bruker har bekreftet e-post før første portalinnlogging.
+  Adminbordet skal opprette dem med `email_confirm: true`.
+
+For rørlageret og leveringsseddelen er dette dessuten mindre farlig i praksis,
+fordi `system_users` er nøklet på **e-post** og ikke på auth-id – der ville selv en
+ny auth-rad truffet riktig tilgangsrad. Utleien og tilbudssystemet er nøklet på
+auth-id, og der er regelen over kritisk.
+
+### Ting som ikke er problemer likevel
+
+- **Nonce:** custom-provider-stien validerer aldri nonce. `skip_nonce_check` blir
+  lagret men er inert. Ingen grunn til å sette den.
+- **ES256:** huben har allerede en aktiv `ES256`-nøkkel, og kravet er bare at
+  algoritmen er *asymmetrisk*. HS256 er det eneste som ikke virker – da feiler
+  id_token-generering, og et prosjekt med bare HS256 publiserer tom JWKS.
+
+### Status og forbehold
+
+**OAuth 2.1-serveren er i beta**, og dokumentasjonen sier ordrett at den er «free
+to use during the beta period on all Supabase plans». Det er gratis i dag på alle
+planer, men det finnes ingen løfte om prisen etterpå, og beta betyr at brytende
+endringer er ventet. Hele den felles innloggingen hviler på denne funksjonen.
+
+**Alle kodehenvisninger over er lest fra `master`**, ikke fra den pinnede
+GoTrue-versjonen hosta prosjekter faktisk kjører. Linjenumrene stemte ved
+kontroll, men både auto-godkjenn-formen, `apikey`-gatingen og feilmeldingene kan
+avvike fra det som er utrullet. Behandle kontrakten som svært godt underbygget,
+ikke som en garanti.
+
+**Tidsfristen er 10 minutter** og kan ikke justeres på hosta Supabase. Hele
+innloggingsomveien må fullføres innenfor det. En magic-link-basert hub-innlogging
+er derfor risikabel – bruk passord.
+
+`custom_oauth_max_providers` er **read-only** i Management API. Go-standarden er 0
+= ubegrenset, så fire naboprosjekter er etter alt å dømme trygt, men du har ingen
+utvei om plattformen setter en grense.
+
+Registrerer du en provider som `provider_type: "oauth2"` framfor `"oidc"`, er
+`userinfo_url` **påkrevd** – ellers feiler den med «missing required endpoints».
+Vi bruker `oidc`, så det gjelder ikke oss, men det er lett å snuble i.
+
+---
+
+## Alternativet som ble forkastet: ett prosjekt, ett skjema per app
+
+Beholdt her fordi argumentet ikke er blitt dårligere, og fordi valget bør kunne
+gjøres om med åpne øyne senere.
 
 Kort om de tre variantene, og hva som faktisk stemmer:
 
