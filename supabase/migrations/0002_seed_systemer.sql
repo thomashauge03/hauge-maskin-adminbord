@@ -15,7 +15,7 @@
 --     ikke i menyen lenger.
 --
 -- Vercel-ID-ene mangler for de fleste, fordi bare to av repoene har en
--- .vercel/project.json lokalt. Resten kobles på navn til VERCEL_TOKEN er
+-- .vercel/project.json lokalt. Resten kobles på navn til HM_VERCEL_TOKEN er
 -- satt; da fyller «Oppdag» dem inn.
 --
 -- Ingen nøkler ligger i denne fila. De legges inn gjennom

@@ -140,6 +140,19 @@ cron-uttrykk på Hobby-planen med **feilet utrulling** – ikke med en advarsel.
 På Hobby kan invokeringen dessuten komme hvor som helst i den angitte timen.
 Derfor er reservevinduet 26 timer og ikke 24.
 
+### Når prosjektet flyttes til Pro
+
+To ting bør endres samtidig, ellers gir de halv gevinst hver:
+
+1. `vercel.json` → `"schedule": "0 6,12,18 * * *"`. Pro tillater hyppigere cron,
+   og invokeringen kommer innenfor det angitte *minuttet* framfor timen.
+2. `hentReserveMaalinger` i `src/lib/data.ts` → `maksAlderTimer = 7`. Med
+   måling hver sjette time blir reserven ferskere, og et 20 timer gammelt tall
+   trenger ikke lenger å vises.
+
+Region kan også settes til flere enn én på Pro; i dag ber `vercel.json` om
+`fra1` alene, som er nærmest Supabase-prosjektene i EU.
+
 Den ene er historikk: spørsmålet man faktisk stiller er «hvor lenge har dette
 vært nede», og det kan ikke besvares fra en tabell som overskrives.
 
@@ -235,7 +248,7 @@ supabase/migrations/
    ```
 5. `npm run dev`.
 
-Uten `SUPABASE_MANAGEMENT_TOKEN` og `VERCEL_TOKEN` starter adminbordet fint, men
+Uten `SUPABASE_MANAGEMENT_TOKEN` og `HM_VERCEL_TOKEN` starter adminbordet fint, men
 viser «uvisst» i stedet for status. Det er med vilje: var de påkrevd, ville en
 manglende variabel tatt ned også siden som forklarer hva som mangler.
 

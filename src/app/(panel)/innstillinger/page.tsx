@@ -88,7 +88,7 @@ export default async function InnstillingerSide() {
           </KortTittel>
           <div className="space-y-3 px-4 py-4 text-sm">
             <p>
-              <Kodebit>VERCEL_TOKEN</Kodebit> og <Kodebit>VERCEL_TEAM_ID</Kodebit>
+              <Kodebit>HM_VERCEL_TOKEN</Kodebit> og <Kodebit>HM_VERCEL_TEAM_ID</Kodebit>
             </p>
             {vercel.klar ? (
               <Suspense

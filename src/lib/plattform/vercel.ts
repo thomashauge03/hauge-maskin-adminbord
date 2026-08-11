@@ -97,15 +97,15 @@ export type VercelProsjekt = {
 
 /** Om integrasjonen kan brukes i det hele tatt. */
 export function vercelKlar(): { klar: boolean; grunn?: string } {
-  if (!env.VERCEL_TOKEN) {
-    return { klar: false, grunn: 'VERCEL_TOKEN er ikke satt.' }
+  if (!env.HM_VERCEL_TOKEN) {
+    return { klar: false, grunn: 'HM_VERCEL_TOKEN er ikke satt.' }
   }
-  if (!env.VERCEL_TEAM_ID) {
+  if (!env.HM_VERCEL_TEAM_ID) {
     return {
       klar: false,
       // Uten teamId kan et fullkonto-token få et redusert svar i stedet
       // for en feil, og da vises byggefeil som «ingen feil».
-      grunn: 'VERCEL_TEAM_ID er ikke satt. Uten den kan svarene bli ufullstendige.',
+      grunn: 'HM_VERCEL_TEAM_ID er ikke satt. Uten den kan svarene bli ufullstendige.',
     }
   }
   return { klar: true }
@@ -113,7 +113,7 @@ export function vercelKlar(): { klar: boolean; grunn?: string } {
 
 function url(sti: string, parametre: Record<string, string> = {}): string {
   const u = new URL(sti, BASIS)
-  if (env.VERCEL_TEAM_ID) u.searchParams.set('teamId', env.VERCEL_TEAM_ID)
+  if (env.HM_VERCEL_TEAM_ID) u.searchParams.set('teamId', env.HM_VERCEL_TEAM_ID)
   for (const [n, v] of Object.entries(parametre)) u.searchParams.set(n, v)
   return u.toString()
 }
@@ -130,7 +130,7 @@ export async function hentVercelProsjekter(): Promise<
   HentResultat<VercelProsjekt[]>
 > {
   const klar = vercelKlar()
-  if (!env.VERCEL_TOKEN) {
+  if (!env.HM_VERCEL_TOKEN) {
     return {
       ok: false,
       svartidMs: 0,
@@ -141,7 +141,7 @@ export async function hentVercelProsjekter(): Promise<
   // limit er dokumentert som streng på denne ruten, ikke tall.
   const svar = await hentJson<RaaProsjekt[] | { projects: RaaProsjekt[] }>(
     url('/v10/projects', { limit: '100' }),
-    { token: env.VERCEL_TOKEN },
+    { token: env.HM_VERCEL_TOKEN },
   )
 
   if (!svar.ok) return svar
@@ -205,11 +205,11 @@ export async function hentDeployHistorikk(
   prosjektId: string,
   antall = 10,
 ): Promise<HentResultat<Deploy[]>> {
-  if (!env.VERCEL_TOKEN) {
+  if (!env.HM_VERCEL_TOKEN) {
     return {
       ok: false,
       svartidMs: 0,
-      feil: { slag: 'avvist', melding: 'VERCEL_TOKEN er ikke satt.' },
+      feil: { slag: 'avvist', melding: 'HM_VERCEL_TOKEN er ikke satt.' },
     }
   }
 
@@ -219,7 +219,7 @@ export async function hentDeployHistorikk(
       target: 'production',
       limit: String(antall),
     }),
-    { token: env.VERCEL_TOKEN },
+    { token: env.HM_VERCEL_TOKEN },
   )
 
   if (!svar.ok) return svar
@@ -246,11 +246,11 @@ export async function hentDeployDetalj(deployId: string): Promise<
     inspiserUrl: string | null
   }>
 > {
-  if (!env.VERCEL_TOKEN) {
+  if (!env.HM_VERCEL_TOKEN) {
     return {
       ok: false,
       svartidMs: 0,
-      feil: { slag: 'avvist', melding: 'VERCEL_TOKEN er ikke satt.' },
+      feil: { slag: 'avvist', melding: 'HM_VERCEL_TOKEN er ikke satt.' },
     }
   }
 
@@ -264,7 +264,7 @@ export async function hentDeployDetalj(deployId: string): Promise<
     url(`/v13/deployments/${encodeURIComponent(deployId)}`, {
       withGitRepoInfo: 'true',
     }),
-    { token: env.VERCEL_TOKEN },
+    { token: env.HM_VERCEL_TOKEN },
   )
 
   if (!svar.ok) return svar
@@ -291,11 +291,11 @@ export async function hentDeployDetalj(deployId: string): Promise<
 export async function hentDomener(
   prosjektId: string,
 ): Promise<HentResultat<{ navn: string; bekreftet: boolean }[]>> {
-  if (!env.VERCEL_TOKEN) {
+  if (!env.HM_VERCEL_TOKEN) {
     return {
       ok: false,
       svartidMs: 0,
-      feil: { slag: 'avvist', melding: 'VERCEL_TOKEN er ikke satt.' },
+      feil: { slag: 'avvist', melding: 'HM_VERCEL_TOKEN er ikke satt.' },
     }
   }
 
@@ -306,7 +306,7 @@ export async function hentDomener(
       production: 'true',
       redirects: 'false',
     }),
-    { token: env.VERCEL_TOKEN },
+    { token: env.HM_VERCEL_TOKEN },
   )
 
   if (!svar.ok) return svar
