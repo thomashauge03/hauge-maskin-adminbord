@@ -154,12 +154,20 @@ export async function hentSisteMaalinger(
  * – ville lagt en migrasjon til for noe som med ti systemer og tre
  * målinger om dagen er tretti rader i døgnet.
  *
- * `maksAlderTimer` finnes fordi en gammel måling er verre enn ingen: et
- * døgn gammelt «OK» leses som «OK nå». Er reserven for gammel, får
- * kallstedet ingenting og viser «uvisst», som er det ærlige svaret.
+ * `maksAlderTimer` er 26 og ikke 6, fordi cron-en bare kjører én gang i
+ * døgnet. Vercel tillater ikke oftere på Hobby-planen – en hyppigere
+ * cron-uttrykk får hele utrullingen til å feile. Med 26 timer finnes det
+ * alltid en måling å falle tilbake på, med en times slark for at
+ * invokeringen kan komme hvor som helst i timen.
+ *
+ * At en gammel måling ikke villeder, hviler derfor helt på at alderen
+ * ALLTID vises ved siden av tilstanden. «Pauset · for 14 timer siden» er
+ * ærlig og nyttig; «Pauset» alene ville vært en påstand om nåtiden vi
+ * ikke kan stå for. Se Kildelinje i src/components/tilstand.tsx – fjernes
+ * aldersvisningen der, må dette tallet ned igjen.
  */
 export async function hentReserveMaalinger(
-  maksAlderTimer = 6,
+  maksAlderTimer = 26,
 ): Promise<Map<string, StatusMaaling>> {
   const supabase = await lagServerKlient()
   const grense = new Date(

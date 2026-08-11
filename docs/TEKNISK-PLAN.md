@@ -133,7 +133,12 @@ Status vises alltid med **tekst**, aldri farge alene.
 ## Statushistorikk – og reserven
 
 Oversikten henter live. Cron-ruten `/api/status/oppdater` lagrer likevel en
-måling tre ganger om dagen, av to grunner.
+måling én gang i døgnet, av to grunner.
+
+Én gang, ikke tre, og det er ikke et valg: Vercel avviser hyppigere
+cron-uttrykk på Hobby-planen med **feilet utrulling** – ikke med en advarsel.
+På Hobby kan invokeringen dessuten komme hvor som helst i den angitte timen.
+Derfor er reservevinduet 26 timer og ikke 24.
 
 Den ene er historikk: spørsmålet man faktisk stiller er «hvor lenge har dette
 vært nede», og det kan ikke besvares fra en tabell som overskrives.
@@ -149,10 +154,12 @@ Det er kvalitativt bedre enn «Uvisst». Tre regler holder det ærlig:
 1. **Bare `ukjent` byttes.** En måling som faktisk fikk svar – også et dårlig
    svar – overskrives aldri av noe eldre. Ellers ville et system som nettopp gikk
    ned blitt vist som grønt fordi det var grønt i morges.
-2. **Alderen vises alltid.** «Pauset» uten alder er en påstand om nåtiden vi ikke
-   kan stå for.
-3. **Eldre enn seks timer faller bort.** Et døgn gammelt «OK» leses som «OK nå».
-   Da er «Uvisst» det ærlige svaret.
+2. **Alderen vises alltid.** Dette er den regelen de to andre hviler på.
+   «Pauset» uten alder er en påstand om nåtiden vi ikke kan stå for; «Pauset ·
+   for 14 timer siden» er ærlig. Fjernes aldersvisningen i `Kildelinje`, må
+   vinduet under kraftig ned.
+3. **Eldre enn 26 timer faller bort.** Da finnes det ingen måling fra siste
+   cron-kjøring, og «Uvisst» er det ærlige svaret.
 
 Cron-ruten sender bevisst *ikke* reserven inn i `hentOversikt`: den skal skrive
 det den faktisk målte nå. Ellers ville en 429 blitt lagret som en fersk måling av

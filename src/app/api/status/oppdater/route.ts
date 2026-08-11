@@ -20,6 +20,17 @@ import type { System } from '@/lib/typer'
     til at tabellen ikke vokser i det uendelige. */
 const OPPBEVARING_DAGER = 60
 
+/*
+ * Cron-en kjører én gang i døgnet, kl. 06 UTC. Ikke oftere, og det er
+ * ikke et valg: Vercel avviser hyppigere uttrykk på Hobby-planen med
+ * feilet utrulling. På Hobby kan invokeringen dessuten komme hvor som
+ * helst i den timen, for å spre last – derfor er reservevinduet i
+ * hentReserveMaalinger 26 timer og ikke 24.
+ *
+ * Oversikten henter live uansett, så én gang i døgnet er nok: denne
+ * ruten er for historikk og for å ha noe å falle tilbake på.
+ */
+
 export async function GET(request: Request) {
   /*
    * Vercel sender CRON_SECRET som Bearer-token på cron-kall. Uten
