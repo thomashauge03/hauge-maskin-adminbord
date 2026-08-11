@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "regions": ["fra1"],
+  "crons": [
+    {
+      "path": "/api/status/oppdater",
+      "schedule": "0 6,12,18 * * *"
+    }
+  ]
+}

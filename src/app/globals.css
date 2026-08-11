@@ -1,0 +1,198 @@
+@import 'tailwindcss';
+
+/* ═══════════════════════════════════════════════════════════
+   Hauge Maskin Adminbord – designsystem
+
+   Samme merkefarger og former som resten av Hauge Maskin-appene,
+   men annen brukskontekst. Utleieappen brukes ute i sollys med
+   hansker, og har derfor 56 px trykkflater. Adminbordet brukes
+   ved skrivebord, med mus, og skal vise mange systemer samtidig.
+   Derfor: tettere flater, mindre knapper, mer tabell.
+
+   Farger og skygger er beholdt identiske på tvers av appene, slik
+   at det er åpenbart at det hører sammen.
+   ═══════════════════════════════════════════════════════════ */
+
+@theme {
+  /* ── Merkefarger ───────────────────────────────────────── */
+  --color-hm-red: #d81e28;
+  --color-hm-red-hover: #b8151f;
+  --color-hm-red-ink: #a8151d; /* rød tekst på hvitt – når 4.5:1 */
+  --color-hm-black: #0b0b0c;
+  --color-hm-soot: #17181a; /* opphøyd flate i mørk modus */
+
+  /* ── Nøytraler ─────────────────────────────────────────── */
+  --color-hm-100: #f4f4f5;
+  --color-hm-200: #e4e4e7;
+  --color-hm-300: #d0d0d5;
+  --color-hm-500: #71717a;
+  --color-hm-700: #3f3f46;
+
+  /* ── Status ────────────────────────────────────────────────
+     Grønn/gul/rød er de tre svarene adminbordet gir om et system.
+     Blå finnes ikke: den ville lest som «info» og gjort at øyet
+     må lese teksten for å vite om noe er galt. */
+  --color-hm-green: #15803d;
+  --color-hm-amber: #b45309;
+
+  --font-display: var(--font-barlow), system-ui, sans-serif;
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+/* ── Semantiske variabler, byttes av tema ─────────────────── */
+:root {
+  --flate: #ffffff;
+  --flate-2: #f4f4f5;
+  --flate-opp: #ffffff;
+  --blekk: #0b0b0c;
+  --blekk-svak: #52525b;
+  --kant: #e4e4e7;
+  --kant-sterk: #0b0b0c;
+}
+
+/* Adminbordet står ofte åpent hele dagen ved siden av annet arbeid.
+   Mørk modus er derfor ikke pynt, men det som gjør at skjermen ikke
+   lyser opp rommet på et kveldsskift. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --flate: #0b0b0c;
+    --flate-2: #131315;
+    --flate-opp: #17181a;
+    --blekk: #fafafa;
+    --blekk-svak: #a1a1aa;
+    --kant: #2a2b2e;
+    --kant-sterk: #3f3f46;
+  }
+}
+
+body {
+  background: var(--flate);
+  color: var(--blekk);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Overskrifter: kondensert og fete, som logoen ─────────── */
+.hm-display {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  line-height: 1.05;
+}
+
+/* Skrå rød aksentstrek – ekkoet av kursiven i logoen.
+   Dekorativ, derfor aria-hidden der den brukes. */
+.hm-skrastrek {
+  display: inline-block;
+  width: 3rem;
+  height: 0.375rem;
+  background: var(--color-hm-red);
+  transform: skewX(-18deg);
+}
+
+/* Hard skygge i stedet for myk blur – matcher logoens
+   3D-ekstrudering. Brukes sparsomt her: på et adminbord med tjue
+   kort ville tjue skygger blitt støy. Kun primærhandlinger. */
+.hm-kant-skygge {
+  box-shadow: 4px 4px 0 0 var(--kant-sterk);
+}
+.hm-kant-skygge-sm {
+  box-shadow: 3px 3px 0 0 var(--kant-sterk);
+}
+
+/* Trykk-tilbakemelding: knappen «setter seg» ned i skyggen.
+   Ingen layoutforskyvning – kun transform. */
+.hm-trykk {
+  transition:
+    transform 150ms cubic-bezier(0.2, 0, 0, 1),
+    box-shadow 150ms cubic-bezier(0.2, 0, 0, 1),
+    background-color 150ms ease-out;
+}
+.hm-trykk:active:not(:disabled) {
+  transform: translate(3px, 3px);
+  box-shadow: 0 0 0 0 var(--kant-sterk);
+}
+
+/* Diagonal stripe – anleggsvarsel-motiv. Her brukt kun på toppkanten
+   av kort som er i faktisk feiltilstand, som en fysisk sperrebånd. */
+.hm-varselstriper {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--color-hm-black) 0 10px,
+    var(--color-hm-red) 10px 20px
+  );
+}
+
+/* ── Skjelett: plassholder mens siden hentes ──────────────────
+   Adminbordet venter på sju eksterne API-er. Skjelettet er derfor
+   ikke pynt, men det som skiller «henter» fra «tomt». Et rolig
+   sveip framfor blinking; reduced motion stopper det helt. */
+@keyframes hm-sveip {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+.hm-skjelett {
+  background-image: linear-gradient(
+    90deg,
+    var(--kant) 25%,
+    var(--flate-2) 50%,
+    var(--kant) 75%
+  );
+  background-size: 200% 100%;
+  animation: hm-sveip 1.4s linear infinite;
+}
+
+/* ── Fokus: alltid synlig, aldri fjernet ──────────────────── */
+:where(a, button, input, textarea, select, [tabindex]):focus-visible {
+  outline: 3px solid var(--color-hm-red);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* ── Inngangsanimasjon ────────────────────────────────────── */
+@keyframes hm-inn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.hm-inn {
+  animation: hm-inn 320ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+/* Bevegelse er aldri nødvendig for å forstå grensesnittet. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .hm-trykk:active:not(:disabled) {
+    transform: none;
+  }
+}
+
+/* Tall i tabeller skal ikke hoppe når de oppdateres */
+.hm-tall {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Prosjekt-ID-er, nøkler og commit-hasher leses tegn for tegn.
+   Monospace gjør at 0 og O ikke forveksles. */
+.hm-kode {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  letter-spacing: -0.01em;
+}

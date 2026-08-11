@@ -1,0 +1,295 @@
+import type { Maaling, System, SystemStatus, Tilstand } from '@/lib/typer'
+import {
+  hentSupabaseProsjekter,
+  type ProsjektStatus,
+  type SupabaseProsjekt,
+} from '@/lib/plattform/supabase-api'
+import {
+  hentVercelProsjekter,
+  type DeployTilstand,
+  type VercelProsjekt,
+} from '@/lib/plattform/vercel'
+import 'server-only'
+
+/* ═══════════════════════════════════════════════════════════
+   Samler status for alle systemer til det oversikten viser.
+
+   To API-kall totalt, ikke to per system. Både Supabase og Vercel gir
+   hele lista si i ett kall, med status og siste deploy inkludert. Med
+   ti systemer er alternativet tjue kall hver gang forsiden lastes, og
+   da treffer man ratebegrensningen på en travel dag.
+
+   Detaljene – helse per tjeneste, diskbruk, radtall – hentes først på
+   systemsiden, der man har bedt om dem.
+   ═══════════════════════════════════════════════════════════ */
+
+/**
+ * Oversetter Supabase sin prosjektstatus til en av våre fire.
+ *
+ * Grupperingen er det som gjør forsiden lesbar: det er forskjell på
+ * «pauset, men kan vekkes» og «restore feilet», og bare den siste skal
+ * få noen ut av stolen.
+ */
+function fraSupabaseStatus(status: ProsjektStatus): {
+  tilstand: Tilstand
+  melding: string
+} {
+  switch (status) {
+    case 'ACTIVE_HEALTHY':
+      return { tilstand: 'ok', melding: 'Aktiv' }
+
+    // Pauset er ikke feil – gratisprosjekter pauses etter en uke uten
+    // trafikk. Men det betyr at appen er nede for brukerne, så det kan
+    // ikke være grønt heller.
+    case 'INACTIVE':
+      return { tilstand: 'advarsel', melding: 'Pauset' }
+    case 'PAUSING':
+      return { tilstand: 'advarsel', melding: 'Pauses nå' }
+    case 'RESTORING':
+      return { tilstand: 'advarsel', melding: 'Gjenopprettes' }
+    case 'COMING_UP':
+      return { tilstand: 'advarsel', melding: 'Starter opp' }
+    case 'RESTARTING':
+      return { tilstand: 'advarsel', melding: 'Starter på nytt' }
+    case 'UPGRADING':
+      return { tilstand: 'advarsel', melding: 'Oppgraderes' }
+    case 'RESIZING':
+      return { tilstand: 'advarsel', melding: 'Endrer størrelse' }
+
+    case 'ACTIVE_UNHEALTHY':
+      return { tilstand: 'nede', melding: 'Aktiv, men usunn' }
+    case 'GOING_DOWN':
+      return { tilstand: 'nede', melding: 'Går ned' }
+    case 'INIT_FAILED':
+      return { tilstand: 'nede', melding: 'Oppsett feilet' }
+    case 'RESTORE_FAILED':
+      return { tilstand: 'nede', melding: 'Gjenoppretting feilet' }
+    case 'PAUSE_FAILED':
+      return { tilstand: 'nede', melding: 'Pausing feilet' }
+    case 'REMOVED':
+      return { tilstand: 'nede', melding: 'Slettet' }
+
+    case 'UNKNOWN':
+      return { tilstand: 'ukjent', melding: 'Supabase vet ikke' }
+  }
+}
+
+/** Oversetter Vercel sin byggetilstand til en av våre fire. */
+function fraDeployTilstand(tilstand: DeployTilstand): {
+  tilstand: Tilstand
+  melding: string
+} {
+  switch (tilstand) {
+    case 'READY':
+      return { tilstand: 'ok', melding: 'Utrullet' }
+
+    // Bygget feilet, men forrige versjon kjører fortsatt. Nettsiden er
+    // altså oppe – det er endringen som ikke kom ut. Derfor advarsel og
+    // ikke «nede»: det er to helt ulike ting å rykke ut på.
+    case 'ERROR':
+      return { tilstand: 'advarsel', melding: 'Byggefeil' }
+    case 'CANCELED':
+      return { tilstand: 'advarsel', melding: 'Avbrutt' }
+    case 'BUILDING':
+      return { tilstand: 'advarsel', melding: 'Bygger' }
+    case 'QUEUED':
+      return { tilstand: 'advarsel', melding: 'I kø' }
+    case 'INITIALIZING':
+      return { tilstand: 'advarsel', melding: 'Starter bygg' }
+
+    case 'BLOCKED':
+      return { tilstand: 'nede', melding: 'Blokkert' }
+    case 'DELETED':
+      return { tilstand: 'nede', melding: 'Slettet' }
+  }
+}
+
+/** Verste tilstand vinner. Ett rødt system skal ikke skjules bak ni grønne. */
+const vekt: Record<Tilstand, number> = {
+  ok: 0,
+  ukjent: 1,
+  advarsel: 2,
+  nede: 3,
+}
+
+export function verste(tilstander: Tilstand[]): Tilstand {
+  if (tilstander.length === 0) return 'ukjent'
+  return tilstander.reduce((a, b) => (vekt[b] > vekt[a] ? b : a))
+}
+
+export type Oversikt = {
+  systemer: SystemStatus[]
+  /**
+   * Da statusen ble hentet, i millisekunder.
+   *
+   * Følger med dataene i stedet for å bli lest med Date.now() nede i
+   * visningen. En komponent som leser klokka under rendring er ikke
+   * ren – den gir ulikt svar hver gang React rendrer den om igjen, og
+   * alle «for 3 minutter siden» i samme visning kan bli regnet fra
+   * ulike øyeblikk. Her er tidspunktet en del av målingen, som er det
+   * det egentlig er.
+   */
+  hentetMs: number
+  /** Satt når hele Vercel-integrasjonen ikke kunne brukes. */
+  vercelFeil: string | null
+  supabaseFeil: string | null
+  /** Vercel-prosjekter som ikke er koblet til noe system i registeret. */
+  ukobledeVercel: VercelProsjekt[]
+  /** Supabase-prosjekter som ikke er koblet til noe system i registeret. */
+  ukobledeSupabase: SupabaseProsjekt[]
+}
+
+/**
+ * Henter status for alle systemer.
+ *
+ * De to plattformkallene startes samtidig og ventes på sammen. Kjørte de
+ * etter hverandre, ville forsiden brukt summen av begge tidsfristene –
+ * seksten sekunder i verste fall – i stedet for den lengste.
+ */
+export async function hentOversikt(systemer: System[]): Promise<Oversikt> {
+  const vercelLøfte = hentVercelProsjekter()
+  const supabaseLøfte = hentSupabaseProsjekter()
+
+  const [vercelSvar, supabaseSvar] = await Promise.all([
+    vercelLøfte,
+    supabaseLøfte,
+  ])
+
+  const vercelListe = vercelSvar.ok ? vercelSvar.data : []
+  const supabaseListe = supabaseSvar.ok ? supabaseSvar.data : []
+
+  const vercelKart = new Map(vercelListe.map((p) => [p.id, p]))
+  const vercelNavnKart = new Map(vercelListe.map((p) => [p.navn, p]))
+  const supabaseKart = new Map(supabaseListe.map((p) => [p.ref, p]))
+
+  const brukteVercel = new Set<string>()
+  const brukteSupabase = new Set<string>()
+
+  const status: SystemStatus[] = systemer.map((system) => {
+    const maalinger: Maaling[] = []
+
+    // ── Supabase ──
+    if (system.supabaseProsjektRef) {
+      const p = supabaseKart.get(system.supabaseProsjektRef)
+      if (p) brukteSupabase.add(p.ref)
+
+      if (!supabaseSvar.ok) {
+        maalinger.push({
+          kilde: 'supabase',
+          tilstand: 'ukjent',
+          melding: supabaseSvar.feil.melding,
+          detaljer: {},
+          svartidMs: supabaseSvar.svartidMs,
+        })
+      } else if (!p) {
+        maalinger.push({
+          kilde: 'supabase',
+          tilstand: 'ukjent',
+          // Vanligste årsak er at prosjektet ligger i en annen
+          // organisasjon enn tokenet, ikke at det er borte.
+          melding: 'Prosjektet finnes ikke i lista tokenet ser.',
+          detaljer: { ref: system.supabaseProsjektRef },
+          svartidMs: supabaseSvar.svartidMs,
+        })
+      } else {
+        const { tilstand, melding } = fraSupabaseStatus(p.status)
+        maalinger.push({
+          kilde: 'supabase',
+          tilstand,
+          melding,
+          detaljer: {
+            status: p.status,
+            region: p.region,
+            postgres: p.postgresVersjon,
+          },
+          svartidMs: supabaseSvar.svartidMs,
+        })
+      }
+    }
+
+    // ── Vercel ──
+    // Kobler på ID når den finnes, ellers på navn. Navnekoblingen er
+    // der for at et system skal kunne registreres før man har gravd
+    // fram prosjekt-ID-en fra Vercel.
+    const vp =
+      (system.vercelProsjektId && vercelKart.get(system.vercelProsjektId)) ||
+      (system.vercelProsjektNavn && vercelNavnKart.get(system.vercelProsjektNavn)) ||
+      null
+
+    if (system.vercelProsjektId || system.vercelProsjektNavn) {
+      if (vp) brukteVercel.add(vp.id)
+
+      if (!vercelSvar.ok) {
+        maalinger.push({
+          kilde: 'vercel',
+          tilstand: 'ukjent',
+          melding: vercelSvar.feil.melding,
+          detaljer: {},
+          svartidMs: vercelSvar.svartidMs,
+        })
+      } else if (!vp) {
+        maalinger.push({
+          kilde: 'vercel',
+          tilstand: 'ukjent',
+          melding: 'Prosjektet finnes ikke på Vercel-kontoen.',
+          detaljer: {},
+          svartidMs: vercelSvar.svartidMs,
+        })
+      } else if (vp.pauset) {
+        maalinger.push({
+          kilde: 'vercel',
+          tilstand: 'advarsel',
+          melding: 'Prosjektet er pauset på Vercel',
+          detaljer: {},
+          svartidMs: vercelSvar.svartidMs,
+        })
+      } else if (!vp.produksjon) {
+        maalinger.push({
+          kilde: 'vercel',
+          tilstand: 'ukjent',
+          melding: 'Ingen produksjonsutrulling ennå',
+          detaljer: {},
+          svartidMs: vercelSvar.svartidMs,
+        })
+      } else {
+        const d = vp.produksjon
+        const { tilstand, melding } = fraDeployTilstand(d.tilstand)
+        maalinger.push({
+          kilde: 'vercel',
+          tilstand,
+          // Et READY-bygg som ikke fikk domenet sitt er ikke oppe for
+          // brukeren, selv om Vercel kaller det klart.
+          melding: d.aliasFeil ? `${melding}, men domenet feilet` : melding,
+          detaljer: {
+            deployId: d.id,
+            readyState: d.tilstand,
+            url: d.url,
+            opprettet: d.opprettet,
+            commitGren: d.commitGren,
+            commitMelding: d.commitMelding,
+            feilmelding: d.feilmelding,
+          },
+          svartidMs: vercelSvar.svartidMs,
+        })
+      }
+    }
+
+    return {
+      system,
+      maalinger,
+      samletTilstand: verste(maalinger.map((m) => m.tilstand)),
+    }
+  })
+
+  return {
+    systemer: status,
+    hentetMs: Date.now(),
+    vercelFeil: vercelSvar.ok ? null : vercelSvar.feil.melding,
+    supabaseFeil: supabaseSvar.ok ? null : supabaseSvar.feil.melding,
+    // Dette er halve poenget med adminbordet: å se hva som finnes ute
+    // som ikke står i registeret. Et Vercel-prosjekt ingen husker er
+    // enten glemt eller noe som skulle vært slettet.
+    ukobledeVercel: vercelListe.filter((p) => !brukteVercel.has(p.id)),
+    ukobledeSupabase: supabaseListe.filter((p) => !brukteSupabase.has(p.ref)),
+  }
+}
