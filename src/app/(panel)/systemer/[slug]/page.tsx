@@ -117,7 +117,7 @@ export default async function SystemSide({
         <h2 className="hm-display text-xl">Database</h2>
         {system.supabaseProsjektRef ? (
           <Suspense fallback={<DatabaseSkjelett />}>
-            <Databasedel prosjektRef={system.supabaseProsjektRef} />
+            <Databasedel system={system} />
           </Suspense>
         ) : (
           <p className="text-sm text-[var(--blekk-svak)]">

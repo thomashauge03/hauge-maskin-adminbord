@@ -26,6 +26,7 @@ type SystemRad = {
   slug: string
   navn: string
   beskrivelse: string | null
+  konto_id: string | null
   supabase_prosjekt_ref: string | null
   supabase_url: string | null
   vercel_prosjekt_id: string | null
@@ -46,6 +47,7 @@ function tilSystem(r: SystemRad): System {
     slug: r.slug,
     navn: r.navn,
     beskrivelse: r.beskrivelse,
+    kontoId: r.konto_id,
     supabaseProsjektRef: r.supabase_prosjekt_ref,
     supabaseUrl: r.supabase_url,
     vercelProsjektId: r.vercel_prosjekt_id,

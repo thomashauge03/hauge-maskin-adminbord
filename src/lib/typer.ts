@@ -28,6 +28,15 @@ export type System = {
   slug: string
   navn: string
   beskrivelse: string | null
+  /**
+   * Supabase-kontoen som eier prosjektet.
+   *
+   * Avgjør hvilket management-token som gjelder. Null betyr at systemet
+   * faller tilbake på SUPABASE_MANAGEMENT_TOKEN – som for de fleste av
+   * disse systemene ikke rekker fram, siden de ligger under fire ulike
+   * innlogginger.
+   */
+  kontoId: string | null
   supabaseProsjektRef: string | null
   supabaseUrl: string | null
   vercelProsjektId: string | null

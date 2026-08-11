@@ -6,6 +6,7 @@ import type {
   SystemStatus,
   Tilstand,
 } from '@/lib/typer'
+import { hentTokenKart, tokenFor } from '@/lib/kontoar'
 import {
   hentSupabaseProsjekter,
   type ProsjektStatus,
@@ -21,10 +22,14 @@ import 'server-only'
 /* ═══════════════════════════════════════════════════════════
    Samler status for alle systemer til det oversikten viser.
 
-   To API-kall totalt, ikke to per system. Både Supabase og Vercel gir
-   hele lista si i ett kall, med status og siste deploy inkludert. Med
-   ti systemer er alternativet tjue kall hver gang forsiden lastes, og
-   da treffer man ratebegrensningen på en travel dag.
+   Ett kall per Supabase-KONTO pluss ett til Vercel – ikke ett per system.
+   Begge leverandørene gir hele lista si i ett kall, med status og siste
+   deploy inkludert, så tolv systemer koster fem kall og ikke
+   tjuefire. Alternativet ville truffet ratebegrensningen på en travel dag.
+
+   Grunnen til at det er per konto og ikke ett totalt: et Supabase-token
+   ser bare prosjekter i organisasjoner den kontoen er med i, og
+   systemene er fordelt på fire ulike innlogginger. Se lib/kontoar.ts.
 
    Detaljene – helse per tjeneste, diskbruk, radtall – hentes først på
    systemsiden, der man har bedt om dem.
@@ -173,7 +178,10 @@ export type Oversikt = {
   hentetMs: number
   /** Satt når hele Vercel-integrasjonen ikke kunne brukes. */
   vercelFeil: string | null
+  /** Satt bare når ALLE Supabase-kontoene feilet. */
   supabaseFeil: string | null
+  /** Konto-id-er som mangler token. En oppsettsmangel, ikke et driftsavvik. */
+  kontoerUtenToken: string[]
   /** Vercel-prosjekter som ikke er koblet til noe system i registeret. */
   ukobledeVercel: VercelProsjekt[]
   /** Supabase-prosjekter som ikke er koblet til noe system i registeret. */
@@ -201,16 +209,64 @@ export async function hentOversikt(
   systemer: System[],
   reserve?: Map<string, StatusMaaling>,
 ): Promise<Oversikt> {
-  const vercelLøfte = hentVercelProsjekter()
-  const supabaseLøfte = hentSupabaseProsjekter()
+  /*
+   * Ett Supabase-kall per KONTO, ikke ett totalt og ikke ett per system.
+   *
+   * Systemene ligger under fire ulike innlogginger, og et token ser bare
+   * prosjekter i organisasjoner den kontoen er med i. Ett kall ville
+   * derfor vist tre av tolv systemer som «finnes ikke», uten at noe var
+   * galt. Ett kall per system ville vært tolv kall der fire holder.
+   *
+   * Kontoer uten token hoppes over her og havner i `manglerToken`, som
+   * grensesnittet viser som en egen beskjed – det er en
+   * oppsettsmangel, ikke et driftsavvik.
+   */
+  const tokenKart = await hentTokenKart()
 
-  const [vercelSvar, supabaseSvar] = await Promise.all([
-    vercelLøfte,
-    supabaseLøfte,
+  const kontoerIBruk = [
+    ...new Set(
+      systemer
+        .filter((s) => s.supabaseProsjektRef)
+        .map((s) => s.kontoId ?? null),
+    ),
+  ]
+
+  const manglerToken: string[] = []
+  const kontoOppslag: { kontoId: string | null; token: string }[] = []
+  for (const kontoId of kontoerIBruk) {
+    const token = tokenFor(tokenKart, kontoId)
+    if (token) kontoOppslag.push({ kontoId, token })
+    else if (kontoId) manglerToken.push(kontoId)
+  }
+
+  // Alle kontoene og Vercel startes samtidig. Etter hverandre ville
+  // forsiden brukt summen av tidsfristene – over førti sekunder med fire
+  // kontoer i verste fall.
+  const [vercelSvar, ...kontoSvar] = await Promise.all([
+    hentVercelProsjekter(),
+    ...kontoOppslag.map((k) => hentSupabaseProsjekter(k.token)),
   ])
 
   const vercelListe = vercelSvar.ok ? vercelSvar.data : []
-  const supabaseListe = supabaseSvar.ok ? supabaseSvar.data : []
+
+  /*
+   * Prosjektene fra alle kontoene slås sammen til én liste. Refene er
+   * globalt unike hos Supabase, så det kan ikke kollidere.
+   */
+  const supabaseListe = kontoSvar.flatMap((s) => (s.ok ? s.data : []))
+
+  // Feilen fra en konto gjelder bare systemene under den. Vi tar vare på
+  // den per konto, slik at ett utløpt token ikke får ni friske systemer
+  // til å se uvisse ut.
+  const feilPerKonto = new Map<string | null, string>()
+  kontoSvar.forEach((s, i) => {
+    if (!s.ok) feilPerKonto.set(kontoOppslag[i].kontoId, s.feil.melding)
+  })
+
+  const supabaseSvartid = Math.max(
+    0,
+    ...kontoSvar.map((s) => s.svartidMs),
+  )
 
   const vercelKart = new Map(vercelListe.map((p) => [p.id, p]))
   const vercelNavnKart = new Map(vercelListe.map((p) => [p.navn, p]))
@@ -227,23 +283,38 @@ export async function hentOversikt(
       const p = supabaseKart.get(system.supabaseProsjektRef)
       if (p) brukteSupabase.add(p.ref)
 
-      if (!supabaseSvar.ok) {
+      // Feilen som gjelder DETTE systemet, ikke en samlefeil. Et utløpt
+      // token på én konto skal ikke gjøre systemene under de tre andre
+      // uvisse.
+      const kontoFeil = feilPerKonto.get(system.kontoId ?? null)
+      const harToken = Boolean(tokenFor(tokenKart, system.kontoId))
+
+      if (!harToken) {
         maalinger.push({
           kilde: 'supabase',
           tilstand: 'ukjent',
-          melding: supabaseSvar.feil.melding,
+          melding: 'Mangler token for kontoen som eier prosjektet',
+          detaljer: { kontoId: system.kontoId },
+          svartidMs: 0,
+        })
+      } else if (kontoFeil) {
+        maalinger.push({
+          kilde: 'supabase',
+          tilstand: 'ukjent',
+          melding: kontoFeil,
           detaljer: {},
-          svartidMs: supabaseSvar.svartidMs,
+          svartidMs: supabaseSvartid,
         })
       } else if (!p) {
         maalinger.push({
           kilde: 'supabase',
           tilstand: 'ukjent',
-          // Vanligste årsak er at prosjektet ligger i en annen
-          // organisasjon enn tokenet, ikke at det er borte.
-          melding: 'Prosjektet finnes ikke i lista tokenet ser.',
+          // Tokenet svarte, men prosjektet var ikke i lista. Da er det
+          // registrert på feil konto, eller refen er skrevet feil.
+          melding:
+            'Prosjektet er ikke i lista til den kontoen. Feil konto registrert?',
           detaljer: { ref: system.supabaseProsjektRef },
-          svartidMs: supabaseSvar.svartidMs,
+          svartidMs: supabaseSvartid,
         })
       } else {
         const { tilstand, melding } = fraSupabaseStatus(p.status)
@@ -256,7 +327,7 @@ export async function hentOversikt(
             region: p.region,
             postgres: p.postgresVersjon,
           },
-          svartidMs: supabaseSvar.svartidMs,
+          svartidMs: supabaseSvartid,
         })
       }
     }
@@ -351,7 +422,13 @@ export async function hentOversikt(
     systemer: status,
     hentetMs: Date.now(),
     vercelFeil: vercelSvar.ok ? null : vercelSvar.feil.melding,
-    supabaseFeil: supabaseSvar.ok ? null : supabaseSvar.feil.melding,
+    // Bare satt når ALLE kontoene feilet. Feiler én av fire, er det ikke
+    // integrasjonen som er nede, og en stripe øverst ville vært feil.
+    supabaseFeil:
+      kontoOppslag.length > 0 && feilPerKonto.size === kontoOppslag.length
+        ? [...feilPerKonto.values()][0]
+        : null,
+    kontoerUtenToken: manglerToken,
     // Dette er halve poenget med adminbordet: å se hva som finnes ute
     // som ikke står i registeret. Et Vercel-prosjekt ingen husker er
     // enten glemt eller noe som skulle vært slettet.

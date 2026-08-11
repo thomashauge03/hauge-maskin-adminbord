@@ -1,5 +1,6 @@
 import { lesSpørring } from '@/lib/plattform/supabase-api'
 import { lagFremmedKlient } from '@/lib/supabase/fremmed'
+import { hentTokenKart, tokenFor } from '@/lib/kontoar'
 import type { EksternBruker, System } from '@/lib/typer'
 import 'server-only'
 
@@ -87,7 +88,8 @@ export async function hentBrukereISystem(
     }
   }
 
-  // ── Vei 1: Management-API-et ──
+  // ── Vei 1: Management-API-et, med kontoens eget token ──
+  const token = tokenFor(await hentTokenKart(), system.kontoId)
   const svar = await lesSpørring<{
     id: string
     email: string | null
@@ -95,7 +97,7 @@ export async function hentBrukereISystem(
     last_sign_in_at: string | null
     epost_bekreftet: boolean
     aktiv: boolean
-  }>(system.supabaseProsjektRef, SPØRRING_BRUKERE)
+  }>(token, system.supabaseProsjektRef, SPØRRING_BRUKERE)
 
   if (svar.ok) {
     return {

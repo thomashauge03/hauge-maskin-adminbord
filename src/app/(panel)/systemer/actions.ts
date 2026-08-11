@@ -8,6 +8,7 @@ import { lagServerKlient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { logg } from '@/lib/data'
 import { forkort, krypter } from '@/lib/krypto'
+import { hentTokenKart, tokenFor } from '@/lib/kontoar'
 import {
   finnAnon,
   finnServiceRole,
@@ -280,7 +281,18 @@ export async function hentNøklerAutomatisk(
 ): Promise<SystemTilstand> {
   const meg = await krevEier()
 
-  const svar = await hentProsjektNøkler(prosjektRef)
+  // Kontoen som eier prosjektet avgjor hvilket token som rekker fram.
+  const { data: rad } = await supabaseAdmin
+    .from('systemer')
+    .select('konto_id')
+    .eq('id', systemId)
+    .single()
+
+  const token = tokenFor(
+    await hentTokenKart(),
+    (rad?.konto_id as string | null) ?? null,
+  )
+  const svar = await hentProsjektNøkler(token, prosjektRef)
   if (!svar.ok) return { feil: svar.feil.melding }
 
   const service = finnServiceRole(svar.data)

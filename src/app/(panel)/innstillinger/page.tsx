@@ -1,81 +1,92 @@
 import { Suspense } from 'react'
 import type { Metadata } from 'next'
 import { krevAdmin } from '@/lib/auth'
-import { hentSupabaseProsjekter, supabaseApiKlar } from '@/lib/plattform/supabase-api'
+import { hentKontoar, hentTokenKart, tokenFor, type Konto } from '@/lib/kontoar'
+import { hentSupabaseProsjekter } from '@/lib/plattform/supabase-api'
 import { hentVercelProsjekter, vercelKlar } from '@/lib/plattform/vercel'
+import { hentSystemer } from '@/lib/data'
 import {
   Kodebit,
   Kort,
   KortTittel,
   Merke,
   Seksjonstittel,
+  TomTilstand,
 } from '@/components/ui'
+import { visDatoTid } from '@/lib/format'
 
 export const metadata: Metadata = { title: 'Innstillinger' }
 
 /**
  * Innstillingssiden er lesbar, ikke redigerbar.
  *
- * Tokens settes som miljøvariabler på Vercel, ikke i grensesnittet. Et
- * skjema her ville betydd at adminbordet kunne endre nøkkelen som gir
- * adgang til alle prosjektene – fra en nettleser, uten utrulling. Det er
- * for stor makt for et skjema. Siden viser i stedet HVA som mangler og
- * hvor det settes.
+ * Tokens settes som miljøvariabler eller legges inn kryptert i
+ * databasen – ikke i et skjema her. Et skjema ville betydd at
+ * adminbordet kunne endre nøkkelen som gir adgang til alle prosjektene,
+ * fra en nettleser, uten utrulling. Det er for stor makt for et skjema.
+ * Siden viser i stedet HVA som mangler og hvor det settes.
  */
 export default async function InnstillingerSide() {
   await krevAdmin()
 
-  const supabase = supabaseApiKlar()
+  const [kontoar, systemer] = await Promise.all([
+    hentKontoar(),
+    hentSystemer(true),
+  ])
   const vercel = vercelKlar()
+
+  // Hvor mange systemer henger på hver konto. Et token uten systemer er
+  // like uinteressant som et system uten token.
+  const antallPerKonto = new Map<string | null, number>()
+  for (const s of systemer) {
+    if (!s.supabaseProsjektRef) continue
+    const k = s.kontoId ?? null
+    antallPerKonto.set(k, (antallPerKonto.get(k) ?? 0) + 1)
+  }
+
+  const utenKonto = antallPerKonto.get(null) ?? 0
 
   return (
     <div className="space-y-7">
-      <Seksjonstittel under="Tokens settes som miljøvariabler på Vercel og i .env.local lokalt – ikke her. Denne siden viser om de virker.">
+      <Seksjonstittel under="Systemene ligger under flere Supabase-innlogginger. Et token ser bare prosjekter i organisasjoner den kontoen er med i, så det trengs ett per konto.">
         Innstillinger
       </Seksjonstittel>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Kort>
-          <KortTittel
-            handling={
-              <Merke type={supabase.klar ? 'grønn' : 'rød'}>
-                {supabase.klar ? 'satt' : 'mangler'}
-              </Merke>
-            }
-          >
-            Supabase Management
-          </KortTittel>
-          <div className="space-y-3 px-4 py-4 text-sm">
-            <p>
-              <Kodebit>SUPABASE_MANAGEMENT_TOKEN</Kodebit>
-            </p>
-            {supabase.klar ? (
-              <Suspense
-                fallback={
-                  <p className="text-[var(--blekk-svak)]">Prøver tokenet …</p>
-                }
-              >
-                <SupabaseProve />
-              </Suspense>
-            ) : (
-              <p className="text-[var(--blekk-svak)]">{supabase.grunn}</p>
-            )}
-            <p className="text-xs text-[var(--blekk-svak)]">
-              Uten dette virker ikke databasestatus, brukerlisten eller
-              automatisk henting av nøkler. Lages på{' '}
-              <a
-                href="https://supabase.com/dashboard/account/tokens"
-                target="_blank"
-                rel="noreferrer"
-                className="underline"
-              >
-                supabase.com/dashboard/account/tokens
-              </a>
-              .
-            </p>
-          </div>
-        </Kort>
+      {/* ── Supabase-kontoene ── */}
+      <section className="space-y-3">
+        <h2 className="hm-display text-xl">Supabase-kontoer</h2>
 
+        {kontoar.length === 0 ? (
+          <TomTilstand tittel="Ingen kontoer registrert">
+            Kjør migrasjon <Kodebit>0004_supabase_kontoar.sql</Kodebit> og legg
+            inn kontoene. Til da faller alle systemene tilbake på{' '}
+            <Kodebit>SUPABASE_MANAGEMENT_TOKEN</Kodebit>, som bare rekker
+            prosjekter i den ene kontoen den tilhører.
+          </TomTilstand>
+        ) : (
+          <div className="grid gap-4 lg:grid-cols-2">
+            {kontoar.map((k) => (
+              <KontoKort
+                key={k.id}
+                konto={k}
+                antallSystemer={antallPerKonto.get(k.id) ?? 0}
+              />
+            ))}
+          </div>
+        )}
+
+        {utenKonto > 0 && (
+          <p className="text-sm text-[var(--blekk-svak)]">
+            {utenKonto} system med database mangler konto, og bruker{' '}
+            <Kodebit>SUPABASE_MANAGEMENT_TOKEN</Kodebit>. Rekker den ikke fram,
+            vises de som uvisst.
+          </p>
+        )}
+      </section>
+
+      {/* ── Vercel ── */}
+      <section className="space-y-3">
+        <h2 className="hm-display text-xl">Vercel</h2>
         <Kort>
           <KortTittel
             handling={
@@ -84,11 +95,12 @@ export default async function InnstillingerSide() {
               </Merke>
             }
           >
-            Vercel
+            Utrullingsstatus
           </KortTittel>
           <div className="space-y-3 px-4 py-4 text-sm">
             <p>
-              <Kodebit>HM_VERCEL_TOKEN</Kodebit> og <Kodebit>HM_VERCEL_TEAM_ID</Kodebit>
+              <Kodebit>HM_VERCEL_TOKEN</Kodebit> og{' '}
+              <Kodebit>HM_VERCEL_TEAM_ID</Kodebit>
             </p>
             {vercel.klar ? (
               <Suspense
@@ -101,8 +113,10 @@ export default async function InnstillingerSide() {
             ) : (
               <p className="text-[var(--blekk-svak)]">{vercel.grunn}</p>
             )}
+            {/* HM_-prefikset er ikke en smakssak: hele VERCEL_*-navnerommet
+                er systemeid, og Vercel avviser egne variabler der. */}
             <p className="text-xs text-[var(--blekk-svak)]">
-              Uten dette vises ingen utrullingsstatus. Token lages på{' '}
+              Token lages på{' '}
               <a
                 href="https://vercel.com/account/tokens"
                 target="_blank"
@@ -111,18 +125,20 @@ export default async function InnstillingerSide() {
               >
                 vercel.com/account/tokens
               </a>
-              . Team-ID-en står i teaminnstillingene.
+              . Navnene må ha <Kodebit>HM_</Kodebit>-prefiks – Vercel avviser
+              egne variabler som begynner med <Kodebit>VERCEL_</Kodebit>.
             </p>
           </div>
         </Kort>
-      </div>
+      </section>
 
+      {/* ── Krypteringsnøkkel ── */}
       <Kort>
         <KortTittel>Krypteringsnøkkel</KortTittel>
         <div className="space-y-2 px-4 py-4 text-sm">
           <p>
-            <Kodebit>KRYPTONOKKEL</Kodebit> – 32 byte base64. Krypterer de
-            andre systemenes service role-nøkler før de lagres.
+            <Kodebit>KRYPTONOKKEL</Kodebit> – 32 byte base64. Krypterer både
+            kontotokenene og de andre systemenes service role-nøkler.
           </p>
           {/* Selve nøkkelen vises aldri, ikke engang forkortet: den er
               det ene som gjør en databasedump verdiløs. */}
@@ -131,8 +147,10 @@ export default async function InnstillingerSide() {
             er satt og har riktig lengde.
           </p>
           <p className="text-xs text-[var(--blekk-svak)]">
-            Byttes den, blir alle lagrede nøkler uleselige og må hentes på nytt.
-            Lag en ny med <Kodebit>openssl rand -base64 32</Kodebit>.
+            Den må være IDENTISK lokalt og i drift – begge snakker med samme
+            database, og to ulike nøkler gjør alt kryptert på det ene stedet
+            uleselig på det andre. Byttes den, må alle tokens og nøkler legges
+            inn på nytt.
           </p>
         </div>
       </Kort>
@@ -140,20 +158,111 @@ export default async function InnstillingerSide() {
   )
 }
 
-/** Bekrefter at tokenet virker ved å faktisk bruke det. */
-async function SupabaseProve() {
-  const svar = await hentSupabaseProsjekter()
+/**
+ * Ett kort per Supabase-konto, som prøver tokenet ved å faktisk bruke det.
+ *
+ * Antall prosjekter tokenet ser er det tallet som avslører feil oppsett:
+ * ser det færre enn systemene som er registrert på kontoen, ligger noen
+ * av dem et annet sted.
+ */
+function KontoKort({
+  konto,
+  antallSystemer,
+}: {
+  konto: Konto
+  antallSystemer: number
+}) {
+  return (
+    <Kort>
+      <KortTittel
+        handling={
+          <Merke type={konto.harToken ? 'grønn' : 'gul'}>
+            {konto.harToken ? 'token satt' : 'mangler token'}
+          </Merke>
+        }
+      >
+        {konto.epost}
+      </KortTittel>
+      <div className="space-y-2 px-4 py-4 text-sm">
+        {konto.beskrivelse && (
+          <p className="text-[var(--blekk-svak)]">{konto.beskrivelse}</p>
+        )}
+        <p>{antallSystemer} system med database registrert på denne kontoen.</p>
 
-  if (!svar.ok) {
-    return (
-      <p className="font-semibold text-hm-red-ink">{svar.feil.melding}</p>
-    )
+        {konto.harToken ? (
+          <>
+            {konto.hint && (
+              <p className="text-xs text-[var(--blekk-svak)]">
+                Token: <Kodebit>{konto.hint}</Kodebit>
+              </p>
+            )}
+            <Suspense
+              fallback={
+                <p className="text-[var(--blekk-svak)]">Prøver tokenet …</p>
+              }
+            >
+              <KontoProve kontoId={konto.id} antallSystemer={antallSystemer} />
+            </Suspense>
+            {konto.sistBekreftet && (
+              <p className="text-xs text-[var(--blekk-svak)]">
+                Sist bekreftet {visDatoTid(konto.sistBekreftet)}
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="text-xs text-[var(--blekk-svak)]">
+            Lag et personal access token på{' '}
+            <a
+              href="https://supabase.com/dashboard/account/tokens"
+              target="_blank"
+              rel="noreferrer"
+              className="underline"
+            >
+              supabase.com/dashboard/account/tokens
+            </a>{' '}
+            mens du er logget inn som <strong>{konto.epost}</strong>. Uten det
+            vises systemene under denne kontoen som uvisst.
+          </p>
+        )}
+      </div>
+    </Kort>
+  )
+}
+
+async function KontoProve({
+  kontoId,
+  antallSystemer,
+}: {
+  kontoId: string
+  antallSystemer: number
+}) {
+  const token = tokenFor(await hentTokenKart(), kontoId)
+  if (!token) {
+    return <p className="text-[var(--blekk-svak)]">Ingen token å prøve.</p>
   }
 
+  const svar = await hentSupabaseProsjekter(token)
+
+  if (!svar.ok) {
+    return <p className="font-semibold text-hm-red-ink">{svar.feil.melding}</p>
+  }
+
+  // Ser tokenet færre prosjekter enn vi har registrert på kontoen, er
+  // minst ett av dem registrert på feil konto. Det er verdt å si rett ut.
+  const forFå = svar.data.length < antallSystemer
+
   return (
-    <p>
-      Ser <strong>{svar.data.length}</strong> prosjekter ({svar.svartidMs} ms).
-    </p>
+    <div className="space-y-1">
+      <p>
+        Ser <strong>{svar.data.length}</strong> prosjekter ({svar.svartidMs} ms).
+      </p>
+      {forFå && (
+        <p className="text-xs font-semibold text-hm-red-ink">
+          Færre enn de {antallSystemer} som er registrert her. Minst ett system
+          er koblet til feil konto.
+        </p>
+      )}
+    </div>
   )
 }
 
@@ -161,9 +270,7 @@ async function VercelProve() {
   const svar = await hentVercelProsjekter()
 
   if (!svar.ok) {
-    return (
-      <p className="font-semibold text-hm-red-ink">{svar.feil.melding}</p>
-    )
+    return <p className="font-semibold text-hm-red-ink">{svar.feil.melding}</p>
   }
 
   return (

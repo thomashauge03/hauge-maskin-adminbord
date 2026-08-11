@@ -1,5 +1,7 @@
 import type { System } from '@/lib/typer'
+import { hentTokenKart, tokenFor } from '@/lib/kontoar'
 import {
+  INGEN_TOKEN,
   hentDiskbruk,
   hentProsjektHelse,
   lesSpørring,
@@ -64,20 +66,43 @@ const SPØRRING_TABELLER = `
   limit 20
 `
 
+/** Alt tomt, med en grunn. Brukes nar vi ikke kom i gang i det hele tatt. */
+function tomDetalj(grunn: string): Databasedetalj {
+  return {
+    tjenester: null,
+    tjenesterFeil: grunn,
+    disk: null,
+    diskFeil: grunn,
+    brukere: null,
+    brukereSiste30: null,
+    logiskStørrelse: null,
+    tabeller: null,
+    spørringFeil: grunn,
+  }
+}
+
 export async function hentDatabasedetalj(
-  prosjektRef: string,
+  system: System,
 ): Promise<Databasedetalj> {
+  const prosjektRef = system.supabaseProsjektRef
+  if (!prosjektRef) return tomDetalj('Ingen Supabase-database registrert.')
+
+  // Tokenet for kontoen som eier DETTE prosjektet. Se lib/kontoar.ts.
+  const token = tokenFor(await hentTokenKart(), system.kontoId)
+  if (!token) return tomDetalj(INGEN_TOKEN)
+
   // Alle fire startes samtidig. Etter hverandre ville siden brukt
   // summen av tidsfristene – over tretti sekunder i verste fall.
   const [helse, disk, nøkkeltall, tabeller] = await Promise.all([
-    hentProsjektHelse(prosjektRef),
-    hentDiskbruk(prosjektRef),
+    hentProsjektHelse(token, prosjektRef),
+    hentDiskbruk(token, prosjektRef),
     lesSpørring<{
       brukere: string | number
       brukere_siste_30: string | number
       storrelse: string | number
-    }>(prosjektRef, SPØRRING_NØKKELTALL),
+    }>(token, prosjektRef, SPØRRING_NØKKELTALL),
     lesSpørring<{ tabell: string; rader: string | number }>(
+      token,
       prosjektRef,
       SPØRRING_TABELLER,
     ),

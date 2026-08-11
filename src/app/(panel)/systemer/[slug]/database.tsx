@@ -1,4 +1,5 @@
 import { hentDatabasedetalj } from '@/lib/systemdetalj'
+import type { System } from '@/lib/typer'
 import { Kort, KortTittel, Merke, Tallkort, type MerkeType } from '@/components/ui'
 import type { TjenesteHelse } from '@/lib/plattform/supabase-api'
 import { visBytes, visProsent } from '@/lib/format'
@@ -23,8 +24,8 @@ const tjenesteOrd: Record<TjenesteStatus, string> = {
  * utrullingsdelen – de spør to ulike leverandører, og den ene skal ikke
  * måtte vente på den andre.
  */
-export async function Databasedel({ prosjektRef }: { prosjektRef: string }) {
-  const d = await hentDatabasedetalj(prosjektRef)
+export async function Databasedel({ system }: { system: System }) {
+  const d = await hentDatabasedetalj(system)
 
   return (
     <div className="space-y-4">

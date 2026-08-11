@@ -67,6 +67,7 @@ export async function GET(request: Request) {
     slug: r.slug,
     navn: r.navn,
     beskrivelse: r.beskrivelse,
+    kontoId: r.konto_id,
     supabaseProsjektRef: r.supabase_prosjekt_ref,
     supabaseUrl: r.supabase_url,
     vercelProsjektId: r.vercel_prosjekt_id,

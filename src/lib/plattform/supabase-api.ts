@@ -1,15 +1,22 @@
-import { env } from '@/lib/env'
 import { hentJson, type HentResultat } from './hent'
 import 'server-only'
 
 /* ═══════════════════════════════════════════════════════════
    Supabase Management API.
 
-   Denne gjør adminbordet langt enklere enn planlagt: med et personal
-   access token kan vi både lese prosjektstatus, kjøre lesespørringer og
-   HENTE prosjektenes egne nøkler. Det betyr at nøkler i utgangspunktet
-   ikke må limes inn manuelt i det hele tatt – tabellen `hemmeligheter`
-   er reserve for prosjekter som ligger utenfor tokenets organisasjon.
+   Hver funksjon tar tokenet som argument framfor å lese det fra miljøet.
+   Grunnen er at systemene ligger under FIRE ulike Supabase-innlogginger,
+   og et personal access token rekker bare prosjekter i organisasjoner
+   den kontoen er med i. Ett token kan altså ikke se alt, og hvilket som
+   gjelder avhenger av hvilket system det spørres om.
+
+   Se src/lib/kontoar.ts for oppslaget. Der ligger også fallbacken til
+   SUPABASE_MANAGEMENT_TOKEN, for systemer uten registrert konto.
+
+   Med et token som rekker fram kan vi lese prosjektstatus, kjøre
+   lesespørringer OG hente prosjektets egne nøkler – da må ingenting
+   limes inn manuelt. Tabellen `hemmeligheter` er reserve for prosjekter
+   der ingen token rekker.
 
    Alle stier begynner med /v1. Basis-URL-en har ingen egen prefiks, så
    ikke legg til /v1 to ganger.
@@ -77,33 +84,37 @@ export type TjenesteHelse = {
   feil: string | null
 }
 
-export function supabaseApiKlar(): { klar: boolean; grunn?: string } {
-  if (!env.SUPABASE_MANAGEMENT_TOKEN) {
-    return {
-      klar: false,
-      grunn:
-        'SUPABASE_MANAGEMENT_TOKEN er ikke satt. Lag et token på supabase.com/dashboard/account/tokens.',
-    }
-  }
-  return { klar: true }
+/**
+ * Meldingen når et system ikke har noe token å bruke.
+ *
+ * Nevner både kontoen og miljøvariabelen, fordi begge er gyldige veier
+ * og den som leser feilen ellers ikke vet hvilken som mangler. Systemene
+ * ligger under fire ulike Supabase-innlogginger, så «legg inn et token»
+ * er ikke presist nok – det må være tokenet for RIKTIG konto.
+ */
+export const INGEN_TOKEN =
+  'Ingen Supabase-token for kontoen som eier dette prosjektet. Legg inn et personal access token for den kontoen på /innstillinger, eller sett SUPABASE_MANAGEMENT_TOKEN.'
+
+export function supabaseApiKlar(token: string | null): {
+  klar: boolean
+  grunn?: string
+} {
+  return token ? { klar: true } : { klar: false, grunn: INGEN_TOKEN }
 }
 
-function ikkeSattOpp<T>(): HentResultat<T> {
+function ikkeSattOpp<T>(grunn: string = INGEN_TOKEN): HentResultat<T> {
   return {
     ok: false,
     svartidMs: 0,
-    feil: {
-      slag: 'avvist',
-      melding: supabaseApiKlar().grunn ?? 'Ikke satt opp.',
-    },
+    feil: { slag: 'avvist', melding: grunn },
   }
 }
 
 /** Alle prosjekter tokenet ser. Grunnlaget for «hvor har jeg databasene mine». */
-export async function hentSupabaseProsjekter(): Promise<
+export async function hentSupabaseProsjekter(token: string | null): Promise<
   HentResultat<SupabaseProsjekt[]>
 > {
-  if (!env.SUPABASE_MANAGEMENT_TOKEN) return ikkeSattOpp()
+  if (!token) return ikkeSattOpp()
 
   const svar = await hentJson<
     {
@@ -115,7 +126,7 @@ export async function hentSupabaseProsjekter(): Promise<
       organization_slug: string
       database?: { host: string; version: string }
     }[]
-  >(`${BASIS}/v1/projects`, { token: env.SUPABASE_MANAGEMENT_TOKEN })
+  >(`${BASIS}/v1/projects`, { token })
 
   if (!svar.ok) return svar
 
@@ -144,9 +155,10 @@ export async function hentSupabaseProsjekter(): Promise<
  * bruke opp hele tidsfristen for hele oversikten.
  */
 export async function hentProsjektHelse(
+  token: string | null,
   ref: string,
 ): Promise<HentResultat<TjenesteHelse[]>> {
-  if (!env.SUPABASE_MANAGEMENT_TOKEN) return ikkeSattOpp()
+  if (!token) return ikkeSattOpp()
 
   const url = new URL(`${BASIS}/v1/projects/${encodeURIComponent(ref)}/health`)
   url.searchParams.set('services', TJENESTER.join(','))
@@ -158,7 +170,7 @@ export async function hentProsjektHelse(
       status: 'ACTIVE_HEALTHY' | 'COMING_UP' | 'UNHEALTHY'
       error?: string
     }[]
-  >(url.toString(), { token: env.SUPABASE_MANAGEMENT_TOKEN })
+  >(url.toString(), { token })
 
   if (!svar.ok) return svar
   return {
@@ -185,15 +197,16 @@ export async function hentProsjektHelse(
  * med curl.
  */
 export async function lesSpørring<T = Record<string, unknown>>(
+  token: string | null,
   ref: string,
   spørring: string,
 ): Promise<HentResultat<T[]>> {
-  if (!env.SUPABASE_MANAGEMENT_TOKEN) return ikkeSattOpp()
+  if (!token) return ikkeSattOpp()
 
   return hentJson<T[]>(
     `${BASIS}/v1/projects/${encodeURIComponent(ref)}/database/query/read-only`,
     {
-      token: env.SUPABASE_MANAGEMENT_TOKEN,
+      token,
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query: spørring }),
@@ -218,9 +231,10 @@ export type Diskbruk = {
  * som fyller opp og pauser prosjektet.
  */
 export async function hentDiskbruk(
+  token: string | null,
   ref: string,
 ): Promise<HentResultat<Diskbruk>> {
-  if (!env.SUPABASE_MANAGEMENT_TOKEN) return ikkeSattOpp()
+  if (!token) return ikkeSattOpp()
 
   const svar = await hentJson<{
     metrics: {
@@ -229,7 +243,7 @@ export async function hentDiskbruk(
       fs_used_bytes: number
     }
   }>(`${BASIS}/v1/projects/${encodeURIComponent(ref)}/config/disk/util`, {
-    token: env.SUPABASE_MANAGEMENT_TOKEN,
+    token,
   })
 
   if (!svar.ok) return svar
@@ -267,9 +281,10 @@ export type ProsjektNøkkel = {
  * legges til, i stedet for at den må hentes manuelt fra konsollet.
  */
 export async function hentProsjektNøkler(
+  token: string | null,
   ref: string,
 ): Promise<HentResultat<ProsjektNøkkel[]>> {
-  if (!env.SUPABASE_MANAGEMENT_TOKEN) return ikkeSattOpp()
+  if (!token) return ikkeSattOpp()
 
   const url = new URL(`${BASIS}/v1/projects/${encodeURIComponent(ref)}/api-keys`)
   url.searchParams.set('reveal', 'true')
@@ -280,7 +295,7 @@ export async function hentProsjektNøkler(
       type?: 'legacy' | 'publishable' | 'secret' | null
       api_key?: string | null
     }[]
-  >(url.toString(), { token: env.SUPABASE_MANAGEMENT_TOKEN })
+  >(url.toString(), { token })
 
   if (!svar.ok) return svar
   return {
