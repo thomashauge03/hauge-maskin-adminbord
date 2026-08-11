@@ -6,7 +6,7 @@ import type {
   SystemStatus,
   Tilstand,
 } from '@/lib/typer'
-import { hentKontoar, hentTokenKart, tokenFor } from '@/lib/kontoar'
+import { hentKontoOppslag, hentTokenKart, tokenFor } from '@/lib/kontoar'
 import {
   hentAktivitet,
   hentSupabaseProsjekter,
@@ -287,8 +287,7 @@ export async function hentOversikt(
    * grensesnittet viser som en egen beskjed – det er en
    * oppsettsmangel, ikke et driftsavvik.
    */
-  const [tokenKart, kontoar] = await Promise.all([hentTokenKart(), hentKontoar()])
-  const epostFor = new Map(kontoar.map((k) => [k.id, k.epost]))
+  const { tokens: tokenKart, epostFor } = await hentKontoOppslag()
 
   const kontoerIBruk = [
     ...new Set(
@@ -306,13 +305,34 @@ export async function hentOversikt(
     else if (kontoId) manglerToken.push(kontoId)
   }
 
-  // Alle kontoene og Vercel startes samtidig. Etter hverandre ville
-  // forsiden brukt summen av tidsfristene – over førti sekunder med fire
-  // kontoer i verste fall.
-  const [vercelSvar, ...kontoSvar] = await Promise.all([
+  /*
+   * ALT i én bølge: Vercel, prosjektlisten per konto, og aktiviteten per
+   * prosjekt.
+   *
+   * Aktiviteten lå tidligere i en andre bølge etter kontoene, fordi den
+   * ser ut som den trenger resultatet derfra. Den gjør ikke det – den
+   * trenger bare token og ref, og begge er kjent på forhånd. To bølger
+   * kostet summen av den tregeste i hver; én koster den tregeste totalt.
+   */
+  const medRef = systemer.filter(
+    (s) => s.supabaseProsjektRef && tokenFor(tokenKart, s.kontoId),
+  )
+
+  const alle = await Promise.all([
     hentVercelProsjekter(),
     ...kontoOppslag.map((k) => hentSupabaseProsjekter(k.token)),
+    ...medRef.map((s) =>
+      hentAktivitet(tokenFor(tokenKart, s.kontoId), s.supabaseProsjektRef!),
+    ),
   ])
+
+  const vercelSvar = alle[0] as Awaited<ReturnType<typeof hentVercelProsjekter>>
+  const kontoSvar = alle.slice(1, 1 + kontoOppslag.length) as Awaited<
+    ReturnType<typeof hentSupabaseProsjekter>
+  >[]
+  const aktivitetSvar = alle.slice(1 + kontoOppslag.length) as Awaited<
+    ReturnType<typeof hentAktivitet>
+  >[]
 
   const vercelListe = vercelSvar.ok ? vercelSvar.data : []
 
@@ -332,25 +352,6 @@ export async function hentOversikt(
 
   const supabaseSvartid = Math.max(0, ...kontoSvar.map((s) => s.svartidMs))
 
-  /*
-   * Aktivitet per prosjekt: nar hadde databasen sist trafikk.
-   *
-   * Dette er forvarselet for appen gar ned. Et gratisprosjekt uten
-   * trafikk i sju dogn blir pauset, og statusen sier ACTIVE_HEALTHY helt
-   * til det skjer. Uten dette tallet er det ingen advarsel - bare en app
-   * som plutselig er dod.
-   *
-   * Ett kall per prosjekt, alle samtidig. Analysendepunktene har egen
-   * ratebegrensning per prosjekt, sa atte samtidige kall er trygt.
-   */
-  const medRef = systemer.filter(
-    (s) => s.supabaseProsjektRef && tokenFor(tokenKart, s.kontoId),
-  )
-  const aktivitetSvar = await Promise.all(
-    medRef.map((s) =>
-      hentAktivitet(tokenFor(tokenKart, s.kontoId), s.supabaseProsjektRef!),
-    ),
-  )
   const aktivitetKart = new Map<string, SystemStatus['aktivitet']>()
   medRef.forEach((s, i) => {
     const a = aktivitetSvar[i]

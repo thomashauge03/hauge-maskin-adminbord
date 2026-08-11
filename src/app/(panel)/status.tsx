@@ -13,12 +13,6 @@ import { førsteLinje, visSiden } from '@/lib/format'
  * inn etterpå – i stedet for at hele siden står tom i to sekunder.
  */
 export async function Statusdel({ systemer }: { systemer: System[] }) {
-  /*
-   * Reserven hentes først, ikke parallelt med plattformkallene. Det er
-   * en lokal spørring på noen titalls millisekunder, mot en tidsfrist på
-   * åtte sekunder – å flette dem sammen ville spart intet og gjort
-   * signaturen til hentOversikt verre.
-   */
   const reserve = await hentReserveMaalinger()
   const oversikt = await hentOversikt(systemer, reserve)
 

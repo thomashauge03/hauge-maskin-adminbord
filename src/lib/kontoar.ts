@@ -70,7 +70,25 @@ export async function hentKontoar(): Promise<Konto[]> {
  */
 export const hentTokenKart = cache(
   async (): Promise<Map<string | null, string>> => {
+    return (await hentKontoOppslag()).tokens
+  },
+)
+
+/**
+ * Kontoene, tokenene OG e-postene i ETT databasekall.
+ *
+ * Oversikten trenger alle tre. Var de tre funksjoner med hver sin
+ * spørring, ble det tre nettverksrunder på rad før det første
+ * plattformkallet i det hele tatt startet – og på en side som alt har sju
+ * slike bølger, er hver runde man kan fjerne merkbar.
+ */
+export const hentKontoOppslag = cache(
+  async (): Promise<{
+    tokens: Map<string | null, string>
+    epostFor: Map<string, string>
+  }> => {
     const kart = new Map<string | null, string>()
+    const epostFor = new Map<string, string>()
 
     if (env.SUPABASE_MANAGEMENT_TOKEN) {
       kart.set(null, env.SUPABASE_MANAGEMENT_TOKEN)
@@ -79,9 +97,10 @@ export const hentTokenKart = cache(
     const { data } = await supabaseAdmin
       .from('supabase_kontoar')
       .select('id, epost, token_kryptert')
-      .not('token_kryptert', 'is', null)
 
     for (const rad of data ?? []) {
+      epostFor.set(rad.id as string, rad.epost as string)
+      if (!rad.token_kryptert) continue
       try {
         kart.set(rad.id as string, dekrypter(rad.token_kryptert as string))
       } catch {
@@ -94,7 +113,7 @@ export const hentTokenKart = cache(
       }
     }
 
-    return kart
+    return { tokens: kart, epostFor }
   },
 )
 

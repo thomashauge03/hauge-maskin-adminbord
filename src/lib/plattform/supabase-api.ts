@@ -214,6 +214,39 @@ export async function lesSpørring<T = Record<string, unknown>>(
   )
 }
 
+/**
+ * Kjører en SKRIVENDE spørring i et prosjekt.
+ *
+ * Skilt fra `lesSpørring` med vilje, i egen funksjon med eget navn, slik
+ * at det er umulig å skrive til en produksjonsdatabase ved et uhell fordi
+ * man trodde man leste. Dette er den eneste veien inn som kan endre data
+ * i et annet system, og kallstedene er få og navngitte.
+ *
+ * `parametre` sendes som SQL-parametre. Verdier skal ALDRI limes inn i
+ * spørringsteksten – bare identifikatorer, og de er hvitelistet i
+ * src/lib/tilgang.ts.
+ *
+ * Svaret er 201, ikke 200.
+ */
+export async function skrivSpørring<T = Record<string, unknown>>(
+  token: string | null,
+  ref: string,
+  spørring: string,
+  parametre: unknown[] = [],
+): Promise<HentResultat<T[]>> {
+  if (!token) return ikkeSattOpp()
+
+  return hentJson<T[]>(
+    `${BASIS}/v1/projects/${encodeURIComponent(ref)}/database/query`,
+    {
+      token,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: spørring, parameters: parametre }),
+    },
+  )
+}
+
 export type Diskbruk = {
   brukteBytes: number
   ledigeBytes: number
