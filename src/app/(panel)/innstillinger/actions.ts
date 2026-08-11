@@ -7,6 +7,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { forkort, krypter } from '@/lib/krypto'
 import { hentSupabaseProsjekter } from '@/lib/plattform/supabase-api'
 import { logg } from '@/lib/data'
+import { ROTASJON_DAGER } from '@/lib/rotasjon'
 
 export type TokenTilstand = { feil?: string; ok?: string }
 
@@ -96,8 +97,21 @@ export async function byttKontoToken(
   revalidatePath('/')
   revalidatePath('/brukere')
 
+  /*
+   * Neste forfall står i kvitteringen.
+   *
+   * Rotasjonen er en 30-dagers rutine, og det øyeblikket man nettopp har
+   * byttet er det eneste man med sikkerhet vet neste dato. Å si den her
+   * gjør at den kan skrives i kalenderen med en gang, framfor at man må
+   * tilbake til siden for å finne ut når.
+   */
+  const neste = new Date(Date.now() + ROTASJON_DAGER * 24 * 60 * 60 * 1000)
+
   return {
-    ok: `Tokenet er byttet og virker – ser ${prøve.data.length} prosjekter. Husk å slette det gamle i Supabase-konsollet.`,
+    ok:
+      `Tokenet er byttet og virker – ser ${prøve.data.length} prosjekter. ` +
+      `Neste bytte innen ${neste.toLocaleDateString('nb-NO')}. ` +
+      `Husk å slette det gamle i Supabase-konsollet.`,
   }
 }
 

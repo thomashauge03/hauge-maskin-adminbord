@@ -13,20 +13,19 @@ import {
   Seksjonstittel,
   TomTilstand,
 } from '@/components/ui'
-import { visDatoTid } from '@/lib/format'
+import { visDato, visDatoTid } from '@/lib/format'
+import { forfaller, ROTASJON_DAGER, rotasjonsstatus } from '@/lib/rotasjon'
 import { byttKontoToken, fjernKontoToken } from './actions'
 import { TokenSkjema } from './token-skjema'
 import { Feildetalj } from '@/components/tilstand'
 
-/**
- * Hvor ofte tokenene skal byttes.
- *
- * Eierens egen rutine, ikke et krav fra Supabase. Star her fordi et tall
- * som bare finnes i noens hode ikke er en rutine.
- */
-const ROTASJON_DAGER = 30
-
 export const metadata: Metadata = { title: 'Innstillinger' }
+
+/** Kontoens rotasjonstilstand. Mangler tokenet, er resten uinteressant. */
+function rotasjon(konto: Konto, naa: number) {
+  if (!konto.harToken) return 'mangler' as const
+  return rotasjonsstatus(konto.sistBekreftet, naa)
+}
 
 /**
  * Innstillingssiden viser om integrasjonene virker, og lar eieren bytte
@@ -99,6 +98,29 @@ export default async function InnstillingerSide() {
             ))}
           </div>
         )}
+
+        {/* Samlet paminnelse. Med fire kontoer som alle ble satt samme dag
+            forfaller de samme dag, og da er en linje overst mer nyttig enn
+            fire merker man ma lete etter. */}
+        {(() => {
+          const forfalne = kontoar.filter((k) => rotasjon(k, naa) === 'forfalt')
+          const snarlige = kontoar.filter((k) => rotasjon(k, naa) === 'snart')
+          if (!forfalne.length && !snarlige.length) return null
+          return (
+            <p
+              className={`border-l-4 p-3 text-sm ${
+                forfalne.length
+                  ? 'border-hm-red bg-hm-red/10 font-semibold text-hm-red-ink'
+                  : 'border-hm-amber bg-hm-amber/10 font-semibold text-hm-amber'
+              }`}
+            >
+              {forfalne.length > 0 &&
+                `${forfalne.length} ${forfalne.length === 1 ? 'token' : 'tokens'} skulle vært byttet: ${forfalne.map((k) => k.epost).join(', ')}. `}
+              {snarlige.length > 0 &&
+                `${snarlige.length} ${snarlige.length === 1 ? 'token' : 'tokens'} forfaller snart: ${snarlige.map((k) => k.epost).join(', ')}.`}
+            </p>
+          )
+        })()}
 
         {utenKonto > 0 && (
           <p className="text-sm text-[var(--blekk-svak)]">
@@ -200,31 +222,47 @@ function KontoKort({
   naa: number
 }) {
   /*
-   * Alder på tokenet, mot rutinen på 30 dager.
+   * Nedtelling til neste bytte, ikke bare alder.
+   *
+   * «Byttet for 8 dager siden» krever at man regner selv, hver gang, og en
+   * påminnelse man må regne ut er ikke en påminnelse. Derfor står dagene
+   * IGJEN og datoen det forfaller – da er svaret der uten mellomregning.
    *
    * `sist_bekreftet` settes hver gang et token legges inn eller byttes, så
-   * den er i praksis «byttet»-datoen. Er den over 30 dager, sier kortet
-   * det – en rotasjonsrutine man må huske selv er en rutine som glipper.
+   * den er i praksis «byttet»-datoen.
    */
-  const dagerSidenBytte = konto.sistBekreftet
-    ? Math.floor(
-        (naa - new Date(konto.sistBekreftet).getTime()) / (24 * 60 * 60 * 1000),
-      )
+  const byttet = konto.sistBekreftet ? new Date(konto.sistBekreftet) : null
+  const dagerIgjen = byttet
+    ? ROTASJON_DAGER -
+      Math.floor((naa - byttet.getTime()) / (24 * 60 * 60 * 1000))
     : null
-  const forfalt = dagerSidenBytte !== null && dagerSidenBytte >= ROTASJON_DAGER
+
+  const forfallsdato = konto.sistBekreftet
+    ? forfaller(konto.sistBekreftet)
+    : null
+
+  // Tilstanden kommer fra den delte funksjonen, ikke fra en egen regning
+  // her. Ellers kan merket og linja under si ulike ting.
+  const status = rotasjon(konto, naa)
+  const forfalt = status === 'forfalt'
+  const snart = status === 'snart'
 
   return (
     <Kort>
       <KortTittel
         handling={
           <Merke
-            type={!konto.harToken ? 'gul' : forfalt ? 'rød' : 'grønn'}
+            type={
+              !konto.harToken ? 'gul' : forfalt ? 'rød' : snart ? 'gul' : 'grønn'
+            }
           >
             {!konto.harToken
               ? 'mangler token'
               : forfalt
-                ? 'bør byttes'
-                : 'token satt'}
+                ? `${Math.abs(dagerIgjen!)} d over`
+                : snart
+                  ? `byttes om ${dagerIgjen} d`
+                  : 'token satt'}
           </Merke>
         }
       >
@@ -250,14 +288,20 @@ function KontoKort({
             >
               <KontoProve kontoId={konto.id} antallSystemer={antallSystemer} />
             </Suspense>
-            {konto.sistBekreftet && (
+            {konto.sistBekreftet && forfallsdato && (
               <p
-                className={`text-xs ${forfalt ? 'font-semibold text-hm-red-ink' : 'text-[var(--blekk-svak)]'}`}
+                className={`text-xs ${
+                  forfalt
+                    ? 'font-semibold text-hm-red-ink'
+                    : snart
+                      ? 'font-semibold text-hm-amber'
+                      : 'text-[var(--blekk-svak)]'
+                }`}
               >
-                Byttet {visDatoTid(konto.sistBekreftet)}
-                {dagerSidenBytte !== null &&
-                  ` · for ${dagerSidenBytte} ${dagerSidenBytte === 1 ? 'dag' : 'dager'} siden`}
-                {forfalt && ` – over ${ROTASJON_DAGER} dager, bør byttes`}
+                {forfalt
+                  ? `Skulle vært byttet ${visDato(forfallsdato.toISOString())} – ${Math.abs(dagerIgjen!)} ${Math.abs(dagerIgjen!) === 1 ? 'dag' : 'dager'} over`
+                  : `Byttes innen ${visDato(forfallsdato.toISOString())} – ${dagerIgjen} ${dagerIgjen === 1 ? 'dag' : 'dager'} igjen`}
+                {` · sist byttet ${visDatoTid(konto.sistBekreftet)}`}
               </p>
             )}
           </>

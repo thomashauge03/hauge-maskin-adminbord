@@ -6,6 +6,7 @@ import { krevEier } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { lagFremmedKlient } from '@/lib/supabase/fremmed'
 import { logg } from '@/lib/data'
+import { taBortTilgang } from '@/lib/tilgang'
 
 export type BrukerTilstand = { feil?: string; ok?: string }
 
@@ -127,9 +128,12 @@ export async function settPassordISystem(
  *
  * Supabase har ingen «aktiv»-bryter; man setter `ban_duration`. En
  * hundreårig sperre er den vanlige måten å si «for godt», og den kan
- * angres ved å sette 'none'. Sletting brukes ikke: en slettet auth-bruker
- * etterlater rader i appens egne tabeller som peker på en id som ikke
- * finnes, og det er en verre opprydding enn en sperret konto.
+ * angres ved å sette 'none'.
+ *
+ * Dette er den anbefalte veien, og står først i grensesnittet: en sperret
+ * konto beholder id-en, så ordrer og signaturer peker fortsatt på en
+ * bruker som finnes. Sletting finnes også – se slettBrukerISystem – men
+ * den etterlater referanser ingen kan tyde, og bør være unntaket.
  */
 export async function settSperret(
   systemId: string,
@@ -153,6 +157,76 @@ export async function settSperret(
   })
 
   revalidatePath('/brukere')
+}
+
+/**
+ * Sletter brukeren i ett system, for godt.
+ *
+ * Jeg valgte først bevisst sperring framfor sletting, med begrunnelsen at
+ * en slettet auth-bruker etterlater rader i appens egne tabeller – ordrer,
+ * signaturer, leveringssedler – som peker på en id som ikke finnes. Det
+ * argumentet står fortsatt, og derfor er sperring det som ligger først i
+ * grensesnittet.
+ *
+ * Men sletting må finnes: en testbruker, en feilskrevet e-post eller en
+ * person som slutter og skal ut av systemet for godt hører ikke i en
+ * evighetsliste av sperrede kontoer.
+ *
+ * Rolleraden fjernes FØRST, auth-brukeren etterpå. Går det galt midt i, er
+ * en bruker uten tilgang en tryggere halvveis tilstand enn tilgang uten
+ * bruker.
+ */
+export async function slettBrukerISystem(
+  systemId: string,
+  brukerId: string,
+  epost: string,
+): Promise<BrukerTilstand> {
+  const meg = await krevEier()
+
+  const { data: system } = await supabaseAdmin
+    .from('systemer')
+    .select('navn, supabase_prosjekt_ref, konto_id')
+    .eq('id', systemId)
+    .single()
+
+  // 1. Rolleraden, slik at tilgangen er borte selv om steg 2 feiler.
+  const fjernet = await taBortTilgang({
+    systemId,
+    prosjektRef: (system?.supabase_prosjekt_ref as string | null) ?? null,
+    kontoId: (system?.konto_id as string | null) ?? null,
+    epost,
+  })
+
+  // 2. Selve auth-brukeren.
+  const fremmed = await lagFremmedKlient(systemId)
+  if (!fremmed.ok) {
+    return {
+      feil: `Tilgangen er fjernet, men brukeren kunne ikke slettes: ${fremmed.grunn}`,
+    }
+  }
+
+  const { error } = await fremmed.klient.auth.admin.deleteUser(brukerId)
+
+  await logg(error ? 'bruker.slett_feilet' : 'bruker.slettet', {
+    utfortAv: meg.id,
+    utfortAvEpost: meg.epost,
+    systemId,
+    detaljer: {
+      epost,
+      brukerId,
+      rolleradFjernet: fjernet.ok,
+      ...(error ? { feil: error.message } : {}),
+    },
+  })
+
+  revalidatePath('/brukere')
+
+  if (error) {
+    return { feil: `Tilgangen er fjernet, men sletting feilet: ${error.message}` }
+  }
+  return {
+    ok: `${epost} er slettet fra ${system?.navn ?? 'systemet'}. Rader i appen som pekte på brukeren peker nå på en id som ikke finnes – det er normalt, men verdt å vite om hvis noe ser rart ut i historikken.`,
+  }
 }
 
 /**

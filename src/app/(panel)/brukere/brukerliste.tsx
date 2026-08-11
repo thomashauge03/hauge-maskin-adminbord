@@ -2,7 +2,7 @@ import { hentAlleBrukere, samlePåEpost } from '@/lib/brukere'
 import type { System } from '@/lib/typer'
 import { Feilstripe, Kort, KortTittel, Merke, Tallkort } from '@/components/ui'
 import { visSiden } from '@/lib/format'
-import { settSperret } from './actions'
+import { settSperret, slettBrukerISystem } from './actions'
 import { giTilgangTilSystem, taBortTilgangFraSystem } from './tilgang-actions'
 import { TilgangsCelle } from './tilgangs-celle'
 import { hentAlleRoller, hentTilgangsoppsett } from '@/lib/tilgang'
@@ -228,6 +228,10 @@ export async function Brukerliste({
                       settSperret={async (sperret: boolean) => {
                         'use server'
                         await settSperret(l.system.id, b.id, sperret)
+                      }}
+                      slett={async () => {
+                        'use server'
+                        await slettBrukerISystem(l.system.id, b.id, b.epost ?? '')
                       }}
                     />
                   </li>

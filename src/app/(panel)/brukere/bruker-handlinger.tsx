@@ -22,15 +22,44 @@ export function BrukerHandlinger({
   epost,
   sperret,
   settSperret,
+  slett,
 }: {
   systemId: string
   brukerId: string
   epost: string
   sperret: boolean
   settSperret: (sperret: boolean) => Promise<void>
+  slett: () => Promise<void>
 }) {
   const [åpen, settÅpen] = useState(false)
+  const [bekreftSlett, settBekreftSlett] = useState(false)
   const [tilstand, send, venter] = useActionState(settPassordISystem, start)
+
+  /*
+   * Sletting bak en bekreftelse med e-posten skrevet ut.
+   *
+   * Sperring er reversibelt og star forst. Sletting er ikke, og etterlater
+   * rader i appen som peker pa en id som ikke finnes - derfor sier
+   * bekreftelsen bade hva som skjer og hva som blir igjen.
+   */
+  if (bekreftSlett) {
+    return (
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <span className="text-xs">
+          Slette <strong>{epost}</strong> for godt? Historikk i appen vil peke
+          på en bruker som ikke finnes.
+        </span>
+        <form action={slett}>
+          <button type="submit" className={KNAPP_FARLIG}>
+            Ja, slett
+          </button>
+        </form>
+        <button onClick={() => settBekreftSlett(false)} className={KNAPP_LITEN}>
+          Avbryt
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-wrap items-center justify-end gap-2">
@@ -80,6 +109,15 @@ export function BrukerHandlinger({
           {sperret ? 'Åpne konto' : 'Sperr'}
         </button>
       </form>
+
+      {/* Sist, fordi sperring nesten alltid er det man vil. */}
+      <button
+        onClick={() => settBekreftSlett(true)}
+        className={KNAPP_LITEN}
+        title="Sletter brukeren for godt i dette systemet"
+      >
+        Slett
+      </button>
     </div>
   )
 }
