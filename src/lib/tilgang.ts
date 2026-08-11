@@ -1,6 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { hentTokenKart, tokenFor } from '@/lib/kontoar'
-import { skrivSpørring } from '@/lib/plattform/supabase-api'
+import { lesSpørring, skrivSpørring } from '@/lib/plattform/supabase-api'
 import { lagFremmedKlient } from '@/lib/supabase/fremmed'
 import 'server-only'
 
@@ -125,38 +125,78 @@ export async function hentAlleRoller(): Promise<Map<string, SystemRolle[]>> {
 export type TilgangResultat = { ok: true; melding: string } | { ok: false; feil: string }
 
 /**
+ * Slår opp auth-id-en til en e-post i et annet system, med SQL.
+ *
+ * Bruker Management-API-et framfor systemets service role-nøkkel. Det er
+ * hele forskjellen på at dette virker og ikke: vi har token for hver konto,
+ * men nesten ingen lagrede service role-nøkler.
+ *
+ * Første versjon slo opp via auth-admin-API-et, som KREVER service role – og
+ * da feilet «ta bort tilgang» med «ingen nøkkel lagret» selv om alt vi
+ * trengte var å oversette en e-post til en id. Å lese auth.users er noe
+ * Management-API-et gjør fint.
+ */
+async function finnAuthId(
+  token: string,
+  prosjektRef: string,
+  epost: string,
+): Promise<{ ok: true; id: string | null } | { ok: false; feil: string }> {
+  const svar = await lesSpørring<{ id: string }>(
+    token,
+    prosjektRef,
+    // Parametre framfor innliming: e-posten kommer fra et skjema.
+    'select id::text as id from auth.users where lower(email) = lower($1) limit 1',
+    [epost],
+  )
+
+  if (!svar.ok) return { ok: false, feil: svar.feil.melding }
+  return { ok: true, id: svar.data[0]?.id ?? null }
+}
+
+/**
  * Sørger for at det finnes en auth-bruker i systemet, og gir id-en.
  *
  * Bare nødvendig for systemer nøklet på auth-id. De e-postnøklede
  * appene trenger det ikke – der er raden i rolletabellen hele tilgangen,
  * og den kan skrives før brukeren noen gang har logget inn.
  *
- * Krever service role-nøkkelen for det systemet: å opprette en auth-bruker
- * går ikke gjennom Management-API-et.
+ * Service role-nøkkelen kreves BARE hvis brukeren må opprettes. Finnes den
+ * alt – som er det vanlige – går alt med Management-API-et.
  */
 async function sikreAuthBruker(
   systemId: string,
+  token: string,
+  prosjektRef: string,
   epost: string,
   midlertidigPassord: string | null,
 ): Promise<{ ok: true; id: string } | { ok: false; feil: string }> {
-  const fremmed = await lagFremmedKlient(systemId)
-  if (!fremmed.ok) return { ok: false, feil: fremmed.grunn }
-
-  // Finnes brukeren alt? listUsers framfor et oppslag på e-post, fordi
-  // admin-API-et ikke har et slikt oppslag.
-  const { data: liste } = await fremmed.klient.auth.admin.listUsers({
-    page: 1,
-    perPage: 1000,
-  })
-  const funnet = liste?.users.find(
-    (u) => u.email?.toLowerCase() === epost.toLowerCase(),
-  )
-  if (funnet) return { ok: true, id: funnet.id }
+  /*
+   * Finnes brukeren alt? Da trengs INGEN service role-nøkkel – oppslaget
+   * går med SQL. Det er det vanlige tilfellet, og det bør ikke kreve en
+   * nøkkel vi sjelden har lagret.
+   */
+  const oppslag = await finnAuthId(token, prosjektRef, epost)
+  if (!oppslag.ok) return { ok: false, feil: oppslag.feil }
+  if (oppslag.id) return { ok: true, id: oppslag.id }
 
   if (!midlertidigPassord) {
     return {
       ok: false,
-      feil: `${epost} finnes ikke i dette systemet ennå. Dette systemet er nøklet på auth-id, så brukeren må opprettes først – oppgi et midlertidig passord.`,
+      feil: `${epost} finnes ikke i dette systemet ennå. Systemet er nøklet på auth-id, så brukeren må opprettes først – oppgi et midlertidig passord.`,
+    }
+  }
+
+  /*
+   * Å OPPRETTE en auth-bruker krever service role. Det finnes ingen vei
+   * rundt: Management-API-et kan lese auth.users, men ikke lage brukere
+   * med gyldig passordhash. Derfor er nøkkelen bare påkrevd her, i det ene
+   * tilfellet den faktisk trengs.
+   */
+  const fremmed = await lagFremmedKlient(systemId)
+  if (!fremmed.ok) {
+    return {
+      ok: false,
+      feil: `${fremmed.grunn} Nøkkelen kreves bare for å OPPRETTE en ny bruker – å gi tilgang til en som alt finnes går uten.`,
     }
   }
 
@@ -236,7 +276,13 @@ export async function giTilgang({
   if (oppsett.brukerNokkel === 'epost') {
     brukerVerdi = epost.toLowerCase()
   } else {
-    const auth = await sikreAuthBruker(systemId, epost, midlertidigPassord ?? null)
+    const auth = await sikreAuthBruker(
+      systemId,
+      token,
+      prosjektRef,
+      epost,
+      midlertidigPassord ?? null,
+    )
     if (!auth.ok) return { ok: false, feil: auth.feil }
     brukerVerdi = auth.id
   }
@@ -329,24 +375,18 @@ export async function taBortTilgang({
   const brukerKol = trygtNavn(oppsett.brukerKolonne, 'brukerkolonne')
 
   // Nøkkelen vi finner raden på. For e-postnøklede systemer er det
-  // e-posten; ellers må auth-id-en slås opp i det systemet.
+  // e-posten; ellers slås auth-id-en opp med SQL – ikke med systemets
+  // service role-nøkkel, som vi sjelden har lagret.
   let brukerVerdi: string
   if (oppsett.brukerNokkel === 'epost') {
     brukerVerdi = epost.toLowerCase()
   } else {
-    const fremmed = await lagFremmedKlient(systemId)
-    if (!fremmed.ok) return { ok: false, feil: fremmed.grunn }
-    const { data: liste } = await fremmed.klient.auth.admin.listUsers({
-      page: 1,
-      perPage: 1000,
-    })
-    const funnet = liste?.users.find(
-      (u) => u.email?.toLowerCase() === epost.toLowerCase(),
-    )
-    if (!funnet) {
+    const oppslag = await finnAuthId(token, prosjektRef, epost)
+    if (!oppslag.ok) return { ok: false, feil: oppslag.feil }
+    if (!oppslag.id) {
       return { ok: false, feil: `Fant ingen bruker med ${epost} i systemet.` }
     }
-    brukerVerdi = funnet.id
+    brukerVerdi = oppslag.id
   }
 
   const vilkår = oppsett.tenantKolonne
@@ -356,12 +396,29 @@ export async function taBortTilgang({
     ? [brukerVerdi, oppsett.tenantVerdi]
     : [brukerVerdi]
 
+  /*
+   * `returning` er ikke pynt: uten den er «ingen rader traff» og «raden er
+   * borte» det samme svaret. Det er nøyaktig feilen som gjorde at en
+   * fjerning kunne meldes vellykket mens raden sto igjen i tabellen.
+   */
   const sql = oppsett.aktivKolonne
-    ? `update ${skjema}.${tabell} set ${trygtNavn(oppsett.aktivKolonne, 'aktiv-kolonne')} = false where ${vilkår}`
-    : `delete from ${skjema}.${tabell} where ${vilkår}`
+    ? `update ${skjema}.${tabell} set ${trygtNavn(oppsett.aktivKolonne, 'aktiv-kolonne')} = false where ${vilkår} returning 1 as traff`
+    : `delete from ${skjema}.${tabell} where ${vilkår} returning 1 as traff`
 
-  const svar = await skrivSpørring(token, prosjektRef, sql, parametre)
+  const svar = await skrivSpørring<{ traff: number }>(
+    token,
+    prosjektRef,
+    sql,
+    parametre,
+  )
   if (!svar.ok) return { ok: false, feil: svar.feil.melding }
+
+  if (svar.data.length === 0) {
+    return {
+      ok: false,
+      feil: `Ingen rad i ${skjema}.${tabell} traff ${epost}. Tilgangen kan ligge under en annen nøkkel enn adminbordet leter etter${oppsett.tenantKolonne ? ', eller hos en annen kunde' : ''} – ingenting er endret.`,
+    }
+  }
 
   await speilTilgang({ systemId, epost, navn: null, rolle: null, skrevet: false })
 

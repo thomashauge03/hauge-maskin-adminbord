@@ -164,10 +164,11 @@ export async function Brukerliste({
                           roller={rollerPerSystem.get(l.system.id) ?? []}
                           krevArPassord={krevArPassord.get(l.system.id) ?? false}
                           gi={giTilgangTilSystem.bind(null, l.system.id)}
-                          taBort={async () => {
-                            'use server'
-                            await taBortTilgangFraSystem(l.system.id, p.epost)
-                          }}
+                          taBort={taBortTilgangFraSystem.bind(
+                            null,
+                            l.system.id,
+                            p.epost,
+                          )}
                         />
                       </td>
                     )
@@ -220,19 +221,27 @@ export async function Brukerliste({
                       </span>
                     </span>
 
+                    {/* Måltilstanden for sperring bindes her, der vi vet hva
+                        kontoen står i nå – ikke som en veksling i nettleseren,
+                        som bommer hvis siden ble hentet før noen andre
+                        endret kontoen. */}
                     <BrukerHandlinger
                       systemId={l.system.id}
                       brukerId={b.id}
                       epost={b.epost ?? b.id}
                       sperret={b.aktivISystem === false}
-                      settSperret={async (sperret: boolean) => {
-                        'use server'
-                        await settSperret(l.system.id, b.id, sperret)
-                      }}
-                      slett={async () => {
-                        'use server'
-                        await slettBrukerISystem(l.system.id, b.id, b.epost ?? '')
-                      }}
+                      settSperret={settSperret.bind(
+                        null,
+                        l.system.id,
+                        b.id,
+                        b.aktivISystem !== false,
+                      )}
+                      slett={slettBrukerISystem.bind(
+                        null,
+                        l.system.id,
+                        b.id,
+                        b.epost ?? '',
+                      )}
                     />
                   </li>
                 ))}

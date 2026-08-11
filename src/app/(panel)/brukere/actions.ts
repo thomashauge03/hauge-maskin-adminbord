@@ -134,29 +134,53 @@ export async function settPassordISystem(
  * konto beholder id-en, så ordrer og signaturer peker fortsatt på en
  * bruker som finnes. Sletting finnes også – se slettBrukerISystem – men
  * den etterlater referanser ingen kan tyde, og bør være unntaket.
+ *
+ * `sperret` er MÅLtilstanden, ikke en veksling. Den regnes ut på serveren,
+ * der vi vet hva kontoen står i nå – en veksling utregnet i nettleseren
+ * bommer hvis siden ble hentet før noen andre endret kontoen.
  */
 export async function settSperret(
   systemId: string,
   brukerId: string,
   sperret: boolean,
-) {
+  _forrige: BrukerTilstand,
+  _formData: FormData,
+): Promise<BrukerTilstand> {
   const meg = await krevEier()
 
   const fremmed = await lagFremmedKlient(systemId)
-  if (!fremmed.ok) return
+  if (!fremmed.ok) {
+    return {
+      feil: `Kunne ikke ${sperret ? 'sperre' : 'åpne'} kontoen: ${fremmed.grunn}`,
+    }
+  }
 
-  await fremmed.klient.auth.admin.updateUserById(brukerId, {
+  const { error } = await fremmed.klient.auth.admin.updateUserById(brukerId, {
     ban_duration: sperret ? '876000h' : 'none',
   })
 
-  await logg(sperret ? 'bruker.sperret' : 'bruker.apnet', {
-    utfortAv: meg.id,
-    utfortAvEpost: meg.epost,
-    systemId,
-    detaljer: { brukerId },
-  })
+  await logg(
+    error
+      ? 'bruker.sperring_feilet'
+      : sperret
+        ? 'bruker.sperret'
+        : 'bruker.apnet',
+    {
+      utfortAv: meg.id,
+      utfortAvEpost: meg.epost,
+      systemId,
+      detaljer: { brukerId, ...(error ? { feil: error.message } : {}) },
+    },
+  )
 
   revalidatePath('/brukere')
+
+  if (error) {
+    return {
+      feil: `Kunne ikke ${sperret ? 'sperre' : 'åpne'} kontoen: ${error.message}`,
+    }
+  }
+  return { ok: sperret ? 'Kontoen er sperret.' : 'Kontoen er åpnet igjen.' }
 }
 
 /**
@@ -180,6 +204,8 @@ export async function slettBrukerISystem(
   systemId: string,
   brukerId: string,
   epost: string,
+  _forrige: BrukerTilstand,
+  _formData: FormData,
 ): Promise<BrukerTilstand> {
   const meg = await krevEier()
 

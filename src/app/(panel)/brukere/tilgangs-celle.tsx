@@ -45,10 +45,22 @@ export function TilgangsCelle({
    */
   krevArPassord: boolean
   gi: Handling
-  taBort: () => Promise<void>
+  taBort: Handling
 }) {
   const [åpen, settÅpen] = useState(false)
-  const [tilstand, send, venter] = useActionState(gi, start)
+  const [gittTilstand, sendGi, girTilgang] = useActionState(gi, start)
+  const [fjernTilstand, sendFjern, fjerner] = useActionState(taBort, start)
+
+  /*
+   * Den sist utførte handlingen eier meldingsfeltet.
+   *
+   * To meldinger samtidig ville vært verre enn én: cellen er smal, og «ok»
+   * fra å gi tilgang stående ved siden av «feil» fra å ta den bort er
+   * uleselig. `useActionState` nullstiller ikke den andre tilstanden, så
+   * fjerning vinner når den har sagt noe – det er den ferskeste handlingen
+   * hvis man i det hele tatt trykket på den.
+   */
+  const tilstand = fjernTilstand.feil || fjernTilstand.ok ? fjernTilstand : gittTilstand
 
   if (!åpen) {
     return (
@@ -75,7 +87,7 @@ export function TilgangsCelle({
       <p className="text-xs font-bold">{systemNavn}</p>
       <p className="hm-kode text-[11px] text-[var(--blekk-svak)]">{epost}</p>
 
-      <form action={send} className="space-y-1.5">
+      <form action={sendGi} className="space-y-1.5">
         <input type="hidden" name="epost" value={epost} />
         <input type="hidden" name="navn" value={navn} />
 
@@ -105,15 +117,23 @@ export function TilgangsCelle({
           />
         )}
 
-        <button type="submit" disabled={venter} className={`${KNAPP_LITEN} w-full`}>
-          {venter ? 'Skriver …' : harTilgang ? 'Endre rolle' : 'Gi tilgang'}
+        <button
+          type="submit"
+          disabled={girTilgang}
+          className={`${KNAPP_LITEN} w-full`}
+        >
+          {girTilgang ? 'Skriver …' : harTilgang ? 'Endre rolle' : 'Gi tilgang'}
         </button>
       </form>
 
       {harTilgang && (
-        <form action={taBort}>
-          <button type="submit" className={`${KNAPP_FARLIG} w-full`}>
-            Ta bort tilgang
+        <form action={sendFjern}>
+          <button
+            type="submit"
+            disabled={fjerner}
+            className={`${KNAPP_FARLIG} w-full`}
+          >
+            {fjerner ? 'Fjerner …' : 'Ta bort tilgang'}
           </button>
         </form>
       )}

@@ -9,12 +9,21 @@ import { FELT_KODE, KNAPP_FARLIG, KNAPP_LITEN, KNAPP_SEKUNDÆR } from '@/compone
 
 const start: BrukerTilstand = {}
 
+type Handling = (
+  forrige: BrukerTilstand,
+  formData: FormData,
+) => Promise<BrukerTilstand>
+
 /**
  * Handlingene for én bruker i ett system.
  *
  * Skjemaet er skjult til man ber om det. Med tjue brukere ganger fem
  * systemer ville tjue passordfelt stått åpne samtidig, og da er det
  * bare et spørsmål om tid før noen skriver i feil rad.
+ *
+ * Alle tre handlingene rapporterer utfallet. Sperring og sletting gjorde
+ * det ikke før, og en sperring som ikke gikk gjennom – typisk fordi
+ * service role-nøkkelen mangler – så helt likt ut som en som gjorde det.
  */
 export function BrukerHandlinger({
   systemId,
@@ -28,12 +37,26 @@ export function BrukerHandlinger({
   brukerId: string
   epost: string
   sperret: boolean
-  settSperret: (sperret: boolean) => Promise<void>
-  slett: () => Promise<void>
+  settSperret: Handling
+  slett: Handling
 }) {
   const [åpen, settÅpen] = useState(false)
   const [bekreftSlett, settBekreftSlett] = useState(false)
-  const [tilstand, send, venter] = useActionState(settPassordISystem, start)
+  const [passordTilstand, sendPassord, setterPassord] = useActionState(
+    settPassordISystem,
+    start,
+  )
+  const [sperrTilstand, sendSperr, sperrer] = useActionState(settSperret, start)
+  const [slettTilstand, sendSlett, sletter] = useActionState(slett, start)
+
+  // Siste handling som sa noe eier meldingsfeltet – raden er én linje, og
+  // tre meldinger ved siden av hverandre er ingen melding.
+  const tilstand =
+    slettTilstand.feil || slettTilstand.ok
+      ? slettTilstand
+      : sperrTilstand.feil || sperrTilstand.ok
+        ? sperrTilstand
+        : passordTilstand
 
   /*
    * Sletting bak en bekreftelse med e-posten skrevet ut.
@@ -49,9 +72,9 @@ export function BrukerHandlinger({
           Slette <strong>{epost}</strong> for godt? Historikk i appen vil peke
           på en bruker som ikke finnes.
         </span>
-        <form action={slett}>
-          <button type="submit" className={KNAPP_FARLIG}>
-            Ja, slett
+        <form action={sendSlett}>
+          <button type="submit" disabled={sletter} className={KNAPP_FARLIG}>
+            {sletter ? 'Sletter …' : 'Ja, slett'}
           </button>
         </form>
         <button onClick={() => settBekreftSlett(false)} className={KNAPP_LITEN}>
@@ -71,7 +94,7 @@ export function BrukerHandlinger({
       )}
 
       {åpen ? (
-        <form action={send} className="flex flex-wrap items-center gap-2">
+        <form action={sendPassord} className="flex flex-wrap items-center gap-2">
           <input type="hidden" name="systemId" value={systemId} />
           <input type="hidden" name="brukerId" value={brukerId} />
           <input
@@ -84,8 +107,8 @@ export function BrukerHandlinger({
             aria-label={`Nytt passord for ${epost}`}
             className={`${FELT_KODE} w-56 py-1.5`}
           />
-          <button type="submit" disabled={venter} className={KNAPP_SEKUNDÆR}>
-            {venter ? 'Setter …' : 'Sett'}
+          <button type="submit" disabled={setterPassord} className={KNAPP_SEKUNDÆR}>
+            {setterPassord ? 'Setter …' : 'Sett'}
           </button>
           <button
             type="button"
@@ -101,12 +124,14 @@ export function BrukerHandlinger({
         </button>
       )}
 
-      <form action={() => settSperret(!sperret)}>
+      {/* Måltilstanden er bundet på serveren – se settSperret i actions.ts. */}
+      <form action={sendSperr}>
         <button
           type="submit"
+          disabled={sperrer}
           className={sperret ? KNAPP_LITEN : KNAPP_FARLIG}
         >
-          {sperret ? 'Åpne konto' : 'Sperr'}
+          {sperrer ? 'Endrer …' : sperret ? 'Åpne konto' : 'Sperr'}
         </button>
       </form>
 

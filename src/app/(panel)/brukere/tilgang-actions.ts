@@ -84,15 +84,22 @@ export async function giTilgangTilSystem(
  * Deaktiverer framfor å slette der tabellen har en aktiv-kolonne –
  * ordrer og signaturer peker på brukeren, og en slettet rad etterlater en
  * referanse ingen kan tyde.
+ *
+ * Returnerer et resultat framfor `void`. Den første versjonen returnerte
+ * `void`, og da forsvant enhver feil: handlingen loggførte at den mislyktes
+ * mens skjermen viste ingenting. Det ble bare oppdaget fordi noen la merke
+ * til at raden sto igjen. En handling som kan feile må kunne si det.
  */
 export async function taBortTilgangFraSystem(
   systemId: string,
   epost: string,
-): Promise<void> {
+  _forrige: CelleTilstand,
+  _formData: FormData,
+): Promise<CelleTilstand> {
   const meg = await krevEier()
 
   const system = await hentSystemFelt(systemId)
-  if (!system) return
+  if (!system) return { feil: 'Fant ikke systemet.' }
 
   const svar = await taBortTilgang({
     systemId,
@@ -115,4 +122,5 @@ export async function taBortTilgangFraSystem(
   })
 
   revalidatePath('/brukere')
+  return svar.ok ? { ok: svar.melding } : { feil: svar.feil }
 }

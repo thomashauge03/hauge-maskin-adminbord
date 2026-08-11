@@ -200,6 +200,14 @@ export async function lesSpørring<T = Record<string, unknown>>(
   token: string | null,
   ref: string,
   spørring: string,
+  /**
+   * SQL-parametre, til `$1`, `$2` osv.
+   *
+   * Finnes fordi noen oppslag tar en verdi fra et skjema – en e-post man
+   * skal oversette til en auth-id. Verdier skal aldri limes inn i
+   * spørringsteksten, selv når de ser harmløse ut.
+   */
+  parametre: unknown[] = [],
 ): Promise<HentResultat<T[]>> {
   if (!token) return ikkeSattOpp()
 
@@ -209,7 +217,7 @@ export async function lesSpørring<T = Record<string, unknown>>(
       token,
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query: spørring }),
+      body: JSON.stringify({ query: spørring, parameters: parametre }),
     },
   )
 }
