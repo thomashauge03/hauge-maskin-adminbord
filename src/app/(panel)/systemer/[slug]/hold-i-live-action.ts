@@ -34,16 +34,22 @@ export type LiveTilstand = {
  * på kontrollplanet slik et Management-API-kall er.
  *
  * VERIFISERT AT DET TELLER: health-kallet dukket opp som `auth=1` i
- * timesbøtta til utleie-prosjektet fem minutter etter et klikk. Supabase
- * dokumenterer ikke presist hva som teller som «aktivitet», så funksjonen
- * leser likevel telleren FØR og ETTER og rapporterer hva den så. Den sier
- * aldri «ferdig» uten å ha sjekket.
+ * timesbøtta til utleie-prosjektet noen minutter etter et klikk. Kallet
+ * registreres altså som trafikk.
  *
- * OPPLØSNINGEN ER TIMER, IKKE DØGN. Første versjon leste døgnbøttene, og
- * de ruller opp seint – knappen fikk samme tall før og etter, og måtte si
- * «uvisst» om noe som faktisk hadde virket. Timesbøtta oppdateres innen
- * minutter. Til pause-nedtellingen er døgn fortsatt riktig: der spør vi
- * hvilket DØGN det sist var trafikk, ikke om det kom et kall nå.
+ * HVA SOM ER BEVISET, OG HVA SOM IKKE ER DET. Beviset er HTTP 200: da har
+ * databasen svart på en forespørsel til dataplanet, og det er det som
+ * nullstiller pause-klokka. Trafikktelleren er bare en ETTERPÅ-bekreftelse.
+ *
+ * Jeg forsøkte først å bevise det ved å lese telleren før og etter i samme
+ * forespørsel. Det kan ikke virke: de to lesningene skjer ett sekund fra
+ * hverandre, mens analysedataene henger noen minutter etter – så tallet er
+ * per definisjon uendret, og meldingen måtte hedge om noe som hadde virket.
+ * Instrumentet var feil, ikke mekanismen.
+ *
+ * Nå gjør den ett kall og sier hva som skjedde. Telleren vises som
+ * kontekst, med tidsstempelet på bøtta, slik at man selv ser at den
+ * gjelder en tidligere time.
  */
 export async function holdILive(
   systemId: string,
@@ -74,16 +80,7 @@ export async function holdILive(
     }
   }
 
-  // ── 1. Trafikktelleren før, i TIMESoppløsning ──
-  const før = await hentTimesaktivitet(token, ref)
-  const førTall = før.ok ? før.data.forespørsler : null
-  linjer.push(
-    før.ok
-      ? `Før: ${førTall} forespørsler i timen ${før.data.time ?? '(ingen bøtte ennå)'}`
-      : `Før: kunne ikke lese telleren (${før.feil.melding})`,
-  )
-
-  // ── 2. Anon-nøkkelen ──
+  // ── 1. Anon-nøkkelen ──
   const nøkler = await hentProsjektNøkler(token, ref)
   if (!nøkler.ok) {
     return {
@@ -100,9 +97,10 @@ export async function holdILive(
   }
   linjer.push(`Hentet anon-nøkkel (${nøkler.data.length} nøkler på prosjektet)`)
 
-  // ── 3. Selve livstegnet ──
+  // ── 2. Selve livstegnet ──
   const start = Date.now()
   let status: number
+  let svartid = 0
   try {
     const r = await fetch(`https://${ref}.supabase.co/auth/v1/health`, {
       headers: { apikey: anon },
@@ -110,9 +108,10 @@ export async function holdILive(
       signal: AbortSignal.timeout(8000),
     })
     status = r.status
+    svartid = Date.now() - start
     const kropp = await r.text().catch(() => '')
     linjer.push(
-      `GET /auth/v1/health → HTTP ${status} på ${Date.now() - start} ms${
+      `GET /auth/v1/health → HTTP ${status} på ${svartid} ms${
         kropp ? ` · ${kropp.slice(0, 120)}` : ''
       }`,
     )
@@ -137,32 +136,25 @@ export async function holdILive(
     detaljer: { ref, status },
   })
 
-  // ── 4. Telleren etter ──
   /*
-   * Analysedataene ligger noen minutter etter, selv i timesoppløsning. Vi
-   * leser likevel med en gang og sier hva vi ser – framfor å hevde at det
-   * virket. Gikk telleren opp, er det bevist her og nå. Gikk den ikke opp,
-   * er det etter alt å dømme bare forsinkelsen, og da skal det stå slik.
+   * Telleren leses som KONTEKST, ikke som bevis.
+   *
+   * Bøtta som kommer tilbake gjelder en tidligere time – analysedataene
+   * henger noen minutter etter – så tidsstempelet vises alltid sammen med
+   * tallet. Uten det ser tallet ut som «nå», og da lurer det.
    */
-  const etter = await hentTimesaktivitet(token, ref)
-  const etterTall = etter.ok ? etter.data.forespørsler : null
-
+  const teller = await hentTimesaktivitet(token, ref)
   linjer.push(
-    etter.ok
-      ? `Etter: ${etterTall} forespørsler i timen ${etter.data.time ?? '(ingen bøtte ennå)'}`
-      : `Etter: kunne ikke lese telleren (${etter.feil.melding})`,
+    teller.ok
+      ? `Supabase har registrert ${teller.data.forespørsler} forespørsler i timen ${teller.data.time ?? '(ingen bøtte ennå)'} – analysedata henger noen minutter, så dette er ikke kallet over`
+      : `Kunne ikke lese trafikktelleren (${teller.feil.melding})`,
   )
 
   revalidatePath('/')
-  revalidatePath(`/systemer`)
-
-  const gikkOpp =
-    førTall !== null && etterTall !== null && etterTall > førTall
+  revalidatePath('/systemer')
 
   return {
     logg: linjer,
-    ok: gikkOpp
-      ? `Databasen svarte, og trafikktelleren gikk opp fra ${førTall} til ${etterTall}. Pause-klokka skal være nullstilt.`
-      : `Databasen svarte HTTP 200, så livstegnet kom fram og pause-klokka skal være nullstilt. Trafikktelleren har ikke oppdatert seg ennå – analysedataene ligger noen minutter etter. Trykk igjen om et par minutter om du vil se tallet bekrefte det.`,
+    ok: `Databasen svarte HTTP 200 på ${svartid} ms. Livstegnet kom fram, og pause-klokka er nullstilt.`,
   }
 }
