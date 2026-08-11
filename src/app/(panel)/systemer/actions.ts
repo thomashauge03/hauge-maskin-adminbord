@@ -40,13 +40,39 @@ const skjema = z.object({
     ),
   navn: z.string().trim().min(2, 'Navn må fylles ut'),
   beskrivelse: tomTilNull,
-  supabaseProsjektRef: tomTilNull,
+  supabaseProsjektRef: tomTilNull.refine(
+    (v) => v === null || /^[a-z]{20}$/.test(v),
+    'En Supabase-prosjektref er 20 små bokstaver',
+  ),
   vercelProsjektId: tomTilNull,
   vercelProsjektNavn: tomTilNull,
-  githubRepo: tomTilNull,
-  produksjonsUrl: tomTilNull,
+  /*
+   * Formatkrav på de tre feltene som brukes til noe.
+   *
+   * `produksjonsUrl` går rett i en href, og en feilskrevet prosjektref dukker
+   * opp som «Prosjektet er ikke i lista til den kontoen. Feil konto
+   * registrert?» – altså en feilmelding som peker på feil årsak. Bedre å
+   * avvise ved inntasting enn å feilsøke en gal påstand senere.
+   */
+  githubRepo: tomTilNull.refine(
+    (v) => v === null || /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(v),
+    'GitHub-repo skrives som «bruker/repo»',
+  ),
+  produksjonsUrl: tomTilNull.refine(
+    (v) => v === null || /^https?:\/\/.+/.test(v),
+    'Produksjonsadressen må begynne med http:// eller https://',
+  ),
   notat: tomTilNull,
-  sortering: z.coerce.number().int().min(0).max(9999),
+  /*
+   * Et tømt tallfelt sender '', ikke null.
+   *
+   * `z.coerce.number()` gjør '' til 0, og systemet flyttet seg stille øverst i
+   * registeret. `?? 100` i lesSkjema fanget det ikke, siden '' ikke er nullish.
+   */
+  sortering: z.preprocess(
+    (v) => (v === '' || v === null || v === undefined ? 100 : v),
+    z.coerce.number().int().min(0).max(9999),
+  ),
   aktiv: z.coerce.boolean(),
   overvakes: z.coerce.boolean(),
 })
@@ -328,11 +354,29 @@ export async function slettSystem(
 
 // ── Hemmeligheter ─────────────────────────────────────────────
 
-const hemmelighetSkjema = z.object({
-  slag: z.enum(['service_role', 'anon', 'annet']),
-  navn: z.string().trim().max(60).default(''),
-  verdi: z.string().trim().min(10, 'Verdien ser for kort ut til å være en nøkkel'),
-})
+const hemmelighetSkjema = z
+  .object({
+    slag: z.enum(['service_role', 'anon', 'annet']),
+    navn: z.string().trim().max(60).default(''),
+    verdi: z
+      .string()
+      .trim()
+      .min(10, 'Verdien ser for kort ut til å være en nøkkel'),
+  })
+  /*
+   * Navnet MÅ være tomt for service_role og anon.
+   *
+   * Hver bruker slår opp nøkkelen med .eq('slag', …).eq('navn', ''), så en
+   * service_role-nøkkel lagret med et navn ble stående i lista mens hver
+   * handling sa «Ingen service role-nøkkel lagret». Nøkkelen var der; den var
+   * bare usynlig for koden som trengte den. Å avvise navnet er tydeligere enn
+   * å tømme det i det stille.
+   */
+  .refine((v) => v.slag === 'annet' || v.navn === '', {
+    message:
+      'Navn brukes bare for slaget «annet». En service_role- eller anon-nøkkel med navn blir ikke funnet av handlingene som trenger den.',
+    path: ['navn'],
+  })
 
 /**
  * Lagrer en nøkkel kryptert.

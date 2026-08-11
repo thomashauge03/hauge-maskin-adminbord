@@ -1,3 +1,4 @@
+import { cache } from 'react'
 import { lagServerKlient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import type {
@@ -81,16 +82,26 @@ export async function hentSystemer(medInaktive = false): Promise<System[]> {
   return (data as SystemRad[]).map(tilSystem)
 }
 
-export async function hentSystem(slug: string): Promise<System | null> {
-  const supabase = await lagServerKlient()
-  const { data } = await supabase
-    .from('systemer')
-    .select('*')
-    .eq('slug', slug)
-    .single()
+/**
+ * Ett system, med dedupe per forespørsel.
+ *
+ * `cache()` er ikke pynt her: systemsiden kaller denne både i
+ * `generateMetadata` og i selve siden, og de kjører hver sin gang. Uten
+ * dedupe betaler hver visning av /systemer/[slug] to identiske rundturer for
+ * å hente samme rad.
+ */
+export const hentSystem = cache(
+  async (slug: string): Promise<System | null> => {
+    const supabase = await lagServerKlient()
+    const { data } = await supabase
+      .from('systemer')
+      .select('*')
+      .eq('slug', slug)
+      .single()
 
-  return data ? tilSystem(data as SystemRad) : null
-}
+    return data ? tilSystem(data as SystemRad) : null
+  },
+)
 
 /**
  * Hemmelighetene som er lagret for et system – uten verdiene.

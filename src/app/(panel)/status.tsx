@@ -20,8 +20,15 @@ export async function Statusdel({
   systemer: System[]
   sortering?: Sortering
 }) {
-  const reserve = await hentReserveMaalinger()
-  const oversikt = await hentOversikt(systemer, reserve)
+  /*
+   * Reservemålingene ventes ikke på først.
+   *
+   * `await` på dem foran `hentOversikt` var en barriere uten grunn: reserven
+   * brukes først når alle plattformkallene er ferdige, så navspørringen kan gå
+   * samtidig med dem. Sto som to bølger, er nå én – på forsiden, som er den
+   * siden man treffer oftest.
+   */
+  const oversikt = await hentOversikt(systemer, hentReserveMaalinger())
 
   // Tidspunktet kommer med målingen, ikke fra klokka her. Se
   // kommentaren på Oversikt.hentetMs for hvorfor.

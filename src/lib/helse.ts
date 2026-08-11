@@ -273,7 +273,15 @@ export async function hentUkobledeProsjekter(systemer: System[]): Promise<{
  */
 export async function hentOversikt(
   systemer: System[],
-  reserve?: Map<string, StatusMaaling>,
+  /*
+   * Tas imot som et LØFTE, ikke en ferdig verdi.
+   *
+   * Kallstedet ventet på reservemålingene før det kalte hit, og det var en
+   * barriere uten grunn: reserven brukes først når alle plattformkallene er
+   * ferdige, så navspørringen kan gå samtidig med dem. To bølger ble én, på
+   * den siden man treffer oftest.
+   */
+  reserveLøfte?: Promise<Map<string, StatusMaaling>>,
 ): Promise<Oversikt> {
   /*
    * Ett Supabase-kall per KONTO, ikke ett totalt og ikke ett per system.
@@ -314,8 +322,17 @@ export async function hentOversikt(
    * trenger bare token og ref, og begge er kjent på forhånd. To bølger
    * kostet summen av den tregeste i hver; én koster den tregeste totalt.
    */
+  /*
+   * `overvakes` filtreres HER, ikke bare i cron-en.
+   *
+   * Eneste leser var api/status/oppdater. Oversikten hentet aktivitet for hvert
+   * system med ref og token, altså også for dem eieren uttrykkelig har sagt
+   * skal stå uten tilsyn – ett Management-kall hver, på hver sidelasting, for
+   * et svar ingen skal varsles om. Kommentaren på settOvervakes lovet at et
+   * system uten tilsyn «ikke lyser rødt»; nå koster det heller ingenting.
+   */
   const medRef = systemer.filter(
-    (s) => s.supabaseProsjektRef && tokenFor(tokenKart, s.kontoId),
+    (s) => s.overvakes && s.supabaseProsjektRef && tokenFor(tokenKart, s.kontoId),
   )
 
   const alle = await Promise.all([
@@ -363,6 +380,10 @@ export async function hentOversikt(
       })
     }
   })
+
+  // Reserven ventes på FØRST HER, etter at plattformkallene er ferdige. Den har
+  // gått parallelt med dem hele veien.
+  const reserve = reserveLøfte ? await reserveLøfte : undefined
 
   const vercelKart = new Map(vercelListe.map((p) => [p.id, p]))
   const vercelNavnKart = new Map(vercelListe.map((p) => [p.navn, p]))
