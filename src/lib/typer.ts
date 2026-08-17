@@ -39,6 +39,16 @@ export type System = {
   kontoId: string | null
   supabaseProsjektRef: string | null
   supabaseUrl: string | null
+  /**
+   * Postgres-skjemaet systemets egne tabeller ligger i.
+   *
+   * Nesten alltid `public`. Unntaket er systemer som deler database med et
+   * annet: Lagersystemet ligger i skjemaet `lager` i heimesidas prosjekt,
+   * fordi gratisplanen bare gir to aktive prosjekter per bruker. Uten dette
+   * feltet ville tabellista på systemsiden vist naboens tabeller og kalt dem
+   * systemets egne.
+   */
+  dbSkjema: string
   vercelProsjektId: string | null
   vercelProsjektNavn: string | null
   githubRepo: string | null

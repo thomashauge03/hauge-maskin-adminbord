@@ -58,13 +58,25 @@ const SPØRRING_NØKKELTALL = `
  * kan ta sekunder og låse lesing, og til «hvor mye ligger her» er et
  * anslag på noen hundre rader godt nok.
  */
-const SPØRRING_TABELLER = `
-  select relname as tabell, n_live_tup as rader
-  from pg_catalog.pg_stat_user_tables
-  where schemaname = 'public'
-  order by n_live_tup desc
-  limit 20
-`
+/*
+ * Skjemanavnet kommer fra registeret, ikke fra en bruker på nett – men det
+ * settes i et skjemafelt av et menneske, og havner her i en streng vi sender
+ * som SQL. Doblingen av apostrofer er derfor ikke paranoia: den er forskjellen
+ * på et felt og en injeksjon. Management-API-et tar ikke parametre.
+ */
+function sqlTekst(verdi: string): string {
+  return `'${verdi.replace(/'/g, "''")}'`
+}
+
+function spørringTabeller(skjema: string): string {
+  return `
+    select relname as tabell, n_live_tup as rader
+    from pg_catalog.pg_stat_user_tables
+    where schemaname = ${sqlTekst(skjema)}
+    order by n_live_tup desc
+    limit 20
+  `
+}
 
 /** Alt tomt, med en grunn. Brukes nar vi ikke kom i gang i det hele tatt. */
 function tomDetalj(grunn: string): Databasedetalj {
@@ -104,7 +116,7 @@ export async function hentDatabasedetalj(
     lesSpørring<{ tabell: string; rader: string | number }>(
       token,
       prosjektRef,
-      SPØRRING_TABELLER,
+      spørringTabeller(system.dbSkjema),
     ),
   ])
 

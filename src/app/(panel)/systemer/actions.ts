@@ -44,6 +44,24 @@ const skjema = z.object({
     (v) => v === null || /^[a-z]{20}$/.test(v),
     'En Supabase-prosjektref er 20 små bokstaver',
   ),
+  /*
+   * Tomt felt betyr `public`, ikke en feil. De aller fleste systemene eier
+   * databasen sin alene, og da skal ingen måtte fylle ut noe for å få det
+   * normale. Verdien går inn i en SQL-streng i systemdetalj.ts, så formatet
+   * er strengere enn Postgres selv krever – siterte skjemanavn med mellomrom
+   * er lovlige der, men vi har ingen, og å tillate dem gir bare en større
+   * flate å skrive feil på.
+   */
+  dbSkjema: z.preprocess(
+    (v) => (v === '' || v === null || v === undefined ? 'public' : v),
+    z
+      .string()
+      .trim()
+      .regex(
+        /^[a-z_][a-z0-9_]*$/,
+        'Skjemanavn kan bare ha små bokstaver, tall og understrek',
+      ),
+  ),
   vercelProsjektId: tomTilNull,
   vercelProsjektNavn: tomTilNull,
   /*
@@ -83,6 +101,7 @@ function lesSkjema(formData: FormData) {
     navn: formData.get('navn'),
     beskrivelse: formData.get('beskrivelse'),
     supabaseProsjektRef: formData.get('supabaseProsjektRef'),
+    dbSkjema: formData.get('dbSkjema'),
     vercelProsjektId: formData.get('vercelProsjektId'),
     vercelProsjektNavn: formData.get('vercelProsjektNavn'),
     githubRepo: formData.get('githubRepo'),
@@ -120,6 +139,7 @@ export async function opprettSystem(
     beskrivelse: felter.data.beskrivelse,
     supabase_prosjekt_ref: felter.data.supabaseProsjektRef,
     supabase_url: urlFraRef(felter.data.supabaseProsjektRef),
+    db_skjema: felter.data.dbSkjema,
     vercel_prosjekt_id: felter.data.vercelProsjektId,
     vercel_prosjekt_navn: felter.data.vercelProsjektNavn,
     github_repo: felter.data.githubRepo,
@@ -168,6 +188,7 @@ export async function endreSystem(
       beskrivelse: felter.data.beskrivelse,
       supabase_prosjekt_ref: felter.data.supabaseProsjektRef,
       supabase_url: urlFraRef(felter.data.supabaseProsjektRef),
+    db_skjema: felter.data.dbSkjema,
       vercel_prosjekt_id: felter.data.vercelProsjektId,
       vercel_prosjekt_navn: felter.data.vercelProsjektNavn,
       github_repo: felter.data.githubRepo,

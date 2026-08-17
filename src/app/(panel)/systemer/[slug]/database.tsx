@@ -56,9 +56,23 @@ export async function Databasedel({ system }: { system: System }) {
         <Tallkort
           merkelapp="Tabeller"
           verdi={d.tabeller?.length ?? '–'}
-          under="i public-skjemaet"
+          under={`i ${system.dbSkjema}-skjemaet`}
         />
       </div>
+
+      {/*
+        Deler systemet database med et annet, er brukertallet og
+        databasestørrelsen over felles for begge. Uten denne linja ser det ut
+        som lagersystemet alene bruker 11 MB og har fire brukere – tall som i
+        virkeligheten gjelder heimesida like mye.
+      */}
+      {system.dbSkjema !== 'public' && (
+        <p className="text-sm text-[var(--blekk-svak)]">
+          Deler database med et annet system. Tabellista gjelder{' '}
+          {system.dbSkjema}-skjemaet, men brukere, størrelse og disk er felles
+          for hele prosjektet.
+        </p>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Kort>

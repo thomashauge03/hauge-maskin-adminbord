@@ -70,6 +70,7 @@ export async function GET(request: Request) {
     kontoId: r.konto_id,
     supabaseProsjektRef: r.supabase_prosjekt_ref,
     supabaseUrl: r.supabase_url,
+    dbSkjema: r.db_skjema,
     vercelProsjektId: r.vercel_prosjekt_id,
     vercelProsjektNavn: r.vercel_prosjekt_navn,
     githubRepo: r.github_repo,

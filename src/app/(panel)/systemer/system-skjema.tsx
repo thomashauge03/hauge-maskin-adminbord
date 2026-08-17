@@ -87,6 +87,21 @@ export function SystemSkjema({
             database.
           </span>
         </label>
+
+        <label className="mt-4 block">
+          <span className={ETIKETT}>Skjema</span>
+          <input
+            name="dbSkjema"
+            defaultValue={system?.dbSkjema ?? 'public'}
+            placeholder="public"
+            className={FELT_KODE}
+          />
+          <span className="mt-1 block text-xs text-[var(--blekk-svak)]">
+            Postgres-skjemaet systemets egne tabeller ligger i. La stå tom for{' '}
+            <code>public</code>. Settes bare når systemet deler database med et
+            annet – da er det dette som avgjør hvilke tabeller som vises her.
+          </span>
+        </label>
       </fieldset>
 
       <fieldset className="border-2 border-[var(--kant)] px-4 pt-3 pb-4">

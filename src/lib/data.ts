@@ -30,6 +30,7 @@ type SystemRad = {
   konto_id: string | null
   supabase_prosjekt_ref: string | null
   supabase_url: string | null
+  db_skjema: string
   vercel_prosjekt_id: string | null
   vercel_prosjekt_navn: string | null
   github_repo: string | null
@@ -51,6 +52,7 @@ function tilSystem(r: SystemRad): System {
     kontoId: r.konto_id,
     supabaseProsjektRef: r.supabase_prosjekt_ref,
     supabaseUrl: r.supabase_url,
+    dbSkjema: r.db_skjema,
     vercelProsjektId: r.vercel_prosjekt_id,
     vercelProsjektNavn: r.vercel_prosjekt_navn,
     githubRepo: r.github_repo,
