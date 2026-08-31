@@ -34,6 +34,23 @@ export type Databasedetalj = {
   logiskStørrelse: number | null
   tabeller: Tabellrad[] | null
   spørringFeil: string | null
+  /**
+   * Om prosjektet ser PAUSET ut.
+   *
+   * Sluttet fra at databasen ikke tar imot forbindelser, ikke lest fra en
+   * statuskolonne: prosjektlista er et eget kall, og dette svaret har vi
+   * allerede. Signaturen er tydelig – en pauset base svarer «Connection
+   * terminated due to connection timeout» på hver spørring.
+   *
+   * Finnes fordi «hold databasen i live» er meningsløst mot en pauset base.
+   * Uten dette flagget tilbød siden den ene knappen som ikke kunne hjelpe.
+   */
+  pauset: boolean
+}
+
+/** Signaturen til en pauset base: forbindelsen nektes eller ryker. */
+function serPausetUt(melding: string): boolean {
+  return /timeout|terminated|ECONNREFUSED|ENOTFOUND/i.test(melding)
 }
 
 /**
@@ -90,6 +107,10 @@ function tomDetalj(grunn: string): Databasedetalj {
     logiskStørrelse: null,
     tabeller: null,
     spørringFeil: grunn,
+    // Uten ref eller token har vi ikke SPURT, og da vet vi ikke. «Ikke spurt»
+    // skal ikke bli «pauset» – da ville siden tilbudt å starte et prosjekt
+    // som kanskje går fint.
+    pauset: false,
   }
 }
 
@@ -140,6 +161,7 @@ export async function hentDatabasedetalj(
         ? null
         : tabeller.feil.melding
       : nøkkeltall.feil.melding,
+    pauset: !nøkkeltall.ok && serPausetUt(nøkkeltall.feil.melding),
   }
 }
 

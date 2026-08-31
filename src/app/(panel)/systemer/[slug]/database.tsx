@@ -3,6 +3,8 @@ import type { System } from '@/lib/typer'
 import { Kort, KortTittel, Merke, Tallkort, type MerkeType } from '@/components/ui'
 import type { TjenesteHelse } from '@/lib/plattform/supabase-api'
 import { visBytes, visProsent } from '@/lib/format'
+import { HoldILive } from './hold-i-live'
+import { holdILive, startProsjektIgjen } from './hold-i-live-action'
 
 type TjenesteStatus = TjenesteHelse['status']
 
@@ -24,11 +26,29 @@ const tjenesteOrd: Record<TjenesteStatus, string> = {
  * utrullingsdelen – de spør to ulike leverandører, og den ene skal ikke
  * måtte vente på den andre.
  */
-export async function Databasedel({ system }: { system: System }) {
+export async function Databasedel({
+  system,
+  erEier,
+}: {
+  system: System
+  erEier: boolean
+}) {
   const d = await hentDatabasedetalj(system)
 
   return (
     <div className="space-y-4">
+      {/* Knappene ligger HER, ikke i page.tsx, fordi de trenger å vite om
+          basen er pauset – og det svaret finnes allerede i dette kallet. I
+          page.tsx hadde det kostet en ny runde til Supabase, bare for å velge
+          hvilken knapp som skal vises. */}
+      {erEier && system.supabaseProsjektRef && (
+        <HoldILive
+          pauset={d.pauset}
+          handling={holdILive.bind(null, system.id)}
+          start={startProsjektIgjen.bind(null, system.id)}
+        />
+      )}
+
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Tallkort
           merkelapp="Brukere"

@@ -23,8 +23,6 @@ import { Databasedel, DatabaseSkjelett } from './database'
 import { Utrullingsdel, UtrullingSkjelett } from './utrulling'
 import { Hemmeligheter } from './hemmeligheter'
 import { SlettSystem } from './slett'
-import { HoldILive } from './hold-i-live'
-import { holdILive } from './hold-i-live-action'
 
 export async function generateMetadata({
   params,
@@ -120,11 +118,8 @@ export default async function SystemSide({
         {system.supabaseProsjektRef ? (
           <>
             <Suspense fallback={<DatabaseSkjelett />}>
-              <Databasedel system={system} />
+              <Databasedel system={system} erEier={erEier} />
             </Suspense>
-            {/* Under tallene, fordi man trykker her etter a ha sett at
-                pause naermer seg. */}
-            {erEier && <HoldILive handling={holdILive.bind(null, system.id)} />}
           </>
         ) : (
           <p className="text-sm text-[var(--blekk-svak)]">

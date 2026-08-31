@@ -3,11 +3,8 @@
 import { revalidatePath } from 'next/cache'
 import { krevEier } from '@/lib/auth'
 import { hentTokenKart, tokenFor } from '@/lib/kontoar'
-import {
-  hentTimesaktivitet,
-  hentProsjektNøkler,
-  finnAnon,
-} from '@/lib/plattform/supabase-api'
+import { hentAktivBudsjett, startProsjekt } from '@/lib/plattform/supabase-api'
+import { sendLivstegn } from '@/lib/livstegn'
 import { logg } from '@/lib/data'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 
@@ -18,38 +15,43 @@ export type LiveTilstand = {
   logg?: string[]
 }
 
+/* ═══════════════════════════════════════════════════════════
+   HVORFOR DENNE BLE SKREVET OM.
+
+   Første versjon sendte `GET /auth/v1/health` med anon-nøkkelen, og meldte
+   «pause-klokka er nullstilt» på HTTP 200. Den påstanden var feil, og målt
+   mot virkeligheten:
+
+     utleie   klikk 2026-08-26 kl 13:01, HTTP 200, loggført
+              trafikkbøtta for 2026-08-26: auth=1 rest=0
+              status i dag: INACTIVE
+
+   Helsekallet er GoTrue som svarer «jeg lever». Det rører ALDRI databasen, og
+   Supabase pauset prosjektet likevel. Mønsteret er entydig på tvers av alle
+   åtte prosjekt: hvert prosjekt som har holdt seg oppe har `rest > 0`, hvert
+   prosjekt som ble pauset hadde bare `auth`.
+
+   Nå gjøres to kall som begge treffer Postgres:
+
+     1. `select 1` gjennom Management-API-ets lesespørring. Åpner en ekte
+        forbindelse til basen og kjører SQL. Beviser at databasen svarer.
+     2. Et anon-kall mot PostgREST med `limit=0`. Går gjennom Kong til
+        PostgREST til Postgres, og er den trafikken som teller som `rest`.
+
+   Nummer 2 er den som antas å nullstille pause-klokka, fordi det er den
+   trafikktypen de levende prosjektene har. Det er en SLUTNING fra observasjon,
+   ikke noe Supabase dokumenterer – og meldingen sier det, framfor å love noe
+   jeg ikke kan stå for. Det var nettopp den overtroen som gjorde at forrige
+   versjon så ut til å virke i to uker.
+
+   `limit=0` framfor `limit=1`: spørringen kjøres, men ingen rader krysser
+   nettet. Vi vil ha et databasetreff, ikke data.
+   ═══════════════════════════════════════════════════════════ */
+
 /**
- * Sender et harmløst kall til databasen for å nullstille pause-klokka.
+ * Sender et livstegn til databasen for å nullstille pause-klokka.
  *
- * Et gratisprosjekt uten trafikk i sju døgn blir pauset, og da er appen
- * nede. Denne knappen gir prosjektet et livstegn uten å røre data.
- *
- * VALG AV KALL: `GET /auth/v1/health` med prosjektets anon-nøkkel.
- * Alternativene ble prøvd mot et levende prosjekt:
- *   GET /rest/v1/            → 401, krever service_role
- *   GET /rest/v1/ (publishable) → 401, krever secret key
- *   GET /auth/v1/health      → 200 ✓
- * Health-endepunktet leser ingen data og endrer ingenting, men er et ekte
- * kall til prosjektets auth-tjeneste – altså trafikk på dataplanet, ikke
- * på kontrollplanet slik et Management-API-kall er.
- *
- * VERIFISERT AT DET TELLER: health-kallet dukket opp som `auth=1` i
- * timesbøtta til utleie-prosjektet noen minutter etter et klikk. Kallet
- * registreres altså som trafikk.
- *
- * HVA SOM ER BEVISET, OG HVA SOM IKKE ER DET. Beviset er HTTP 200: da har
- * databasen svart på en forespørsel til dataplanet, og det er det som
- * nullstiller pause-klokka. Trafikktelleren er bare en ETTERPÅ-bekreftelse.
- *
- * Jeg forsøkte først å bevise det ved å lese telleren før og etter i samme
- * forespørsel. Det kan ikke virke: de to lesningene skjer ett sekund fra
- * hverandre, mens analysedataene henger noen minutter etter – så tallet er
- * per definisjon uendret, og meldingen måtte hedge om noe som hadde virket.
- * Instrumentet var feil, ikke mekanismen.
- *
- * Nå gjør den ett kall og sier hva som skjedde. Telleren vises som
- * kontekst, med tidsstempelet på bøtta, slik at man selv ser at den
- * gjelder en tidligere time.
+ * Et gratisprosjekt uten trafikk i sju døgn blir pauset, og da er appen nede.
  */
 export async function holdILive(
   systemId: string,
@@ -61,7 +63,7 @@ export async function holdILive(
 
   const { data: system } = await supabaseAdmin
     .from('systemer')
-    .select('navn, supabase_prosjekt_ref, konto_id')
+    .select('navn, supabase_prosjekt_ref, konto_id, livstegn_tabell')
     .eq('id', systemId)
     .single()
 
@@ -76,85 +78,155 @@ export async function holdILive(
   )
   if (!token) {
     return {
-      feil: 'Mangler Supabase-token for kontoen som eier prosjektet. Uten det kan vi ikke hente anon-nøkkelen.',
+      feil: 'Mangler Supabase-token for kontoen som eier prosjektet. Uten det kan vi verken spørre databasen eller hente anon-nøkkelen.',
     }
   }
 
-  // ── 1. Anon-nøkkelen ──
-  const nøkler = await hentProsjektNøkler(token, ref)
-  if (!nøkler.ok) {
-    return {
-      feil: `Kunne ikke hente anon-nøkkelen: ${nøkler.feil.melding}`,
-      logg: linjer,
-    }
-  }
-  const anon = finnAnon(nøkler.data)
-  if (!anon) {
-    return {
-      feil: 'Fant ingen lesbar anon-nøkkel på prosjektet. Er de gamle JWT-nøklene slått av?',
-      logg: linjer,
-    }
-  }
-  linjer.push(`Hentet anon-nøkkel (${nøkler.data.length} nøkler på prosjektet)`)
+  // Selve livstegnet ligger i src/lib/livstegn.ts, delt med cron-en. To
+  // kopier ville før eller senere blitt to ulike definisjoner av «i live».
+  const tegn = await sendLivstegn(
+    token,
+    ref,
+    (system?.livstegn_tabell as string | null) ?? null,
+  )
+  linjer.push(...tegn.linjer)
 
-  // ── 2. Selve livstegnet ──
-  const start = Date.now()
-  let status: number
-  let svartid = 0
-  try {
-    const r = await fetch(`https://${ref}.supabase.co/auth/v1/health`, {
-      headers: { apikey: anon },
-      cache: 'no-store',
-      signal: AbortSignal.timeout(8000),
-    })
-    status = r.status
-    svartid = Date.now() - start
-    const kropp = await r.text().catch(() => '')
+  if (!tegn.basenSvarte) {
+    return {
+      logg: linjer,
+      feil: tegn.serPausetUt
+        ? 'Databasen tar ikke imot forbindelser. Det er mønsteret for et PAUSET prosjekt – et livstegn hjelper ikke da, prosjektet må startes igjen.'
+        : 'Databasen svarte ikke på «select 1». Se loggen under.',
+    }
+  }
+  if (!tegn.restNåddeFram) {
+    return {
+      logg: linjer,
+      feil: 'Databasen er oppe, men rest-kallet nådde ikke fram – og det er den trafikktypen som ser ut til å holde prosjektet i live. Livstegnet er halvveis.',
+    }
+  }
+
+  /*
+   * ── 4. Budsjettet ──
+   *
+   * Et livstegn kan ikke hjelpe en konto som er full. Har kontoen alt to
+   * aktive prosjekt, MÅ et tredje stå pauset – og uten dette tallet ser det ut
+   * som en feil i adminbordet framfor en grense hos Supabase.
+   */
+  const budsjett = await hentAktivBudsjett(token)
+  if (budsjett.ok) {
+    const { aktive, grense, totalt } = budsjett.data
     linjer.push(
-      `GET /auth/v1/health → HTTP ${status} på ${svartid} ms${
-        kropp ? ` · ${kropp.slice(0, 120)}` : ''
+      `Kontoen har ${aktive} av ${grense} aktive prosjekt (${totalt} i alt)${
+        aktive >= grense && totalt > grense
+          ? ' – FULL. Et pauset prosjekt på denne kontoen kan ikke startes før et annet pauses.'
+          : ''
       }`,
     )
-  } catch (e) {
-    linjer.push(
-      `GET /auth/v1/health feilet: ${e instanceof Error ? e.message : 'ukjent'}`,
-    )
-    return { feil: 'Livstegnet kom ikke fram.', logg: linjer }
-  }
-
-  if (status !== 200) {
-    return {
-      feil: `Databasen svarte HTTP ${status} på health-kallet. Er prosjektet alt pauset?`,
-      logg: linjer,
-    }
   }
 
   await logg('system.holdt_i_live', {
     utfortAv: meg.id,
     utfortAvEpost: meg.epost,
     systemId,
-    detaljer: { ref, status },
+    // Loggen bærer HVA som gikk gjennom, ikke bare at knappen ble trykt. Det
+    // var nettopp en logg full av «status: 200» som gjorde at feilen sto i to
+    // uker: hvert klikk var loggført som en suksess, og prosjektet ble pauset.
+    detaljer: {
+      ref,
+      basenSvarte: tegn.basenSvarte,
+      restNåddeFram: tegn.restNåddeFram,
+    },
   })
-
-  /*
-   * Telleren leses som KONTEKST, ikke som bevis.
-   *
-   * Bøtta som kommer tilbake gjelder en tidligere time – analysedataene
-   * henger noen minutter etter – så tidsstempelet vises alltid sammen med
-   * tallet. Uten det ser tallet ut som «nå», og da lurer det.
-   */
-  const teller = await hentTimesaktivitet(token, ref)
-  linjer.push(
-    teller.ok
-      ? `Supabase har registrert ${teller.data.forespørsler} forespørsler i timen ${teller.data.time ?? '(ingen bøtte ennå)'} – analysedata henger noen minutter, så dette er ikke kallet over`
-      : `Kunne ikke lese trafikktelleren (${teller.feil.melding})`,
-  )
 
   revalidatePath('/')
   revalidatePath('/systemer')
 
   return {
     logg: linjer,
-    ok: `Databasen svarte HTTP 200 på ${svartid} ms. Livstegnet kom fram, og pause-klokka er nullstilt.`,
+    ok: `Databasen svarte på «select 1», og et rest-kall gikk gjennom til Postgres. Det er den trafikktypen prosjektene som holder seg oppe har – men at det nullstiller pause-klokka er sluttet fra observasjon, ikke dokumentert av Supabase. Sjekk «sist trafikk» på oversikten i morgen; står den fortsatt på i dag, virket det.`,
+  }
+}
+
+/**
+ * Starter et pauset prosjekt igjen.
+ *
+ * Egen handling framfor en del av livstegnet: et livstegn til en pauset base
+ * gjør ingenting, og å starte et prosjekt tar minutter og koster en plass i
+ * kontoens budsjett. Det skal være et valg, ikke en bieffekt.
+ */
+export async function startProsjektIgjen(
+  systemId: string,
+  _forrige: LiveTilstand,
+  _formData: FormData,
+): Promise<LiveTilstand> {
+  const meg = await krevEier()
+  const linjer: string[] = []
+
+  const { data: system } = await supabaseAdmin
+    .from('systemer')
+    .select('navn, supabase_prosjekt_ref, konto_id')
+    .eq('id', systemId)
+    .single()
+
+  const ref = system?.supabase_prosjekt_ref as string | null
+  if (!ref) return { feil: 'Systemet har ingen Supabase-database registrert.' }
+
+  const token = tokenFor(
+    await hentTokenKart(),
+    (system?.konto_id as string | null) ?? null,
+  )
+  if (!token) {
+    return { feil: 'Mangler Supabase-token for kontoen som eier prosjektet.' }
+  }
+
+  /*
+   * Budsjettet sjekkes FØR forsøket.
+   *
+   * Er kontoen full, feiler restaureringen med en melding fra Supabase som
+   * ikke sier hvorfor. Å si det på forhånd sparer en feilsøking av noe som
+   * ikke er en feil.
+   */
+  const budsjett = await hentAktivBudsjett(token)
+  if (budsjett.ok) {
+    const { aktive, grense } = budsjett.data
+    linjer.push(`Kontoen har ${aktive} av ${grense} aktive prosjekt`)
+    if (aktive >= grense) {
+      return {
+        logg: linjer,
+        feil: `Kontoen har alt ${aktive} aktive prosjekt, som er grensen på gratisplanen. Et prosjekt må pauses før dette kan startes – eller kontoen må oppgraderes. Dette er en grense hos Supabase, ikke en feil.`,
+      }
+    }
+  }
+
+  const svar = await startProsjekt(token, ref)
+  if (!svar.ok) {
+    linjer.push(`POST /restore → ${svar.feil.melding}`)
+    await logg('system.start_feilet', {
+      utfortAv: meg.id,
+      utfortAvEpost: meg.epost,
+      systemId,
+      detaljer: { ref, feil: svar.feil.melding },
+    })
+    return { logg: linjer, feil: `Kunne ikke starte prosjektet: ${svar.feil.melding}` }
+  }
+
+  linjer.push(`POST /restore → satt i gang på ${svar.svartidMs} ms`)
+
+  await logg('system.startet', {
+    utfortAv: meg.id,
+    utfortAvEpost: meg.epost,
+    systemId,
+    detaljer: { ref },
+  })
+
+  revalidatePath('/')
+  revalidatePath('/systemer')
+
+  return {
+    logg: linjer,
+    // Supabase svarer 200 når restaureringen er SATT I GANG, ikke når basen er
+    // oppe. Uten denne setningen ser det ut som knappen ikke virket.
+    ok: `Prosjektet startes nå. Det tar noen minutter, og statusen står som pauset til den er ferdig – last siden på nytt om litt. Husk at klokka begynner å gå igjen: uten trafikk i sju døgn pauses den på nytt.`,
   }
 }

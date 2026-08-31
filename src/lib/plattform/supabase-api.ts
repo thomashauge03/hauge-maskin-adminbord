@@ -532,3 +532,62 @@ export function finnAnon(nøkler: ProsjektNøkkel[]): string | null {
     nøkler.find((n) => n.slag === 'publishable' && n.verdi)
   return treff?.verdi ?? null
 }
+
+/**
+ * Starter et pauset prosjekt igjen.
+ *
+ * Tar minutter, ikke sekunder: Supabase svarer 200 når restaureringen er
+ * SATT I GANG, ikke når basen er oppe. Kallstedet må si det, ellers ser det ut
+ * som knappen ikke virket når statusen står uendret rett etterpå.
+ *
+ * FELLE: gratisplanen tillater to aktive prosjekt per KONTO. Har kontoen alt
+ * to, feiler dette – og da er det ikke noe galt med prosjektet. Se
+ * `hentAktivBudsjett`.
+ */
+export async function startProsjekt(
+  token: string | null,
+  ref: string,
+): Promise<HentResultat<null>> {
+  if (!token) return ikkeSattOpp()
+
+  const svar = await hentJson<unknown>(
+    `${BASIS}/v1/projects/${encodeURIComponent(ref)}/restore`,
+    {
+      token,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    },
+  )
+  if (!svar.ok) return svar
+  return { ok: true, svartidMs: svar.svartidMs, data: null }
+}
+
+/**
+ * Hvor mange aktive prosjekt kontoen har, av hvor mange den får ha.
+ *
+ * Finnes fordi «hold i livet» ikke kan hjelpe en konto som er full. Tre
+ * prosjekt under samme gratiskonto betyr at ett MÅ stå pauset, uansett hvor
+ * mange livstegn man sender – og uten dette tallet ser det ut som en feil i
+ * adminbordet framfor en grense hos Supabase.
+ */
+export const GRATIS_AKTIVE = 2
+
+export async function hentAktivBudsjett(
+  token: string | null,
+): Promise<HentResultat<{ aktive: number; grense: number; totalt: number }>> {
+  if (!token) return ikkeSattOpp()
+
+  const svar = await hentSupabaseProsjekter(token)
+  if (!svar.ok) return svar
+
+  return {
+    ok: true,
+    svartidMs: svar.svartidMs,
+    data: {
+      aktive: svar.data.filter((p) => p.status === 'ACTIVE_HEALTHY').length,
+      grense: GRATIS_AKTIVE,
+      totalt: svar.data.length,
+    },
+  }
+}

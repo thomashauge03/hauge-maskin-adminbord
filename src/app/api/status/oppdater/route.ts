@@ -2,6 +2,8 @@ import { after } from 'next/server'
 import { env } from '@/lib/env'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { hentOversikt } from '@/lib/helse'
+import { hentTokenKart, tokenFor } from '@/lib/kontoar'
+import { sendLivstegn } from '@/lib/livstegn'
 import type { System } from '@/lib/typer'
 
 /* ═══════════════════════════════════════════════════════════
@@ -46,13 +48,20 @@ export async function GET(request: Request) {
     return Response.json({ feil: 'Ikke autorisert' }, { status: 401 })
   }
 
-  // Service role: ingen bruker er innlogget under et cron-kall, så det
-  // finnes ingen sesjon radsikkerheten kan vurdere.
+  /*
+   * Service role: ingen bruker er innlogget under et cron-kall, så det finnes
+   * ingen sesjon radsikkerheten kan vurdere.
+   *
+   * `overvakes` filtreres IKKE her lenger. Det gjorde den, og konsekvensen var
+   * at qr-admin – som står uten tilsyn fordi ingen skal varsles om den – heller
+   * aldri fikk livstegn. «Ikke varsle meg om dette» og «la denne dø» er to
+   * forskjellige ting, og kolonnen betyr det første. Målingene filtreres på den
+   * lenger ned, der den hører.
+   */
   const { data, error } = await supabaseAdmin
     .from('systemer')
     .select('*')
     .eq('aktiv', true)
-    .eq('overvakes', true)
     .order('sortering')
 
   if (error) {
@@ -71,6 +80,7 @@ export async function GET(request: Request) {
     supabaseProsjektRef: r.supabase_prosjekt_ref,
     supabaseUrl: r.supabase_url,
     dbSkjema: r.db_skjema,
+    livstegnTabell: r.livstegn_tabell ?? null,
     vercelProsjektId: r.vercel_prosjekt_id,
     vercelProsjektNavn: r.vercel_prosjekt_navn,
     githubRepo: r.github_repo,
@@ -83,7 +93,56 @@ export async function GET(request: Request) {
     endret: r.endret,
   }))
 
-  const oversikt = await hentOversikt(systemer)
+  /*
+   * Livstegnet OG målingen, samtidig.
+   *
+   * Cron-en målte bare status, gjennom Management-API-et – altså
+   * kontrollplanet, som ikke teller som trafikk på prosjektet. Resultatet var
+   * at overvåkingen så at prosjektene nærmet seg pause, dag for dag, og ikke
+   * gjorde noe med det. Utleie ble pauset mens denne ruten kjørte hver morgen.
+   *
+   * Dette er DEN viktigste av de to: en knapp hjelper bare den dagen noen
+   * husker å trykke, mens ett livstegn i døgnet er nok når grensen er sju.
+   */
+  const tokenKart = await hentTokenKart()
+
+  /*
+   * Ett livstegn per PROSJEKT, ikke per system.
+   *
+   * Lagersystemet og heimesida deler prosjekt – lagersystemet ligger i skjemaet
+   * `lager` i heimesidas base, fordi gratisplanen bare gir to aktive prosjekt
+   * per konto. Uten denne dedupliseringen ville de fått to identiske livstegn
+   * hver morgen, og cron-svaret ville påstått at to prosjekt var holdt i live
+   * når det var ett.
+   */
+  const perProsjekt = new Map<string, (typeof systemer)[number]>()
+  for (const s of systemer) {
+    if (s.supabaseProsjektRef && !perProsjekt.has(s.supabaseProsjektRef)) {
+      perProsjekt.set(s.supabaseProsjektRef, s)
+    }
+  }
+
+  // Bare systemer med tilsyn MÅLES. Alle med database får livstegn.
+  const overvåkte = systemer.filter((s) => s.overvakes)
+
+  const [oversikt, livstegn] = await Promise.all([
+    hentOversikt(overvåkte),
+    Promise.all(
+      [...perProsjekt.values()].map(async (s) => {
+        const token = tokenFor(tokenKart, s.kontoId)
+        if (!token) return { slug: s.slug, hoppet: 'ingen token' }
+        const r = await sendLivstegn(token, s.supabaseProsjektRef!, s.livstegnTabell)
+        return {
+          slug: s.slug,
+          ref: s.supabaseProsjektRef,
+          basenSvarte: r.basenSvarte,
+          restNåddeFram: r.restNåddeFram,
+          serPausetUt: r.serPausetUt,
+          linjer: r.linjer,
+        }
+      }),
+    ),
+  ])
 
   const rader = oversikt.systemer.flatMap((s) =>
     s.maalinger.map((m) => ({
@@ -134,5 +193,9 @@ export async function GET(request: Request) {
     systemer: systemer.length,
     maalinger: rader.length,
     nede: oversikt.systemer.filter((s) => s.samletTilstand === 'nede').length,
+    // Utfallet per prosjekt tas med i svaret, ikke bare i en logg ingen leser.
+    // Vercel viser svarkroppen på cron-kjøringen, og da er det der man ser at
+    // livstegnet slutter å komme fram – før prosjektet pauses.
+    livstegn,
   })
 }

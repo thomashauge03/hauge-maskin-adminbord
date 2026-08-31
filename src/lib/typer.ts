@@ -49,6 +49,14 @@ export type System = {
    * systemets egne.
    */
   dbSkjema: string
+  /**
+   * Tabell livstegnet skal treffe, når den ikke kan oppdages selv.
+   *
+   * Null = finn den selv, som virker for alle prosjekt der lesespørringen går.
+   * Satt bare for qr-admin, der supabase_read_only_user har mistet passordet
+   * sitt og ingen SQL kommer gjennom – se 0010_livstegn_tabell.sql.
+   */
+  livstegnTabell: string | null
   vercelProsjektId: string | null
   vercelProsjektNavn: string | null
   githubRepo: string | null
