@@ -11,6 +11,11 @@ import { ROTASJON_DAGER } from '@/lib/rotasjon'
 
 export type TokenTilstand = { feil?: string; ok?: string }
 
+const tomTilNull = z.preprocess(
+  (v) => (v === '' || v === null || v === undefined ? null : v),
+  z.union([z.string(), z.number()]).nullable(),
+)
+
 const skjema = z.object({
   kontoId: z.string().uuid(),
   token: z
@@ -18,6 +23,26 @@ const skjema = z.object({
     .trim()
     .min(20, 'Tokenet ser for kort ut')
     .startsWith('sbp_', 'Et Supabase personal access token begynner med sbp_'),
+  /*
+   * Utløpet må oppgis, fordi ingen kan slå det opp.
+   *
+   * Management-API-et har ikke noe endepunkt for det – prøvd /v1/profile,
+   * /v1/access-tokens, /v1/profile/access-tokens, /v1/tokens og
+   * /v1/oauth/tokens – og `sbp_`-tokenet er opakt, ikke et JWT, så det finnes
+   * ingen `exp` å dekode.
+   *
+   * Datoen er OPPRETTELSEN, ikke i dag: et token som ble laget for ti dager
+   * siden har tjue igjen, ikke tretti. Uten det skillet ville nedtellingen
+   * vist for god tid, som er den farlige retningen å ta feil i.
+   */
+  tokenOpprettet: tomTilNull.refine(
+    (v) => v === null || /^\d{4}-\d{2}-\d{2}$/.test(String(v)),
+    'Datoen må være på formen ÅÅÅÅ-MM-DD',
+  ),
+  tokenGyldigDager: tomTilNull.refine(
+    (v) => v === null || (Number(v) >= 1 && Number(v) <= 3650),
+    'Levetiden må være mellom 1 og 3650 dager',
+  ),
 })
 
 /**
@@ -50,8 +75,23 @@ export async function byttKontoToken(
   const felter = skjema.safeParse({
     kontoId,
     token: formData.get('token'),
+    tokenOpprettet: formData.get('tokenOpprettet'),
+    tokenGyldigDager: formData.get('tokenGyldigDager'),
   })
   if (!felter.success) return { feil: felter.error.issues[0].message }
+
+  /*
+   * En framtidig opprettelsesdato er nesten alltid en tastefeil, og den
+   * feiler i den farlige retningen: nedtellingen ville vist for god tid.
+   */
+  if (
+    felter.data.tokenOpprettet &&
+    String(felter.data.tokenOpprettet) > new Date().toISOString().slice(0, 10)
+  ) {
+    return {
+      feil: 'Opprettelsesdatoen ligger fram i tid. Da ville nedtellingen vist for god tid – oppgi datoen tokenet faktisk ble laget.',
+    }
+  }
 
   const { data: konto } = await supabaseAdmin
     .from('supabase_kontoar')
@@ -76,6 +116,12 @@ export async function byttKontoToken(
       hint: forkort(felter.data.token),
       sist_bekreftet: new Date().toISOString(),
       antall_prosjekter: prøve.data.length,
+      token_opprettet: felter.data.tokenOpprettet
+        ? String(felter.data.tokenOpprettet)
+        : null,
+      token_gyldig_dager: felter.data.tokenGyldigDager
+        ? Number(felter.data.tokenGyldigDager)
+        : null,
     })
     .eq('id', kontoId)
 

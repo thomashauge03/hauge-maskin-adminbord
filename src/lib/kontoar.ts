@@ -30,6 +30,17 @@ export type Konto = {
   hint: string | null
   sistBekreftet: string | null
   antallProsjekter: number | null
+  /** Datoen tokenet ble laget hos Supabase, som eieren oppgav den. */
+  tokenOpprettet: string | null
+  /** Levetid i dager, slik den ble valgt hos Supabase. */
+  tokenGyldigDager: number | null
+  /**
+   * Utregnet utløp: opprettet + gyldig. Null betyr UVISST, ikke fjernt.
+   *
+   * Management-API-et oppgir ikke utløp noe sted, og `sbp_`-tokenet er opakt –
+   * så dette er det eneste stedet datoen finnes. Se 0012_token_utlop.sql.
+   */
+  tokenUtloper: string | null
 }
 
 /**
@@ -51,7 +62,7 @@ export async function hentKontoar(): Promise<{
   const { data } = await supabaseAdmin
     .from('supabase_kontoar')
     .select(
-      'id, epost, beskrivelse, token_kryptert, hint, sist_bekreftet, antall_prosjekter',
+      'id, epost, beskrivelse, token_kryptert, hint, sist_bekreftet, antall_prosjekter, token_opprettet, token_gyldig_dager, token_utloper',
     )
     .order('epost')
 
@@ -65,6 +76,9 @@ export async function hentKontoar(): Promise<{
       hint: r.hint as string | null,
       sistBekreftet: r.sist_bekreftet as string | null,
       antallProsjekter: r.antall_prosjekter as number | null,
+      tokenOpprettet: r.token_opprettet as string | null,
+      tokenGyldigDager: r.token_gyldig_dager as number | null,
+      tokenUtloper: r.token_utloper as string | null,
     })),
   }
 }

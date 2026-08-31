@@ -5,6 +5,7 @@ import { hentSystemer } from '@/lib/data'
 import { KNAPP_SEKUNDÆR, Seksjonstittel, TomTilstand } from '@/components/ui'
 import { Statusdel, StatusSkjelett } from './status'
 import { lesSortering, Sorteringsvelger } from './sortering'
+import { Tokenvarsel } from './tokenvarsel'
 
 export default async function Oversikt({
   searchParams,
@@ -45,6 +46,14 @@ export default async function Oversikt({
       >
         Oversikt
       </Seksjonstittel>
+
+      {/* Øverst, over statusen. Et utløpt token er ikke ett system som er
+          nede – det er alle systemene under den kontoen, pluss livstegnet som
+          holder dem i live. Egen Suspense fordi den bare spør navet og skal
+          rekke fram lenge før plattformkallene. */}
+      <Suspense fallback={null}>
+        <Tokenvarsel />
+      </Suspense>
 
       {systemer.length === 0 ? (
         <TomTilstand

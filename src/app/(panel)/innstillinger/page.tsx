@@ -14,17 +14,28 @@ import {
   TomTilstand,
 } from '@/components/ui'
 import { visDato, visDatoTid } from '@/lib/format'
-import { forfaller, ROTASJON_DAGER, rotasjonsstatus } from '@/lib/rotasjon'
+import { rotasjonsord, tokenstatus } from '@/lib/rotasjon'
 import { byttKontoToken, fjernKontoToken } from './actions'
 import { TokenSkjema } from './token-skjema'
 import { Feildetalj } from '@/components/tilstand'
 
 export const metadata: Metadata = { title: 'Innstillinger' }
 
-/** Kontoens rotasjonstilstand. Mangler tokenet, er resten uinteressant. */
+/**
+ * Kontoens tokenstatus.
+ *
+ * Regner UTLØP når det er registrert, og faller tilbake på eierens 30-dagers
+ * rutine ellers. Se src/lib/rotasjon.ts for hvorfor de to ikke er samme sak.
+ */
 function rotasjon(konto: Konto, naa: number) {
-  if (!konto.harToken) return 'mangler' as const
-  return rotasjonsstatus(konto.sistBekreftet, naa)
+  return tokenstatus(
+    {
+      utloperDato: konto.tokenUtloper,
+      sistByttet: konto.sistBekreftet,
+      harToken: konto.harToken,
+    },
+    naa,
+  )
 }
 
 /**
@@ -114,21 +125,34 @@ export default async function InnstillingerSide() {
             forfaller de samme dag, og da er en linje overst mer nyttig enn
             fire merker man ma lete etter. */}
         {(() => {
-          const forfalne = kontoar.filter((k) => rotasjon(k, naa) === 'forfalt')
-          const snarlige = kontoar.filter((k) => rotasjon(k, naa) === 'snart')
-          if (!forfalne.length && !snarlige.length) return null
+          // Utløpt FØRST og for seg selv: et utløpt token har stoppet alt,
+          // mens et forfalt bare er gammelt. Å slå dem sammen var det gamle
+          // oppsettet, og da så «bør byttes» ut som en katastrofe og omvendt.
+          const utløpte = kontoar.filter((k) => rotasjon(k, naa).status === 'utlopt')
+          const forfalne = kontoar.filter(
+            (k) => rotasjon(k, naa).status === 'forfalt',
+          )
+          const snarlige = kontoar.filter((k) => rotasjon(k, naa).status === 'snart')
+          if (!utløpte.length && !forfalne.length && !snarlige.length) return null
           return (
             <p
               className={`border-l-4 p-3 text-sm ${
-                forfalne.length
+                utløpte.length || forfalne.length
                   ? 'border-hm-red bg-hm-red/10 font-semibold text-hm-red-ink'
                   : 'border-hm-amber bg-hm-amber/10 font-semibold text-hm-amber'
               }`}
             >
+              {utløpte.length > 0 &&
+                `${utløpte.length} ${utløpte.length === 1 ? 'token er UTLØPT' : 'tokens er UTLØPT'}: ${utløpte.map((k) => k.epost).join(', ')}. Da står status, brukerlister og livstegnet stille for prosjektene deres – og uten livstegn pauses de om noen døgn. `}
               {forfalne.length > 0 &&
-                `${forfalne.length} ${forfalne.length === 1 ? 'token' : 'tokens'} skulle vært byttet: ${forfalne.map((k) => k.epost).join(', ')}. `}
+                `${forfalne.length} ${forfalne.length === 1 ? 'token' : 'tokens'} skulle vært byttet etter rutinen: ${forfalne.map((k) => k.epost).join(', ')}. `}
               {snarlige.length > 0 &&
-                `${snarlige.length} ${snarlige.length === 1 ? 'token' : 'tokens'} forfaller snart: ${snarlige.map((k) => k.epost).join(', ')}.`}
+                `${snarlige.length} ${snarlige.length === 1 ? 'token' : 'tokens'} utløper snart: ${snarlige
+                  .map(
+                    (k) =>
+                      `${k.epost} (${rotasjonsord(rotasjon(k, naa))}${rotasjon(k, naa).erRegistrert ? '' : ', anslag'})`,
+                  )
+                  .join(', ')}.`}
             </p>
           )
         })()}
@@ -242,21 +266,14 @@ function KontoKort({
    * `sist_bekreftet` settes hver gang et token legges inn eller byttes, så
    * den er i praksis «byttet»-datoen.
    */
-  const byttet = konto.sistBekreftet ? new Date(konto.sistBekreftet) : null
-  const dagerIgjen = byttet
-    ? ROTASJON_DAGER -
-      Math.floor((naa - byttet.getTime()) / (24 * 60 * 60 * 1000))
-    : null
-
-  const forfallsdato = konto.sistBekreftet
-    ? forfaller(konto.sistBekreftet)
-    : null
-
   // Tilstanden kommer fra den delte funksjonen, ikke fra en egen regning
   // her. Ellers kan merket og linja under si ulike ting.
-  const status = rotasjon(konto, naa)
-  const forfalt = status === 'forfalt'
-  const snart = status === 'snart'
+  const t = rotasjon(konto, naa)
+  const dagerIgjen = t.dagerIgjen
+  const forfallsdato = t.utloper
+  const utlopt = t.status === 'utlopt'
+  const forfalt = t.status === 'forfalt'
+  const snart = t.status === 'snart'
 
   return (
     <Kort>
@@ -264,16 +281,21 @@ function KontoKort({
         handling={
           <Merke
             type={
-              !konto.harToken ? 'gul' : forfalt ? 'rød' : snart ? 'gul' : 'grønn'
+              !konto.harToken
+                ? 'gul'
+                : utlopt
+                  ? 'svart'
+                  : forfalt
+                    ? 'rød'
+                    : snart
+                      ? 'gul'
+                      : 'grønn'
             }
           >
-            {!konto.harToken
-              ? 'mangler token'
-              : forfalt
-                ? `${Math.abs(dagerIgjen!)} d over`
-                : snart
-                  ? `byttes om ${dagerIgjen} d`
-                  : 'token satt'}
+            {/* Svart, ikke rød, for utløpt: rødt betyr «noe er galt» ellers i
+                appen, mens et utløpt token betyr at ingenting virker for de
+                prosjektene. Den forskjellen er verdt et eget merke. */}
+            {rotasjonsord(t)}
           </Merke>
         }
       >
@@ -299,20 +321,36 @@ function KontoKort({
             >
               <KontoProve kontoId={konto.id} antallSystemer={antallSystemer} />
             </Suspense>
-            {konto.sistBekreftet && forfallsdato && (
+            {forfallsdato && dagerIgjen !== null && (
               <p
                 className={`text-xs ${
-                  forfalt
+                  utlopt || forfalt
                     ? 'font-semibold text-hm-red-ink'
                     : snart
                       ? 'font-semibold text-hm-amber'
                       : 'text-[var(--blekk-svak)]'
                 }`}
               >
-                {forfalt
-                  ? `Skulle vært byttet ${visDato(forfallsdato.toISOString())} – ${Math.abs(dagerIgjen!)} ${Math.abs(dagerIgjen!) === 1 ? 'dag' : 'dager'} over`
-                  : `Byttes innen ${visDato(forfallsdato.toISOString())} – ${dagerIgjen} ${dagerIgjen === 1 ? 'dag' : 'dager'} igjen`}
-                {` · sist byttet ${visDatoTid(konto.sistBekreftet)}`}
+                {utlopt
+                  ? `UTLØPT ${visDato(forfallsdato.toISOString())} – ${Math.abs(dagerIgjen)} ${Math.abs(dagerIgjen) === 1 ? 'dag' : 'dager'} siden. Tokenet virker ikke lenger.`
+                  : forfalt
+                    ? `Skulle vært byttet ${visDato(forfallsdato.toISOString())} – ${Math.abs(dagerIgjen)} ${Math.abs(dagerIgjen) === 1 ? 'dag' : 'dager'} over`
+                    : `Utløper ${visDato(forfallsdato.toISOString())} – ${dagerIgjen} ${dagerIgjen === 1 ? 'dag' : 'dager'} igjen`}
+                {/*
+                 * Om datoen er REGISTRERT eller ANSLÅTT står alltid.
+                 *
+                 * Et anslag fra «sist rørt + 30» ser ut som en dato noen har
+                 * lovet oss, og det er verre enn ingen dato: sist_bekreftet
+                 * flytter seg hver gang tokenet testes, så anslaget kan si
+                 * «22 dager igjen» om et token som utløper i morgen.
+                 */}
+                {t.erRegistrert
+                  ? konto.tokenOpprettet && konto.tokenGyldigDager
+                    ? ` · laget ${visDato(konto.tokenOpprettet)}, ${konto.tokenGyldigDager} dagers levetid`
+                    : ''
+                  : ' · ANSLAG fra rutinen, ikke en registrert utløpsdato – fyll inn når tokenet ble laget'}
+                {konto.sistBekreftet &&
+                  ` · sist prøvd ${visDatoTid(konto.sistBekreftet)}`}
               </p>
             )}
           </>
@@ -335,6 +373,9 @@ function KontoKort({
         <TokenSkjema
           epost={konto.epost}
           harToken={konto.harToken}
+          // Datoen følger dataene. `new Date()` i en komponent er en lintfeil
+          // under react-hooks/purity, og `naa` er alt hentet med kontoene.
+          iDag={new Date(naa).toISOString().slice(0, 10)}
           bytt={byttKontoToken.bind(null, konto.id)}
           fjern={async () => {
             'use server'
