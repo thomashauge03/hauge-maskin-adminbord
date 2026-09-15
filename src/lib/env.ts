@@ -42,6 +42,19 @@ const skjema = z.object({
   HM_VERCEL_TEAM_ID: z.string().min(1).optional(),
 
   /*
+   * Lar adminbordet redigere sidelista i mobilappen.
+   *
+   * Sidene bor i sider.json i hauge-maskin-app på GitHub, ikke i denne
+   * databasen, fordi skrivebordsappen leser den samme fila og PC-en er den
+   * primære plattformen. Uten dette tokenet kan adminbordet fortsatt styre
+   * HVEM som ser hva - det er bare redigeringen av selve sidene som blir
+   * utilgjengelig, og den melder seg som «ikke satt opp».
+   *
+   * Trenger `contents: write` på hauge-maskin-app, og ingenting mer.
+   */
+  HM_GITHUB_TOKEN: z.string().min(1).optional(),
+
+  /*
    * Vercel setter denne selv og sender den som Bearer-token til
    * cron-ruter. Uten den ville /api/status/oppdater vært en åpen
    * endepunkt som hvem som helst kunne trigge sju API-kall med.
@@ -58,6 +71,7 @@ const resultat = skjema.safeParse({
   SUPABASE_MANAGEMENT_TOKEN: process.env.SUPABASE_MANAGEMENT_TOKEN,
   HM_VERCEL_TOKEN: process.env.HM_VERCEL_TOKEN,
   HM_VERCEL_TEAM_ID: process.env.HM_VERCEL_TEAM_ID,
+  HM_GITHUB_TOKEN: process.env.HM_GITHUB_TOKEN,
   CRON_SECRET: process.env.CRON_SECRET,
 })
 

@@ -1,26 +1,22 @@
 import 'server-only'
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { hentRaaSider } from '@/lib/github-sider'
 
 /**
  * Sidene i mobilappen.
  *
- * MERK hvor de kommer fra: `sider.json` på GitHub, samme fil skrivebordsappen
- * leser og skriver. Den er fortsatt fasit, og sider legges til og endres der -
- * ikke her. Adminbordet bestemmer bare HVEM som ser hva.
- *
- * Grunnen står i migrasjon 0015: PC-en er den primære plattformen, og
- * skrivebordsappen har allerede en fungerende redigering. Å flytte fasiten hit
- * ville tatt bort det verktøyet, eller gitt to steder å redigere samme liste.
+ * De bor i `sider.json` på GitHub, samme fil skrivebordsappen leser og
+ * skriver. Begge kan redigere; GitHub hindrer at de overskriver hverandre
+ * ved å kreve SHA-en til versjonen man så. Se lib/github-sider.ts.
  */
-const SIDER_URL =
-  'https://raw.githubusercontent.com/thomashauge03/hauge-maskin-app/main/sider.json'
 
 export type Side = {
   id: string
   navn: string
   gruppe: string
   url: string
+  hjelp?: string
   /** Sider merket 'pc' vises aldri på telefonen, uansett tilgang. */
   barePC: boolean
 }
@@ -28,15 +24,6 @@ export type Side = {
 export type SideMedOppsett = Side & {
   /** Får alle godkjente denne uten at noen har gjort noe? */
   standard: boolean
-}
-
-type RaaSide = {
-  id?: string
-  name?: string
-  url?: string
-  group?: string
-  hidden?: boolean
-  plattform?: string
 }
 
 /**
@@ -47,20 +34,16 @@ type RaaSide = {
  * skjema uten å forstå hvorfor ingenting stod der.
  */
 export async function hentSiderFraFila(): Promise<Side[]> {
-  const res = await fetch(`${SIDER_URL}?t=${Date.now()}`, { cache: 'no-store' })
-  if (!res.ok) {
-    throw new Error(`Kunne ikke hente sidelista fra GitHub: ${res.status}`)
-  }
-  const json = await res.json()
-  const liste: RaaSide[] = (Array.isArray(json) ? json : json.pages) || []
+  const { sider } = await hentRaaSider()
 
-  return liste
+  return sider
     .filter((p) => p && p.name && p.url && p.hidden !== true)
     .map((p) => ({
       id: String(p.id || p.name),
       navn: String(p.name),
       gruppe: p.group ? String(p.group) : 'Annet',
       url: String(p.url),
+      hjelp: p.help ? String(p.help) : undefined,
       barePC: p.plattform === 'pc',
     }))
 }

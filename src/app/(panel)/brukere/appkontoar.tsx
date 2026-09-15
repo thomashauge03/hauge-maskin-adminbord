@@ -16,11 +16,13 @@ import {
   type Side,
 } from '@/lib/sidetilgang'
 import { AppkontoHandlinger, ForeldreløsHandling } from './appkonto-handlinger'
+import { kanRedigereSider } from '@/lib/github-sider'
 import {
   StandardBryter,
   PersonSider,
   ForeldreløsSide,
 } from './sidetilgang-handlinger'
+import { NySide, SideRedigering } from './side-handlinger'
 
 const STATUSMERKE: Record<AppkontoStatus, { type: 'gul' | 'grønn' | 'rød'; ord: string }> = {
   venter: { type: 'gul', ord: 'Venter' },
@@ -124,6 +126,10 @@ export async function Appkontoer({ erEier }: { erEier: boolean }) {
     sidefeil = e instanceof Error ? e.message : 'Ukjent feil'
   }
 
+  // Gruppene som allerede finnes, som forslag når man legger inn en ny side.
+  // Fri tekst i feltet, så en ny gruppe ikke krever at man først lager den.
+  const gruppenavn = [...new Set(sider.map((s) => s.gruppe))].sort()
+
   const godkjente = kontoer.filter((k) => k.status === 'godkjent')
   const unntak = new Map(
     await Promise.all(
@@ -185,15 +191,7 @@ export async function Appkontoer({ erEier }: { erEier: boolean }) {
       )}
 
       <Kort>
-        <KortTittel
-          handling={
-            <span className="text-xs text-[var(--blekk-svak)]">
-              Redigeres i skrivebordsappen
-            </span>
-          }
-        >
-          Sidene i appen
-        </KortTittel>
+        <KortTittel>Sidene i appen</KortTittel>
 
         {sidefeil ? (
           <p className="px-4 py-6 text-sm text-hm-red-ink">
@@ -202,11 +200,20 @@ export async function Appkontoer({ erEier }: { erEier: boolean }) {
         ) : (
           <>
             <p className="px-4 pt-3 text-sm text-[var(--blekk-svak)]">
-              Sidene selv legges til og endres i skrivebordsappen, som før. Her
-              bestemmer du bare hvem som ser dem. En side alle skal ha står som
-              «Alle ser den»; setter du den til «Bare utvalgte», forsvinner den
-              for alle til du gir den til noen.
+              Samme liste som på PC – den ligger i <code className="hm-kode">sider.json</code>,
+              og skrivebordsappen redigerer den samme fila. Endrer noen der mens
+              du holder på, sier vi fra i stedet for å overskrive.
             </p>
+
+            {erEier && kanRedigereSider() && <NySide grupper={gruppenavn} />}
+            {erEier && !kanRedigereSider() && (
+              <p className="px-4 pt-3 text-sm text-[var(--blekk-svak)]">
+                For å legge til og slette sider herfra må adminbordet ha et
+                GitHub-token i <code className="hm-kode">HM_GITHUB_TOKEN</code>.
+                Uten det kan du fortsatt styre hvem som ser hva.
+              </p>
+            )}
+
             <ul className="mt-3">
               {sider.map((s) => {
                 const standard = !ikkeStandard.has(s.id)
@@ -229,11 +236,25 @@ export async function Appkontoer({ erEier }: { erEier: boolean }) {
                       </div>
                       <div className="text-sm text-[var(--blekk-svak)]">{s.gruppe}</div>
                     </div>
-                    {erEier && !s.barePC ? (
-                      <StandardBryter sideId={s.id} navn={s.navn} standard={standard} />
+                    {erEier ? (
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        {!s.barePC && (
+                          <StandardBryter sideId={s.id} navn={s.navn} standard={standard} />
+                        )}
+                        {kanRedigereSider() && (
+                          <SideRedigering
+                            sideId={s.id}
+                            navn={s.navn}
+                            url={s.url}
+                            gruppe={s.gruppe}
+                            hjelp={s.hjelp}
+                            grupper={gruppenavn}
+                          />
+                        )}
+                      </div>
                     ) : (
                       <span className="text-xs text-[var(--blekk-svak)]">
-                        {s.barePC ? 'Vises aldri på telefon' : 'Bare eier kan endre dette'}
+                        Bare eier kan endre dette
                       </span>
                     )}
                   </li>
