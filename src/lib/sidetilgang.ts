@@ -101,13 +101,27 @@ export function finnForeldreløseTilganger(
   return [...foreldreløse].sort()
 }
 
-/** Får personen se denne siden? Samme regel som visningen `mine_sideval`. */
+/**
+ * Får personen se denne siden?
+ *
+ * MÅ være samme regel som visningen `mine_sideval` i migrasjon 0016:
+ *
+ *   1. Har personen et eget unntak?     → det avgjør, uansett resten.
+ *   2. Er siden standard?               → ja.
+ *   3. Gir en av gruppene hans den?     → ja.
+ *   4. Ellers                           → nei.
+ *
+ * Endres den ene uten den andre, viser adminbordet noe annet enn appen gjør,
+ * og da er avkryssingen verre enn ingen avkryssing.
+ */
 export function serSiden(
   side: Side,
   standard: boolean,
   unntak: Map<string, boolean>,
+  fraGrupper?: Set<string>,
 ): boolean {
   const mitt = unntak.get(side.id)
   if (mitt !== undefined) return mitt
-  return standard
+  if (standard) return true
+  return fraGrupper?.has(side.id) ?? false
 }

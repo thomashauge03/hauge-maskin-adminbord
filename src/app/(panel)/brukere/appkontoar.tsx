@@ -17,6 +17,8 @@ import {
 } from '@/lib/sidetilgang'
 import { AppkontoHandlinger, ForeldreløsHandling } from './appkonto-handlinger'
 import { kanRedigereSider } from '@/lib/github-sider'
+import { hentGrupper, hentGruppekartet, siderFraGrupper, type Gruppe } from '@/lib/grupper'
+import { NyGruppe, GruppeDetalj, PersonGrupper } from './gruppe-handlinger'
 import {
   StandardBryter,
   PersonSider,
@@ -36,10 +38,14 @@ function Rad({
   konto,
   erEier,
   sider,
+  grupper,
+  mineGrupper,
 }: {
   konto: Appkonto
   erEier: boolean
   sider?: SideForPerson[]
+  grupper?: Gruppe[]
+  mineGrupper?: string[]
 }) {
   const merke = STATUSMERKE[konto.status]
 
@@ -81,6 +87,13 @@ function Rad({
             navBrukerId={konto.navBrukerId}
             status={konto.status}
           />
+          {grupper && konto.status === 'godkjent' && (
+            <PersonGrupper
+              person={{ id: konto.id, navn: konto.navn }}
+              grupper={grupper}
+              mine={mineGrupper ?? []}
+            />
+          )}
         </div>
       ) : (
         <span className="text-xs text-[var(--blekk-svak)]">Bare eier kan endre dette</span>
@@ -131,20 +144,22 @@ export async function Appkontoer({ erEier }: { erEier: boolean }) {
   const gruppenavn = [...new Set(sider.map((s) => s.gruppe))].sort()
 
   const godkjente = kontoer.filter((k) => k.status === 'godkjent')
-  const unntak = new Map(
-    await Promise.all(
-      godkjente.map(async (k) => [k.id, await hentUnntakFor(k.id)] as const),
-    ),
-  )
+  const [unntakListe, grupper, gruppekart] = await Promise.all([
+    Promise.all(godkjente.map(async (k) => [k.id, await hentUnntakFor(k.id)] as const)),
+    hentGrupper(),
+    hentGruppekartet(),
+  ])
+  const unntak = new Map(unntakListe)
 
   const sidenePer = (personId: string): SideForPerson[] => {
     const mine = unntak.get(personId) ?? new Map<string, boolean>()
+    const fraGrupper = siderFraGrupper(gruppekart.get(personId), grupper)
     return sider.map((s) => {
       const standard = !ikkeStandard.has(s.id)
       return {
         ...s,
         standard,
-        ser: serSiden(s, standard, mine),
+        ser: serSiden(s, standard, mine, fraGrupper),
         avviker: mine.has(s.id),
       }
     })
@@ -184,11 +199,86 @@ export async function Appkontoer({ erEier }: { erEier: boolean }) {
           <KortTittel>Har konto i appen</KortTittel>
           <ul>
             {resten.map((k) => (
-              <Rad key={k.id} konto={k} erEier={erEier} sider={sidenePer(k.id)} />
+              <Rad
+                key={k.id}
+                konto={k}
+                erEier={erEier}
+                sider={sidenePer(k.id)}
+                grupper={grupper}
+                mineGrupper={[...(gruppekart.get(k.id) ?? [])]}
+              />
             ))}
           </ul>
         </Kort>
       )}
+
+      {/* Gruppene står før sidene: det er her du gjør jobben én gang, i
+          stedet for å krysse av på hver person for seg. */}
+      <Kort>
+        <KortTittel
+          handling={
+            grupper.length > 0 ? (
+              <span className="text-xs text-[var(--blekk-svak)]">
+                {grupper.length} {grupper.length === 1 ? 'gruppe' : 'grupper'}
+              </span>
+            ) : undefined
+          }
+        >
+          Grupper
+        </KortTittel>
+
+        <p className="px-4 pt-3 text-sm text-[var(--blekk-svak)]">
+          En gruppe samler sidene en type ansatt trenger. Legger du en ny person
+          i riktig gruppe, får de riktig liste med én gang – i stedet for å
+          krysse av tretten sider hver gang noen begynner.
+        </p>
+
+        {erEier && <NyGruppe />}
+
+        {grupper.length === 0 ? (
+          <p className="px-4 pb-5 text-sm text-[var(--blekk-svak)]">
+            Ingen grupper ennå. Alle godkjente ser standardsidene, og du kan gi
+            og ta bort enkeltsider per person under.
+          </p>
+        ) : (
+          <ul>
+            {grupper.map((g) => (
+              <li
+                key={g.id}
+                className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--kant)] px-4 py-3 last:border-b-0"
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <strong>{g.navn}</strong>
+                    <Merke type="nøytral">
+                      {g.antallPersoner} {g.antallPersoner === 1 ? 'person' : 'personer'}
+                    </Merke>
+                  </div>
+                  {g.beskrivelse && (
+                    <div className="text-sm text-[var(--blekk-svak)]">{g.beskrivelse}</div>
+                  )}
+                </div>
+                {erEier ? (
+                  <GruppeDetalj
+                    gruppe={{ id: g.id, navn: g.navn, antallPersoner: g.antallPersoner }}
+                    sider={sider.map((s) => ({
+                      id: s.id,
+                      navn: s.navn,
+                      gruppe: s.gruppe,
+                      standard: !ikkeStandard.has(s.id),
+                      gir: g.sider.includes(s.id),
+                    }))}
+                  />
+                ) : (
+                  <span className="text-xs text-[var(--blekk-svak)]">
+                    Bare eier kan endre dette
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Kort>
 
       <Kort>
         <KortTittel>Sidene i appen</KortTittel>
