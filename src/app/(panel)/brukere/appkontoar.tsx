@@ -6,7 +6,21 @@ import {
   type Appkonto,
   type AppkontoStatus,
 } from '@/lib/appbrukarar'
+import {
+  hentSiderFraFila,
+  hentIkkeStandard,
+  hentUnntakFor,
+  hentAvvikPerSide,
+  finnForeldreløseTilganger,
+  serSiden,
+  type Side,
+} from '@/lib/sidetilgang'
 import { AppkontoHandlinger, ForeldreløsHandling } from './appkonto-handlinger'
+import {
+  StandardBryter,
+  PersonSider,
+  ForeldreløsSide,
+} from './sidetilgang-handlinger'
 
 const STATUSMERKE: Record<AppkontoStatus, { type: 'gul' | 'grønn' | 'rød'; ord: string }> = {
   venter: { type: 'gul', ord: 'Venter' },
@@ -14,7 +28,17 @@ const STATUSMERKE: Record<AppkontoStatus, { type: 'gul' | 'grønn' | 'rød'; ord
   sperra: { type: 'rød', ord: 'Stengt ute' },
 }
 
-function Rad({ konto, erEier }: { konto: Appkonto; erEier: boolean }) {
+type SideForPerson = Side & { standard: boolean; ser: boolean; avviker: boolean }
+
+function Rad({
+  konto,
+  erEier,
+  sider,
+}: {
+  konto: Appkonto
+  erEier: boolean
+  sider?: SideForPerson[]
+}) {
   const merke = STATUSMERKE[konto.status]
 
   return (
@@ -43,12 +67,19 @@ function Rad({ konto, erEier }: { konto: Appkonto; erEier: boolean }) {
       </div>
 
       {erEier ? (
-        <AppkontoHandlinger
-          personId={konto.id}
-          epost={konto.epost}
-          navBrukerId={konto.navBrukerId}
-          status={konto.status}
-        />
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {/* Sidene bare for dem som faktisk slipper inn. En som venter eller
+              er stengt ute ser ingenting uansett hva som krysses av. */}
+          {sider && konto.status === 'godkjent' && (
+            <PersonSider person={{ id: konto.id, navn: konto.navn }} sider={sider} />
+          )}
+          <AppkontoHandlinger
+            personId={konto.id}
+            epost={konto.epost}
+            navBrukerId={konto.navBrukerId}
+            status={konto.status}
+          />
+        </div>
       ) : (
         <span className="text-xs text-[var(--blekk-svak)]">Bare eier kan endre dette</span>
       )}
@@ -70,6 +101,54 @@ export async function Appkontoer({ erEier }: { erEier: boolean }) {
 
   const køen = kontoer.filter((k) => k.status === 'venter')
   const resten = kontoer.filter((k) => k.status !== 'venter')
+
+  /*
+   * Sidelista kommer fra sider.json på GitHub, ikke herfra.
+   *
+   * Går hentingen galt, skal resten av siden fortsatt virke - køen og
+   * godkjenningen er viktigere enn avkryssingen, og en admin som skal slippe
+   * noen inn skal ikke bli stoppet av at GitHub er nede.
+   */
+  let sider: Side[] = []
+  let ikkeStandard = new Set<string>()
+  let avvikPerSide = new Map<string, number>()
+  let sidefeil: string | null = null
+
+  try {
+    ;[sider, ikkeStandard, avvikPerSide] = await Promise.all([
+      hentSiderFraFila(),
+      hentIkkeStandard(),
+      hentAvvikPerSide(),
+    ])
+  } catch (e) {
+    sidefeil = e instanceof Error ? e.message : 'Ukjent feil'
+  }
+
+  const godkjente = kontoer.filter((k) => k.status === 'godkjent')
+  const unntak = new Map(
+    await Promise.all(
+      godkjente.map(async (k) => [k.id, await hentUnntakFor(k.id)] as const),
+    ),
+  )
+
+  const sidenePer = (personId: string): SideForPerson[] => {
+    const mine = unntak.get(personId) ?? new Map<string, boolean>()
+    return sider.map((s) => {
+      const standard = !ikkeStandard.has(s.id)
+      return {
+        ...s,
+        standard,
+        ser: serSiden(s, standard, mine),
+        avviker: mine.has(s.id),
+      }
+    })
+  }
+
+  const glemte = finnForeldreløseTilganger(
+    new Set(sider.map((s) => s.id)),
+    ikkeStandard,
+    avvikPerSide,
+  )
 
   return (
     <div className="space-y-7">
@@ -99,7 +178,86 @@ export async function Appkontoer({ erEier }: { erEier: boolean }) {
           <KortTittel>Har konto i appen</KortTittel>
           <ul>
             {resten.map((k) => (
-              <Rad key={k.id} konto={k} erEier={erEier} />
+              <Rad key={k.id} konto={k} erEier={erEier} sider={sidenePer(k.id)} />
+            ))}
+          </ul>
+        </Kort>
+      )}
+
+      <Kort>
+        <KortTittel
+          handling={
+            <span className="text-xs text-[var(--blekk-svak)]">
+              Redigeres i skrivebordsappen
+            </span>
+          }
+        >
+          Sidene i appen
+        </KortTittel>
+
+        {sidefeil ? (
+          <p className="px-4 py-6 text-sm text-hm-red-ink">
+            Fikk ikke hentet sidelista: {sidefeil}
+          </p>
+        ) : (
+          <>
+            <p className="px-4 pt-3 text-sm text-[var(--blekk-svak)]">
+              Sidene selv legges til og endres i skrivebordsappen, som før. Her
+              bestemmer du bare hvem som ser dem. En side alle skal ha står som
+              «Alle ser den»; setter du den til «Bare utvalgte», forsvinner den
+              for alle til du gir den til noen.
+            </p>
+            <ul className="mt-3">
+              {sider.map((s) => {
+                const standard = !ikkeStandard.has(s.id)
+                const avvik = avvikPerSide.get(s.id) ?? 0
+                return (
+                  <li
+                    key={s.id}
+                    className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--kant)] px-4 py-3 last:border-b-0"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <strong>{s.navn}</strong>
+                        {!standard && <Merke type="gul">Bare utvalgte</Merke>}
+                        {s.barePC && <Merke type="nøytral">Bare PC</Merke>}
+                        {avvik > 0 && (
+                          <Merke type="nøytral">
+                            {avvik} {avvik === 1 ? 'unntak' : 'unntak'}
+                          </Merke>
+                        )}
+                      </div>
+                      <div className="text-sm text-[var(--blekk-svak)]">{s.gruppe}</div>
+                    </div>
+                    {erEier && !s.barePC ? (
+                      <StandardBryter sideId={s.id} navn={s.navn} standard={standard} />
+                    ) : (
+                      <span className="text-xs text-[var(--blekk-svak)]">
+                        {s.barePC ? 'Vises aldri på telefon' : 'Bare eier kan endre dette'}
+                      </span>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          </>
+        )}
+      </Kort>
+
+      {/* Sidene bor i en fil på GitHub, ikke her, så det finnes ingen
+          fremmednøkkel som rydder av seg selv når en side blir slettet der. */}
+      {glemte.length > 0 && (
+        <Kort>
+          <KortTittel handling={<Merke type="gul">{glemte.length}</Merke>}>
+            Tilganger til sider som ikke finnes
+          </KortTittel>
+          <p className="px-4 pt-3 text-sm text-[var(--blekk-svak)]">
+            Disse peker på sider som er borte fra sider.json. De gjør ingen
+            skade, men de blir liggende til noen fjerner dem.
+          </p>
+          <ul className="mt-3">
+            {glemte.map((id) => (
+              <ForeldreløsSide key={id} sideId={id} />
             ))}
           </ul>
         </Kort>
