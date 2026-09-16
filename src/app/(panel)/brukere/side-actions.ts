@@ -61,7 +61,7 @@ export async function leggTilSide(
   })
   if (!felter.success) return { feil: felter.error.issues[0].message }
 
-  const { sider, sha } = await hentRaaSider()
+  const { sider, sha, hylse } = await hentRaaSider()
   if (!sha) return { feil: 'Adminbordet har ikke GitHub-token, og kan ikke endre sider.' }
 
   const opptatt = new Set(sider.map((s) => String(s.id ?? s.name ?? '')))
@@ -79,6 +79,7 @@ export async function leggTilSide(
     [...sider, ny],
     sha,
     `Ny felles side: ${felter.data.navn}`,
+    hylse,
   )
   if (!svar.ok) return { feil: svar.grunn }
 
@@ -107,7 +108,7 @@ export async function endreSide(
   })
   if (!felter.success) return { feil: felter.error.issues[0].message }
 
-  const { sider, sha } = await hentRaaSider()
+  const { sider, sha, hylse } = await hentRaaSider()
   if (!sha) return { feil: 'Adminbordet har ikke GitHub-token, og kan ikke endre sider.' }
 
   const finnes = sider.some((s) => String(s.id ?? s.name) === binding.sideId)
@@ -130,7 +131,12 @@ export async function endreSide(
       : s,
   )
 
-  const svar = await skrivRaaSider(oppdatert, sha, `Endre felles side: ${felter.data.navn}`)
+  const svar = await skrivRaaSider(
+    oppdatert,
+    sha,
+    `Endre felles side: ${felter.data.navn}`,
+    hylse,
+  )
   if (!svar.ok) return { feil: svar.grunn }
 
   await logg('side.endret', {
@@ -160,7 +166,7 @@ export async function slettSide(
 ): Promise<BrukerTilstand> {
   const meg = await krevEier()
 
-  const { sider, sha } = await hentRaaSider()
+  const { sider, sha, hylse } = await hentRaaSider()
   if (!sha) return { feil: 'Adminbordet har ikke GitHub-token, og kan ikke slette sider.' }
 
   const utan = sider.filter((s) => String(s.id ?? s.name) !== binding.sideId)
@@ -168,7 +174,12 @@ export async function slettSide(
     return { feil: 'Siden finnes ikke lenger. Last siden på nytt.' }
   }
 
-  const svar = await skrivRaaSider(utan, sha, `Fjern felles side: ${binding.navn}`)
+  const svar = await skrivRaaSider(
+    utan,
+    sha,
+    `Fjern felles side: ${binding.navn}`,
+    hylse,
+  )
   if (!svar.ok) return { feil: svar.grunn }
 
   await Promise.all([

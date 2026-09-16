@@ -46,14 +46,35 @@ type Henta = {
   sider: RaaSide[]
   /** Null når vi leste uten token. Da kan vi vise, men ikke skrive. */
   sha: string | null
+  /**
+   * Alt annet som lå på toppnivå i fila.
+   *
+   * `sider.json` er ikke en array – den er `{ "_om": "…", "pages": [ … ] }`,
+   * der `_om` forklarer for den som åpner fila hva den er. Skrivebordsappen
+   * skriver den samme formen tilbake.
+   *
+   * Uten dette ville vi skrevet en bar array, og da var `_om` borte og
+   * formatet endret. Begge appene tåler begge former, så ingenting ville
+   * sluttet å virke – filen ville bare stille mistet forklaringen sin, og
+   * ingen ville skjønt når eller hvorfor.
+   *
+   * Null betyr at fila FAKTISK var en bar array. Da skriver vi array tilbake.
+   */
+  hylse: Record<string, unknown> | null
 }
 
-function somListe(json: unknown): RaaSide[] {
-  if (Array.isArray(json)) return json as RaaSide[]
-  if (json && typeof json === 'object' && Array.isArray((json as { pages?: unknown }).pages)) {
-    return (json as { pages: RaaSide[] }).pages
+function pakkUt(json: unknown): { sider: RaaSide[]; hylse: Record<string, unknown> | null } {
+  if (Array.isArray(json)) return { sider: json as RaaSide[], hylse: null }
+
+  if (json && typeof json === 'object') {
+    const o = json as Record<string, unknown>
+    if (Array.isArray(o.pages)) {
+      const hylse = { ...o }
+      delete hylse.pages
+      return { sider: o.pages as RaaSide[], hylse }
+    }
   }
-  return []
+  return { sider: [], hylse: null }
 }
 
 /**
@@ -68,7 +89,7 @@ export async function hentRaaSider(): Promise<Henta> {
   if (!env.HM_GITHUB_TOKEN) {
     const res = await fetch(`${RAA}?t=${Date.now()}`, { cache: 'no-store' })
     if (!res.ok) throw new Error(`Kunne ikke hente sidelista: ${res.status}`)
-    return { sider: somListe(await res.json()), sha: null }
+    return { ...pakkUt(await res.json()), sha: null }
   }
 
   const res = await fetch(API, {
@@ -88,7 +109,7 @@ export async function hentRaaSider(): Promise<Henta> {
 
   const data = (await res.json()) as { content: string; sha: string }
   const tekst = Buffer.from(data.content, 'base64').toString('utf8')
-  return { sider: somListe(JSON.parse(tekst)), sha: data.sha }
+  return { ...pakkUt(JSON.parse(tekst)), sha: data.sha }
 }
 
 export type SkriveSvar = { ok: true } | { ok: false; grunn: string; konflikt?: boolean }
@@ -104,12 +125,15 @@ export async function skrivRaaSider(
   sider: RaaSide[],
   sha: string,
   melding: string,
+  hylse: Record<string, unknown> | null,
 ): Promise<SkriveSvar> {
   if (!env.HM_GITHUB_TOKEN) {
     return { ok: false, grunn: 'Adminbordet har ikke GitHub-token, og kan ikke endre sider.' }
   }
 
-  const innhald = JSON.stringify(sider, null, 2) + '\n'
+  // Samme form som vi leste, og samme form skrivebordsappen skriver.
+  const ut = hylse ? { ...hylse, pages: sider } : sider
+  const innhald = JSON.stringify(ut, null, 2) + '\n'
 
   const res = await fetch(API, {
     method: 'PUT',
