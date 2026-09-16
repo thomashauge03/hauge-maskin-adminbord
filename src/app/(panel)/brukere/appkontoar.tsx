@@ -358,7 +358,23 @@ export async function Appkontoer({ erEier }: { erEier: boolean }) {
                     key={s.id}
                     className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--kant)] px-4 py-3 last:border-b-0"
                   >
-                    <div className="min-w-0">
+                    <div className="flex min-w-0 items-center gap-3">
+                      {/* Slik raden ser ut i appen: ikonet, eller fargen med
+                          forbokstaven. Da ser du hva du endrer. */}
+                      <span
+                        className="grid h-10 w-10 flex-none place-items-center overflow-hidden border-2 border-[var(--kant)]"
+                        style={{ background: s.bilete ? undefined : s.farge || '#e2001a' }}
+                      >
+                        {s.bilete ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={s.bilete} alt="" className="max-h-8 max-w-8 object-contain" />
+                        ) : (
+                          <span className="text-sm font-black text-white">
+                            {s.navn.trim().charAt(0).toUpperCase()}
+                          </span>
+                        )}
+                      </span>
+                      <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <strong>{s.navn}</strong>
                         {!standard && <Merke type="gul">Bare utvalgte</Merke>}
@@ -370,6 +386,7 @@ export async function Appkontoer({ erEier }: { erEier: boolean }) {
                         )}
                       </div>
                       <div className="text-sm text-[var(--blekk-svak)]">{s.gruppe}</div>
+                      </div>
                     </div>
                     {erEier ? (
                       <div className="flex flex-wrap items-center justify-end gap-2">
@@ -383,6 +400,8 @@ export async function Appkontoer({ erEier }: { erEier: boolean }) {
                             url={s.url}
                             gruppe={s.gruppe}
                             hjelp={s.hjelp}
+                            bilete={s.bilete}
+                            farge={s.farge}
                             grupper={gruppenavn}
                           />
                         )}

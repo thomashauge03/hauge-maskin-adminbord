@@ -17,6 +17,15 @@ export type Side = {
   gruppe: string
   url: string
   hjelp?: string
+  /**
+   * Ikonet, som en data-URI rett i fila.
+   *
+   * Sånn gjør skrivebordsappen det, og formatet må være likt – ellers får du
+   * to slags ikoner avhengig av hvor siden ble lagt inn. 192 × 192 PNG.
+   */
+  bilete?: string
+  /** Faller tilbake på denne med forbokstaven når det ikke finnes ikon. */
+  farge?: string
   /** Sider merket 'pc' vises aldri på telefonen, uansett tilgang. */
   barePC: boolean
 }
@@ -44,6 +53,8 @@ export async function hentSiderFraFila(): Promise<Side[]> {
       gruppe: p.group ? String(p.group) : 'Annet',
       url: String(p.url),
       hjelp: p.help ? String(p.help) : undefined,
+      bilete: p.image ? String(p.image) : undefined,
+      farge: p.color ? String(p.color) : undefined,
       barePC: p.plattform === 'pc',
     }))
 }

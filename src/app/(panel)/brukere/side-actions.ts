@@ -24,7 +24,38 @@ const skjema = z.object({
   url: z.string().trim().url('Ugyldig adresse').startsWith('https://', 'Adressen må starte med https://'),
   gruppe: z.string().trim().min(1, 'Velg eller skriv en gruppe'),
   hjelp: z.string().trim().optional(),
+
+  /*
+   * Ikonet ligger som data-URI rett i sider.json, slik skrivebordsappen gjør
+   * det. Nettleseren skalerer det til 192 × 192 PNG før det sendes, så
+   * størrelsen er kjent på forhånd – rundt 33 kB, som de som ligger der.
+   *
+   * Grensa er en sikring, ikke en forventning: sender noen et ubehandlet
+   * bilde forbi skjemaet, skal det stoppe her og ikke legge tre megabyte inn
+   * i en fil mobilappen henter ved hver oppstart.
+   */
+  bilete: z
+    .string()
+    .trim()
+    .max(200_000, 'Bildet er for stort. Bruk et mindre, eller la feltet stå tomt.')
+    .refine((v) => v === '' || v.startsWith('data:image/'), 'Ugyldig bilde')
+    .optional(),
+
+  farge: z
+    .string()
+    .trim()
+    .regex(/^#[0-9a-fA-F]{6}$/, 'Fargen må være på formen #rrggbb')
+    .optional()
+    .or(z.literal('')),
 })
+
+/** Feltene som beskriver utseendet. Tomt felt betyr «ikke sett», ikke «fjern». */
+function utsjånad(d: { bilete?: string; farge?: string }) {
+  return {
+    ...(d.bilete ? { image: d.bilete } : {}),
+    ...(d.farge ? { color: d.farge } : {}),
+  }
+}
 
 /** Lager en id av navnet. Samme form som de som finnes: små bokstaver, bindestrek. */
 function lagId(navn: string, opptatt: Set<string>): string {
@@ -58,6 +89,8 @@ export async function leggTilSide(
     url: formData.get('url'),
     gruppe: formData.get('gruppe'),
     hjelp: formData.get('hjelp'),
+    bilete: formData.get('bilete'),
+    farge: formData.get('farge'),
   })
   if (!felter.success) return { feil: felter.error.issues[0].message }
 
@@ -73,6 +106,7 @@ export async function leggTilSide(
     url: felter.data.url,
     group: felter.data.gruppe,
     ...(felter.data.hjelp ? { help: felter.data.hjelp } : {}),
+    ...utsjånad(felter.data),
   }
 
   const svar = await skrivRaaSider(
@@ -105,6 +139,8 @@ export async function endreSide(
     url: formData.get('url'),
     gruppe: formData.get('gruppe'),
     hjelp: formData.get('hjelp'),
+    bilete: formData.get('bilete'),
+    farge: formData.get('farge'),
   })
   if (!felter.success) return { feil: felter.error.issues[0].message }
 
@@ -127,6 +163,7 @@ export async function endreSide(
           url: felter.data.url,
           group: felter.data.gruppe,
           help: felter.data.hjelp || undefined,
+          ...utsjånad(felter.data),
         }
       : s,
   )

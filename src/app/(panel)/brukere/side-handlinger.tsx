@@ -1,6 +1,6 @@
 'use client'
 
-import { useActionState, useState } from 'react'
+import { useActionState, useId, useState } from 'react'
 import { FELT, KNAPP_FARLIG, KNAPP_LITEN, KNAPP_SEKUNDÆR } from '@/components/ui'
 import type { BrukerTilstand } from './actions'
 import { leggTilSide, endreSide, slettSide } from './side-actions'
@@ -13,19 +13,82 @@ function Melding({ tilstand }: { tilstand: BrukerTilstand }) {
   return null
 }
 
+/**
+ * Skalerer et valgt bilde til et ikon, i nettleseren.
+ *
+ * 192 × 192 PNG, samme som skrivebordsappen lager – den bruker ICON_SIZE 192
+ * og `canvas.toDataURL('image/png')`. Ikonene må se like ut uansett hvor
+ * siden ble lagt inn, og de havner i samme fil.
+ *
+ * Bildet blir liggende som data-URI i sider.json. Det er ikke pent, men det er
+ * slik de tolv som finnes der ligger, og mobilappen henter bare den ene fila.
+ */
+const IKON = 192
+
+function tilIkon(fil: File): Promise<string> {
+  return new Promise((løs, avvis) => {
+    const leser = new FileReader()
+    leser.onerror = () => avvis(new Error('Kunne ikke lese fila'))
+    leser.onload = () => {
+      const img = new Image()
+      img.onerror = () => avvis(new Error('Fila er ikke et bilde vi kan lese'))
+      img.onload = () => {
+        // Aldri større enn originalen – å blåse opp et 32px-favicon til 192
+        // gir bare en uskarp firkant og fire ganger så mange byte.
+        const side = Math.min(IKON, Math.max(img.width, img.height)) || IKON
+        const lerret = document.createElement('canvas')
+        lerret.width = side
+        lerret.height = side
+        const ctx = lerret.getContext('2d')
+        if (!ctx) return avvis(new Error('Nettleseren klarte ikke å lage ikonet'))
+        ctx.imageSmoothingEnabled = true
+        ctx.imageSmoothingQuality = 'high'
+        const skala = Math.min(side / img.width, side / img.height)
+        const b = img.width * skala
+        const h = img.height * skala
+        ctx.drawImage(img, (side - b) / 2, (side - h) / 2, b, h)
+        løs(lerret.toDataURL('image/png'))
+      }
+      img.src = String(leser.result)
+    }
+    leser.readAsDataURL(fil)
+  })
+}
+
 function Felter({
   navn,
   url,
   gruppe,
   hjelp,
+  bilete,
+  farge,
   grupper,
 }: {
   navn?: string
   url?: string
   gruppe?: string
   hjelp?: string
+  bilete?: string
+  farge?: string
   grupper: string[]
 }) {
+  // Egen id per skjema. Uten dette får alle sidene samme datalist-id, og da
+  // binder nettleseren alle feltene til den første.
+  const listeId = useId()
+  const [ikon, settIkon] = useState(bilete ?? '')
+  const [feil, settFeil] = useState<string | null>(null)
+
+  async function velgBilde(e: React.ChangeEvent<HTMLInputElement>) {
+    const fil = e.target.files?.[0]
+    if (!fil) return
+    settFeil(null)
+    try {
+      settIkon(await tilIkon(fil))
+    } catch (err) {
+      settFeil(err instanceof Error ? err.message : 'Kunne ikke lese bildet')
+    }
+  }
+
   return (
     <>
       <input name="navn" defaultValue={navn} required placeholder="Navn" className={FELT} />
@@ -43,11 +106,11 @@ function Felter({
         name="gruppe"
         defaultValue={gruppe}
         required
-        list="gruppeforslag"
+        list={listeId}
         placeholder="Gruppe"
         className={FELT}
       />
-      <datalist id="gruppeforslag">
+      <datalist id={listeId}>
         {grupper.map((g) => (
           <option key={g} value={g} />
         ))}
@@ -58,6 +121,53 @@ function Felter({
         placeholder="Kort forklaring (valgfritt)"
         className={FELT}
       />
+
+      <div className="flex flex-wrap items-center gap-3 pt-1">
+        {/* Slik raden ser ut i appen: ikonet, eller fargen med forbokstaven. */}
+        <span
+          className="grid h-12 w-12 flex-none place-items-center overflow-hidden border-2 border-[var(--kant)]"
+          style={{ background: ikon ? undefined : farge || '#e2001a' }}
+        >
+          {ikon ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={ikon} alt="" className="max-h-10 max-w-10 object-contain" />
+          ) : (
+            <span className="text-lg font-black text-white">
+              {(navn || '?').trim().charAt(0).toUpperCase()}
+            </span>
+          )}
+        </span>
+
+        <label className={`${KNAPP_LITEN} cursor-pointer`}>
+          {ikon ? 'Bytt ikon' : 'Velg ikon'}
+          <input type="file" accept="image/*" onChange={velgBilde} className="hidden" />
+        </label>
+
+        {ikon && (
+          <button type="button" onClick={() => settIkon('')} className={KNAPP_LITEN}>
+            Fjern ikon
+          </button>
+        )}
+
+        <label className="flex items-center gap-2 text-sm text-[var(--blekk-svak)]">
+          Farge
+          <input
+            name="farge"
+            type="color"
+            defaultValue={farge || '#e2001a'}
+            className="h-8 w-12 cursor-pointer border-2 border-[var(--kant)] bg-transparent"
+          />
+        </label>
+
+        <span className="text-xs text-[var(--blekk-svak)]">
+          Fargen brukes med forbokstaven når det ikke er noe ikon.
+        </span>
+      </div>
+
+      {feil && <p className="text-sm text-hm-red-ink">{feil}</p>}
+
+      {/* Selve bildet følger med skjemaet som data-URI. */}
+      <input type="hidden" name="bilete" value={ikon} />
     </>
   )
 }
@@ -111,6 +221,8 @@ export function SideRedigering({
   url,
   gruppe,
   hjelp,
+  bilete,
+  farge,
   grupper,
 }: {
   sideId: string
@@ -118,6 +230,8 @@ export function SideRedigering({
   url: string
   gruppe: string
   hjelp?: string
+  bilete?: string
+  farge?: string
   grupper: string[]
 }) {
   const [modus, settModus] = useState<'lukket' | 'endre' | 'slett'>('lukket')
@@ -133,7 +247,15 @@ export function SideRedigering({
   if (modus === 'endre') {
     return (
       <form action={sendEndre} className="mt-3 w-full space-y-2">
-        <Felter navn={navn} url={url} gruppe={gruppe} hjelp={hjelp} grupper={grupper} />
+        <Felter
+          navn={navn}
+          url={url}
+          gruppe={gruppe}
+          hjelp={hjelp}
+          bilete={bilete}
+          farge={farge}
+          grupper={grupper}
+        />
         <Melding tilstand={endreTilstand} />
         <div className="flex gap-2">
           <button type="submit" disabled={endrer} className={KNAPP_SEKUNDÆR}>
