@@ -144,12 +144,28 @@ export async function Appkontoer({ erEier }: { erEier: boolean }) {
   const gruppenavn = [...new Set(sider.map((s) => s.gruppe))].sort()
 
   const godkjente = kontoer.filter((k) => k.status === 'godkjent')
-  const [unntakListe, grupper, gruppekart] = await Promise.all([
-    Promise.all(godkjente.map(async (k) => [k.id, await hentUnntakFor(k.id)] as const)),
-    hentGrupper(),
-    hentGruppekartet(),
-  ])
-  const unntak = new Map(unntakListe)
+  const unntak = new Map(
+    await Promise.all(godkjente.map(async (k) => [k.id, await hentUnntakFor(k.id)] as const)),
+  )
+
+  /*
+   * Gruppene er det nyeste her, og det som lettest mangler - tabellene kommer
+   * med en migrasjon som må kjøres for hånd.
+   *
+   * Feiler de, skal resten av siden fortsatt virke. Køen og godkjenningen er
+   * viktigere enn avkryssingen, og en admin som skal slippe noen inn skal
+   * ikke møte en hvit feilside fordi en tabell mangler. Det var nøyaktig det
+   * som skjedde første gang dette ble lagt ut.
+   */
+  let grupper: Gruppe[] = []
+  let gruppekart = new Map<string, Set<string>>()
+  let gruppefeil: string | null = null
+
+  try {
+    ;[grupper, gruppekart] = await Promise.all([hentGrupper(), hentGruppekartet()])
+  } catch (e) {
+    gruppefeil = e instanceof Error ? e.message : 'Ukjent feil'
+  }
 
   const sidenePer = (personId: string): SideForPerson[] => {
     const mine = unntak.get(personId) ?? new Map<string, boolean>()
@@ -233,9 +249,20 @@ export async function Appkontoer({ erEier }: { erEier: boolean }) {
           krysse av tretten sider hver gang noen begynner.
         </p>
 
-        {erEier && <NyGruppe />}
+        {gruppefeil ? (
+          <p className="px-4 py-4 text-sm text-hm-red-ink">
+            Gruppene er ikke satt opp i databasen ennå. Kjør migrasjon{' '}
+            <code className="hm-kode">0016_grupper.sql</code> i SQL-editoren, så
+            dukker de opp her.
+            <span className="mt-1 block text-xs text-[var(--blekk-svak)]">
+              {gruppefeil}
+            </span>
+          </p>
+        ) : (
+          <>{erEier && <NyGruppe />}</>
+        )}
 
-        {grupper.length === 0 ? (
+        {gruppefeil ? null : grupper.length === 0 ? (
           <p className="px-4 pb-5 text-sm text-[var(--blekk-svak)]">
             Ingen grupper ennå. Alle godkjente ser standardsidene, og du kan gi
             og ta bort enkeltsider per person under.
