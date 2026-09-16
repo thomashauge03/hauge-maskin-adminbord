@@ -324,11 +324,29 @@ export async function Appkontoer({ erEier }: { erEier: boolean }) {
 
             {erEier && kanRedigereSider() && <NySide grupper={gruppenavn} />}
             {erEier && !kanRedigereSider() && (
-              <p className="px-4 pt-3 text-sm text-[var(--blekk-svak)]">
-                For å legge til og slette sider herfra må adminbordet ha et
-                GitHub-token i <code className="hm-kode">HM_GITHUB_TOKEN</code>.
-                Uten det kan du fortsatt styre hvem som ser hva.
-              </p>
+              <div className="px-4 pt-3 text-sm text-[var(--blekk-svak)]">
+                <p>
+                  For å legge til og slette sider herfra trenger adminbordet et
+                  GitHub-token i <code className="hm-kode">HM_GITHUB_TOKEN</code>.
+                  Uten det kan du fortsatt styre hvem som ser hva.
+                </p>
+                <ol className="mt-2 list-decimal space-y-1 pl-5">
+                  <li>
+                    Lag en fine-grained token med tilgang til bare{' '}
+                    <code className="hm-kode">hauge-maskin-app</code>, og
+                    tillatelsen Contents: Read and write.
+                  </li>
+                  <li>
+                    Legg den inn som miljøvariabel på Vercel, ikke bare i{' '}
+                    <code className="hm-kode">.env.local</code>.
+                  </li>
+                  <li>
+                    <strong>Deploy på nytt.</strong> Vercel tar ikke i bruk nye
+                    miljøvariabler før neste utrulling – legger du den bare inn,
+                    skjer det ingenting, og det ser ut som tokenet er feil.
+                  </li>
+                </ol>
+              </div>
             )}
 
             <ul className="mt-3">
