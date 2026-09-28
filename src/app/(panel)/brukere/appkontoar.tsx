@@ -402,6 +402,7 @@ export async function Appkontoer({ erEier }: { erEier: boolean }) {
                             hjelp={s.hjelp}
                             bilete={s.bilete}
                             farge={s.farge}
+                            nokkel={s.nokkel}
                             grupper={gruppenavn}
                           />
                         )}

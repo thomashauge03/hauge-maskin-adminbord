@@ -37,6 +37,8 @@ export type RaaSide = {
   image?: string
   plattform?: string
   hidden?: boolean
+  /** Nøkkelknappen i mobilappen. Bare `false` står i fila; mangler den, er knappen på. */
+  nokkel?: boolean
   [annet: string]: unknown
 }
 

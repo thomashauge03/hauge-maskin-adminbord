@@ -62,6 +62,7 @@ function Felter({
   hjelp,
   bilete,
   farge,
+  nokkel,
   grupper,
 }: {
   navn?: string
@@ -70,6 +71,7 @@ function Felter({
   hjelp?: string
   bilete?: string
   farge?: string
+  nokkel?: boolean
   grupper: string[]
 }) {
   // Egen id per skjema. Uten dette får alle sidene samme datalist-id, og da
@@ -164,6 +166,16 @@ function Felter({
         </span>
       </div>
 
+      {/* På som standard: nye systemer skal få knappen uten at noen gjør noe.
+          Står som nokkel: false i sider.json bare når den er slått av. */}
+      <label className="flex items-center gap-2 pt-1 text-sm">
+        <input name="nokkel" type="checkbox" defaultChecked={nokkel !== false} />
+        Nøkkelknapp
+        <span className="text-xs text-[var(--blekk-svak)]">
+          Mobilappen kan fylle inn den felles innloggingen på denne siden.
+        </span>
+      </label>
+
       {feil && <p className="text-sm text-hm-red-ink">{feil}</p>}
 
       {/* Selve bildet følger med skjemaet som data-URI. */}
@@ -223,6 +235,7 @@ export function SideRedigering({
   hjelp,
   bilete,
   farge,
+  nokkel,
   grupper,
 }: {
   sideId: string
@@ -232,6 +245,7 @@ export function SideRedigering({
   hjelp?: string
   bilete?: string
   farge?: string
+  nokkel?: boolean
   grupper: string[]
 }) {
   const [modus, settModus] = useState<'lukket' | 'endre' | 'slett'>('lukket')
@@ -254,6 +268,7 @@ export function SideRedigering({
           hjelp={hjelp}
           bilete={bilete}
           farge={farge}
+          nokkel={nokkel}
           grupper={grupper}
         />
         <Melding tilstand={endreTilstand} />

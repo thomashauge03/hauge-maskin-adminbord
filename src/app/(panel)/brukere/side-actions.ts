@@ -6,6 +6,7 @@ import { krevEier } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { logg } from '@/lib/data'
 import { hentRaaSider, skrivRaaSider, type RaaSide } from '@/lib/github-sider'
+import { medNokkel } from '@/lib/nokkel-felt'
 import type { BrukerTilstand } from './actions'
 
 /*
@@ -100,14 +101,18 @@ export async function leggTilSide(
   const opptatt = new Set(sider.map((s) => String(s.id ?? s.name ?? '')))
   const id = lagId(felter.data.navn, opptatt)
 
-  const ny: RaaSide = {
-    id,
-    name: felter.data.navn,
-    url: felter.data.url,
-    group: felter.data.gruppe,
-    ...(felter.data.hjelp ? { help: felter.data.hjelp } : {}),
-    ...utsjånad(felter.data),
-  }
+  // Avkryssingsboksen sender «on» når den er krysset av, og ingenting ellers
+  const ny: RaaSide = medNokkel(
+    {
+      id,
+      name: felter.data.navn,
+      url: felter.data.url,
+      group: felter.data.gruppe,
+      ...(felter.data.hjelp ? { help: felter.data.hjelp } : {}),
+      ...utsjånad(felter.data),
+    },
+    formData.get('nokkel') === 'on',
+  )
 
   const svar = await skrivRaaSider(
     [...sider, ny],
@@ -155,16 +160,20 @@ export async function endreSide(
    * skrivebordsappen har lagt inn står urørt – et felt vi kaster her er borte
    * for alltid, og ingen ville skjønt hvorfor ikonet forsvant.
    */
+  const nokkelPaa = formData.get('nokkel') === 'on'
   const oppdatert = sider.map((s) =>
     String(s.id ?? s.name) === binding.sideId
-      ? {
-          ...s,
-          name: felter.data.navn,
-          url: felter.data.url,
-          group: felter.data.gruppe,
-          help: felter.data.hjelp || undefined,
-          ...utsjånad(felter.data),
-        }
+      ? medNokkel(
+          {
+            ...s,
+            name: felter.data.navn,
+            url: felter.data.url,
+            group: felter.data.gruppe,
+            help: felter.data.hjelp || undefined,
+            ...utsjånad(felter.data),
+          },
+          nokkelPaa,
+        )
       : s,
   )
 

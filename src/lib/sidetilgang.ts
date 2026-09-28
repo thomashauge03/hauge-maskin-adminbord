@@ -28,6 +28,8 @@ export type Side = {
   farge?: string
   /** Sider merket 'pc' vises aldri på telefonen, uansett tilgang. */
   barePC: boolean
+  /** Nøkkelknappen i mobilappen. Mangler feltet i fila, er den på. */
+  nokkel: boolean
 }
 
 export type SideMedOppsett = Side & {
@@ -56,6 +58,7 @@ export async function hentSiderFraFila(): Promise<Side[]> {
       bilete: p.image ? String(p.image) : undefined,
       farge: p.color ? String(p.color) : undefined,
       barePC: p.plattform === 'pc',
+      nokkel: p.nokkel !== false,
     }))
 }
 
