@@ -98,7 +98,8 @@ export async function hentAppbrukere(): Promise<{
  * Hvor mange som venter på svar – tallet på «Appen» i menyen.
  *
  * Feiler den, er svaret 0. Layouten står rundt hele adminbordet, og skal
- * aldri falle fordi et tall ikke kom.
+ * aldri falle fordi et tall ikke kom. Feilen havner i loggen: uten den ser et
+ * brudd ut som at ingen venter.
  */
 export async function tellVentende(): Promise<number> {
   const { count, error } = await supabaseAdmin
@@ -106,7 +107,11 @@ export async function tellVentende(): Promise<number> {
     .select('id', { count: 'exact', head: true })
     .eq('status', 'venter')
     .not('nav_bruker_id', 'is', null)
-  return error ? 0 : (count ?? 0)
+  if (error) {
+    console.error(`Kunne ikke telle dem som venter: ${error.message}`)
+    return 0
+  }
+  return count ?? 0
 }
 
 /**
@@ -133,6 +138,9 @@ export async function hentForeldreløse(): Promise<Foreldreløs[]> {
     ),
     supabaseAdmin.from('admin_brukere').select('id'),
   ])
+
+  // Uten adminlista ville adminenes innlogginger stått som foreldreløse.
+  if (admin.error) throw new Error(`Kunne ikke hente adminene: ${admin.error.message}`)
 
   const kjente = new Set<string>()
   for (const rad of koblet) kjente.add(rad.nav_bruker_id)
