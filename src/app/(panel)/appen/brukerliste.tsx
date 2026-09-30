@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { startTransition, useCallback, useMemo, useOptimistic, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { FELT, Feilstripe, KNAPP_LITEN, Kort, KortTittel, Merke } from '@/components/ui'
+import { visDato } from '@/lib/format'
 import {
   lagSøk,
   lesValg,
@@ -21,16 +22,6 @@ const STATUS: Record<AppStatus, { type: 'gul' | 'grønn' | 'rød'; ord: string }
   godkjent: { type: 'grønn', ord: 'Slipper inn' },
   sperra: { type: 'rød', ord: 'Stengt ute' },
 }
-
-/* Oslo-tid på begge sider. Uten den skriver serveren (UTC) og nettleseren
-   hver sin dato for den som registrerte seg like før midnatt, og React
-   klager på at teksten ikke stemmer. */
-const dato = new Intl.DateTimeFormat('nb-NO', {
-  day: '2-digit',
-  month: '2-digit',
-  year: 'numeric',
-  timeZone: 'Europe/Oslo',
-})
 
 const VELGER = 'border-2 border-[var(--kant)] bg-[var(--flate-opp)] px-2 py-1.5 text-sm'
 
@@ -267,8 +258,7 @@ export function Brukerliste({
                   </div>
                   <div className="text-sm text-[var(--blekk-svak)]">
                     {b.epost}
-                    {b.telefon ? ` · ${b.telefon}` : ''} · registrert{' '}
-                    {dato.format(new Date(b.registrert))}
+                    {b.telefon ? ` · ${b.telefon}` : ''} · registrert {visDato(b.registrert)}
                   </div>
                 </Link>
               </li>

@@ -4,10 +4,12 @@
    fire litt ulike varianter.
    ═══════════════════════════════════════════════════════════ */
 
+// Serveren kjører i UTC; klient og server må skrive samme tid, ellers stemmer ikke hydreringen.
 const dato = new Intl.DateTimeFormat('nb-NO', {
   day: '2-digit',
   month: '2-digit',
   year: 'numeric',
+  timeZone: 'Europe/Oslo',
 })
 
 const datoTid = new Intl.DateTimeFormat('nb-NO', {
@@ -16,6 +18,7 @@ const datoTid = new Intl.DateTimeFormat('nb-NO', {
   year: 'numeric',
   hour: '2-digit',
   minute: '2-digit',
+  timeZone: 'Europe/Oslo',
 })
 
 export function visDato(iso: string | null): string {
