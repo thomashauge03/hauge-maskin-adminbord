@@ -41,7 +41,11 @@ export default async function GrupperSide() {
 
       <p className="px-4 pt-3 text-sm text-[var(--blekk-svak)]">
         En gruppe samler sidene en type ansatt eller kunde trenger. Ingen ser noe i appen før de
-        er i en gruppe. Legg folk i grupper under Brukere – der kan du velge mange om gangen.
+        er i en gruppe. Legg folk i grupper{' '}
+        <Link href="/appen" className="underline">
+          under Appen › Brukere
+        </Link>{' '}
+        – der kan du velge mange om gangen.
       </p>
 
       {sidefeil && (

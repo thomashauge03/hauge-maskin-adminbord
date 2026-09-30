@@ -128,7 +128,9 @@ export async function leggTilSide(
   })
 
   oppdaterAppen()
-  return { ok: `«${felter.data.navn}» er lagt til. Ingen ser den før du legger den i en gruppe.` }
+  return {
+    ok: `«${felter.data.navn}» er lagt til. Ingen ser den før du legger den i en tilgangsgruppe (Appen › Grupper).`,
+  }
 }
 
 export async function endreSide(

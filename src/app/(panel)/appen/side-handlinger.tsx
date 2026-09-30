@@ -213,7 +213,7 @@ export function NySide({ grupper }: { grupper: string[] }) {
         </button>
       </div>
       <p className="text-xs text-[var(--blekk-svak)]">
-        En ny side ser ingen før du legger den i en gruppe under Grupper.
+        En ny side ser ingen før du legger den i en tilgangsgruppe (Appen › Grupper).
       </p>
     </form>
   )
