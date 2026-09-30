@@ -18,7 +18,9 @@ function Idene({ valgte }: { valgte: string[] }) {
 }
 
 /**
- * Linja nederst når noen er valgt.
+ * Linja nederst når noen er valgt. Boksen rundt, som fester seg til
+ * nederkanten, står i Brukerliste: svaret fra handlingen ligger i den samme
+ * boksen, rett over linja.
  *
  * Svaret går til lista over (`ferdig`), ikke hit: går handlingen bra, tømmes
  * utvalget, og da forsvinner denne linja – med meldingen, om den stod her.
@@ -53,7 +55,7 @@ export function Handlingslinje({
   const opptatt = godkjenner || leggerInn || tarUt || stenger
 
   return (
-    <div className="sticky bottom-0 z-10 border-2 border-[var(--kant-sterk)] bg-[var(--flate-opp)] px-4 py-3 shadow-lg">
+    <div className="border-2 border-[var(--kant-sterk)] bg-[var(--flate-opp)] px-4 py-3 shadow-lg">
       <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
         <strong className="text-sm">
           {valgte.length} valgt{skjulte > 0 ? ` (${skjulte} skjult av søket)` : ''}

@@ -35,6 +35,36 @@ const dato = new Intl.DateTimeFormat('nb-NO', {
 const VELGER = 'border-2 border-[var(--kant)] bg-[var(--flate-opp)] px-2 py-1.5 text-sm'
 
 /**
+ * Svaret på en handling på mange, nederst i vinduet.
+ *
+ * Lista kan være to hundre rader lang. Går handlingen bra, tømmes utvalget og
+ * handlingslinja forsvinner, så et svar øverst i kortet ville stått utenfor
+ * synsfeltet akkurat når det skulle vært lest. Høyden er begrenset fordi en
+ * feilliste med mange navn ellers kan dekke hele skjermen.
+ */
+function Svar({ svar, lukk }: { svar: Tilstand; lukk: () => void }) {
+  return (
+    <div className="flex items-start gap-3 border-2 border-[var(--kant-sterk)] bg-[var(--flate-opp)] px-4 py-3 shadow-lg">
+      <div className="max-h-[35vh] min-w-0 flex-1 space-y-2 overflow-y-auto">
+        {svar.ok && (
+          <p role="status" className="text-sm">
+            {svar.ok}
+          </p>
+        )}
+        {svar.feil && (
+          <div role="alert">
+            <Feilstripe tittel="Ikke alt gikk">{svar.feil}</Feilstripe>
+          </div>
+        )}
+      </div>
+      <button type="button" onClick={lukk} className={`${KNAPP_LITEN} flex-none`}>
+        Lukk
+      </button>
+    </div>
+  )
+}
+
+/**
  * Alle som har registrert seg i appen, med søk og filter.
  *
  * Søket skjer her i nettleseren, over en slank rad per person – se
@@ -187,15 +217,6 @@ export function Brukerliste({
           Brukere
         </KortTittel>
 
-        {melding?.ok && (
-          <p className="border-b border-[var(--kant)] px-4 py-2 text-sm">{melding.ok}</p>
-        )}
-        {melding?.feil && (
-          <div className="px-4 py-3">
-            <Feilstripe tittel="Ikke alt gikk">{melding.feil}</Feilstripe>
-          </div>
-        )}
-
         {erEier && treff.length > 0 && (
           <label className="flex items-center gap-2 border-b border-[var(--kant)] px-4 py-2 text-sm">
             <input type="checkbox" checked={alleTreffValgt} onChange={veksleAlleTreff} />
@@ -256,8 +277,15 @@ export function Brukerliste({
         )}
       </Kort>
 
-      {erEier && valgteNå.length > 0 && (
-        <Handlingslinje valgte={valgteNå} skjulte={skjulte} grupper={grupper} ferdig={ferdig} />
+      {/* Svaret og linja deler én klebrig boks. Hver for seg ville de begge festet
+          seg til nederkanten og lagt seg oppå hverandre. */}
+      {(melding || (erEier && valgteNå.length > 0)) && (
+        <div className="sticky bottom-0 z-10 space-y-2">
+          {melding && <Svar svar={melding} lukk={() => settMelding(null)} />}
+          {erEier && valgteNå.length > 0 && (
+            <Handlingslinje valgte={valgteNå} skjulte={skjulte} grupper={grupper} ferdig={ferdig} />
+          )}
+        </div>
       )}
     </div>
   )
