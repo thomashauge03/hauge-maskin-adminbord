@@ -28,6 +28,10 @@
 --
 -- `union` og ikke `union all`: samme side kan komme fra flere grupper,
 -- eller fra både et unntak og en gruppe.
+--
+-- `security_invoker = false` skal stå: viewet leser tabeller telefonen ikke
+-- får lese selv, og med invoker fikk hver telefon en tom liste. Supabases
+-- Security Advisor flagger slike viewer, og det er ment.
 create or replace view public.mine_sider
 with (security_invoker = false) as
   with meg as (
