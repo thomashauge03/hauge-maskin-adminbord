@@ -1,8 +1,8 @@
 'use client'
 
 import { useActionState, useState } from 'react'
-import { FELT, KNAPP_FARLIG, KNAPP_LITEN, KNAPP_SEKUNDÆR, Merke } from '@/components/ui'
-import type { BrukerTilstand } from './actions'
+import { FELT, KNAPP_FARLIG, KNAPP_LITEN, KNAPP_SEKUNDÆR } from '@/components/ui'
+import type { Tilstand } from './tilstand'
 import {
   lagGruppe,
   slettGruppe,
@@ -10,9 +10,9 @@ import {
   settPersonGruppe,
 } from './gruppe-actions'
 
-const start: BrukerTilstand = {}
+const start: Tilstand = {}
 
-function Melding({ tilstand }: { tilstand: BrukerTilstand }) {
+function Melding({ tilstand }: { tilstand: Tilstand }) {
   if (tilstand.feil) return <span className="text-xs text-hm-red-ink">{tilstand.feil}</span>
   if (tilstand.ok) return <span className="text-xs text-[var(--blekk-svak)]">{tilstand.ok}</span>
   return null
@@ -56,7 +56,7 @@ function GruppeSideKryss({
   gir,
 }: {
   gruppe: { id: string; navn: string }
-  side: { id: string; navn: string; gruppe: string; standard: boolean }
+  side: { id: string; navn: string; gruppe: string }
   gir: boolean
 }) {
   const [tilstand, send, endrer] = useActionState(
@@ -74,13 +74,6 @@ function GruppeSideKryss({
     <li className="flex items-center justify-between gap-3 border-b border-[var(--kant)] px-4 py-2 last:border-b-0">
       <div className="min-w-0">
         <span className={gir ? '' : 'text-[var(--blekk-svak)]'}>{side.navn}</span>
-        {/* En standardside får alle uansett. Å legge den i en gruppe gjør
-            ingenting i dag, men står klart om siden senere blir utvalgt. */}
-        {side.standard && (
-          <span className="ml-2">
-            <Merke type="nøytral">Alle har den</Merke>
-          </span>
-        )}
         {tilstand.feil && <div className="text-xs text-hm-red-ink">{tilstand.feil}</div>}
       </div>
       <form action={send}>
@@ -98,7 +91,7 @@ export function GruppeDetalj({
   sider,
 }: {
   gruppe: { id: string; navn: string; antallPersoner: number }
-  sider: { id: string; navn: string; gruppe: string; standard: boolean; gir: boolean }[]
+  sider: { id: string; navn: string; gruppe: string; gir: boolean }[]
 }) {
   const [modus, settModus] = useState<'lukket' | 'sider' | 'slett'>('lukket')
   const [slettTilstand, sendSlett, sletter] = useActionState(

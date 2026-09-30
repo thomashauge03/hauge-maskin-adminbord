@@ -2,12 +2,12 @@
 
 import { useActionState, useId, useState } from 'react'
 import { FELT, KNAPP_FARLIG, KNAPP_LITEN, KNAPP_SEKUNDÆR } from '@/components/ui'
-import type { BrukerTilstand } from './actions'
+import type { Tilstand } from './tilstand'
 import { leggTilSide, endreSide, slettSide } from './side-actions'
 
-const start: BrukerTilstand = {}
+const start: Tilstand = {}
 
-function Melding({ tilstand }: { tilstand: BrukerTilstand }) {
+function Melding({ tilstand }: { tilstand: Tilstand }) {
   if (tilstand.feil) return <p className="text-sm text-hm-red-ink">{tilstand.feil}</p>
   if (tilstand.ok) return <p className="text-sm text-[var(--blekk-svak)]">{tilstand.ok}</p>
   return null
@@ -213,8 +213,7 @@ export function NySide({ grupper }: { grupper: string[] }) {
         </button>
       </div>
       <p className="text-xs text-[var(--blekk-svak)]">
-        En ny side blir synlig for alle med én gang. Skal den bare gjelde noen,
-        setter du den til «Bare utvalgte» etterpå.
+        En ny side ser ingen før du legger den i en gruppe under Grupper.
       </p>
     </form>
   )

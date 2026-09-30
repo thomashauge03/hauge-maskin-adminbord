@@ -3,12 +3,12 @@
 import { useActionState, useState } from 'react'
 import { KNAPP_FARLIG, KNAPP_LITEN, KNAPP_PRIMÆR } from '@/components/ui'
 import type { AppkontoStatus } from '@/lib/appbrukarar'
-import type { BrukerTilstand } from './actions'
-import { settAppstatus, slettForeldreløs } from './appkonto-actions'
+import type { Tilstand } from './tilstand'
+import { settAppstatus, slettForeldreløs } from './person-actions'
 
-const start: BrukerTilstand = {}
+const start: Tilstand = {}
 
-function Melding({ tilstand }: { tilstand: BrukerTilstand }) {
+function Melding({ tilstand }: { tilstand: Tilstand }) {
   if (tilstand.feil) return <span className="text-xs text-hm-red-ink">{tilstand.feil}</span>
   if (tilstand.ok) return <span className="text-xs text-[var(--blekk-svak)]">{tilstand.ok}</span>
   return null

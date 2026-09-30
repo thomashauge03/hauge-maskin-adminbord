@@ -6,7 +6,6 @@ import { hentSystemer } from '@/lib/data'
 import { Kort, KortTittel, Seksjonstittel, TomTilstand } from '@/components/ui'
 import { Brukerliste, BrukerlisteSkjelett } from './brukerliste'
 import { NyBruker } from './ny-bruker'
-import { Appkontoer, AppkontoerSkjelett } from './appkontoar'
 
 export const metadata: Metadata = { title: 'Brukere' }
 
@@ -17,19 +16,20 @@ export default async function BrukereSide() {
 
   return (
     <div className="space-y-7">
-      <Seksjonstittel under="Hvem som slipper inn i mobilappen, og alle kontoer i alle systemene samlet på e-post.">
+      <Seksjonstittel
+        under={
+          <>
+            Alle kontoer i alle systemene samlet på e-post. Hvem som slipper inn i
+            mobilappen, styres under{' '}
+            <Link href="/appen" className="underline">
+              Appen
+            </Link>
+            .
+          </>
+        }
+      >
         Brukere
       </Seksjonstittel>
-
-      {/*
-        Appkøen står øverst fordi den er det eneste på siden noen venter på.
-        Resten er oppslag; dette er noen som står uten tilgang til du svarer.
-        Den henger ikke sammen med systemregisteret, og vises derfor også når
-        ingen systemer har database.
-      */}
-      <Suspense fallback={<AppkontoerSkjelett />}>
-        <Appkontoer erEier={meg.rolle === 'eier'} />
-      </Suspense>
 
       {medDatabase.length === 0 ? (
         <TomTilstand

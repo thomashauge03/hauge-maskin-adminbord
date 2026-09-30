@@ -1,17 +1,14 @@
 import 'server-only'
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { alleRader } from '@/lib/supabase/alle-rader'
 
 /**
- * Grupper: sjåfør, kontor, verksted.
+ * Grupper: sjåfør, kontor, verksted, kunder.
  *
- * Uten dem må hver nyansatt krysses av mot hver side. Med tretten sider og
- * tjue personer er det tre hundre kryss ingen holder styr på.
- *
- * Per-person-unntak forsvinner ikke - de er der for de få tilfellene som ikke
- * passer i noen gruppe, og de veier tyngst. Regelen står i migrasjon 0016 og
- * er speilet i `serSiden` i sidetilgang.ts. Endres den ene, må den andre
- * følge etter, ellers viser adminbordet noe annet enn appen gjør.
+ * Ingen ser noe i appen før de er i en gruppe. Per-person-unntak finnes
+ * fortsatt for de få tilfellene som ikke passer i noen gruppe, og de veier
+ * tyngst. Regelen står i lib/sideregel.ts og i migrasjon 0017.
  */
 export type Gruppe = {
   id: string
@@ -30,25 +27,35 @@ export async function hentGrupper(): Promise<Gruppe[]> {
       .select('id, navn, beskrivelse, sortering')
       .order('sortering')
       .order('navn'),
-    supabaseAdmin.from('gruppe_sider').select('gruppe_id, side_id'),
-    supabaseAdmin.from('person_gruppe').select('gruppe_id'),
+    alleRader<{ gruppe_id: string; side_id: string }>('gruppesidene', (fra, til) =>
+      supabaseAdmin
+        .from('gruppe_sider')
+        .select('gruppe_id, side_id')
+        .order('gruppe_id')
+        .order('side_id')
+        .range(fra, til),
+    ),
+    alleRader<{ gruppe_id: string }>('gruppemedlemskapene', (fra, til) =>
+      supabaseAdmin
+        .from('person_gruppe')
+        .select('gruppe_id')
+        .order('person_id')
+        .order('gruppe_id')
+        .range(fra, til),
+    ),
   ])
 
   if (grupper.error) throw new Error(`Kunne ikke hente gruppene: ${grupper.error.message}`)
-  if (koblinger.error) throw new Error(`Kunne ikke hente gruppesidene: ${koblinger.error.message}`)
 
   const sider = new Map<string, string[]>()
-  for (const k of koblinger.data ?? []) {
-    const liste = sider.get(k.gruppe_id as string) ?? []
-    liste.push(k.side_id as string)
-    sider.set(k.gruppe_id as string, liste)
+  for (const k of koblinger) {
+    const liste = sider.get(k.gruppe_id) ?? []
+    liste.push(k.side_id)
+    sider.set(k.gruppe_id, liste)
   }
 
   const antall = new Map<string, number>()
-  for (const m of medlemmer.data ?? []) {
-    const id = m.gruppe_id as string
-    antall.set(id, (antall.get(id) ?? 0) + 1)
-  }
+  for (const m of medlemmer) antall.set(m.gruppe_id, (antall.get(m.gruppe_id) ?? 0) + 1)
 
   return (grupper.data ?? []).map((g) => ({
     id: g.id as string,
@@ -58,40 +65,4 @@ export async function hentGrupper(): Promise<Gruppe[]> {
     sider: sider.get(g.id as string) ?? [],
     antallPersoner: antall.get(g.id as string) ?? 0,
   }))
-}
-
-/** Hvilke grupper hver person er i. Én spørring, ikke én per person. */
-export async function hentGruppekartet(): Promise<Map<string, Set<string>>> {
-  const { data, error } = await supabaseAdmin
-    .from('person_gruppe')
-    .select('person_id, gruppe_id')
-
-  if (error) throw new Error(`Kunne ikke hente gruppemedlemskapene: ${error.message}`)
-
-  const kart = new Map<string, Set<string>>()
-  for (const r of data ?? []) {
-    const p = r.person_id as string
-    if (!kart.has(p)) kart.set(p, new Set())
-    kart.get(p)!.add(r.gruppe_id as string)
-  }
-  return kart
-}
-
-/**
- * Side-id-ene en person får gjennom gruppene sine.
- *
- * Merk at dette IKKE tar hensyn til om siden er standard eller til personens
- * egne unntak - det gjør `serSiden`. Denne svarer bare på hva gruppene gir.
- */
-export function siderFraGrupper(
-  gruppeIder: Set<string> | undefined,
-  grupper: Gruppe[],
-): Set<string> {
-  const ut = new Set<string>()
-  if (!gruppeIder || gruppeIder.size === 0) return ut
-  for (const g of grupper) {
-    if (!gruppeIder.has(g.id)) continue
-    for (const s of g.sider) ut.add(s)
-  }
-  return ut
 }

@@ -1,13 +1,12 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { krevEier } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { logg } from '@/lib/data'
 import { hentRaaSider, skrivRaaSider, type RaaSide } from '@/lib/github-sider'
 import { medNokkel } from '@/lib/nokkel-felt'
-import type { BrukerTilstand } from './actions'
+import { oppdaterAppen, type Tilstand } from './tilstand'
 
 /*
  * Bare https.
@@ -80,9 +79,9 @@ function lagId(navn: string, opptatt: Set<string>): string {
 }
 
 export async function leggTilSide(
-  _forrige: BrukerTilstand,
+  _forrige: Tilstand,
   formData: FormData,
-): Promise<BrukerTilstand> {
+): Promise<Tilstand> {
   const meg = await krevEier()
 
   const felter = skjema.safeParse({
@@ -128,15 +127,15 @@ export async function leggTilSide(
     detaljer: { sideId: id, navn: felter.data.navn, url: felter.data.url },
   })
 
-  revalidatePath('/brukere')
-  return { ok: `«${felter.data.navn}» er lagt til. Alle ser den.` }
+  oppdaterAppen()
+  return { ok: `«${felter.data.navn}» er lagt til. Ingen ser den før du legger den i en gruppe.` }
 }
 
 export async function endreSide(
   binding: { sideId: string },
-  _forrige: BrukerTilstand,
+  _forrige: Tilstand,
   formData: FormData,
-): Promise<BrukerTilstand> {
+): Promise<Tilstand> {
   const meg = await krevEier()
 
   const felter = skjema.safeParse({
@@ -191,7 +190,7 @@ export async function endreSide(
     detaljer: { sideId: binding.sideId, navn: felter.data.navn },
   })
 
-  revalidatePath('/brukere')
+  oppdaterAppen()
   return { ok: `«${felter.data.navn}» er lagret.` }
 }
 
@@ -208,8 +207,8 @@ export async function endreSide(
  */
 export async function slettSide(
   binding: { sideId: string; navn: string },
-  _forrige: BrukerTilstand,
-): Promise<BrukerTilstand> {
+  _forrige: Tilstand,
+): Promise<Tilstand> {
   const meg = await krevEier()
 
   const { sider, sha, hylse } = await hentRaaSider()
@@ -240,6 +239,6 @@ export async function slettSide(
     detaljer: { sideId: binding.sideId, navn: binding.navn },
   })
 
-  revalidatePath('/brukere')
+  oppdaterAppen()
   return { ok: `«${binding.navn}» er fjernet for alle.` }
 }

@@ -1,11 +1,10 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { krevEier } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { logg } from '@/lib/data'
-import type { BrukerTilstand } from './actions'
+import { oppdaterAppen, type Tilstand } from './tilstand'
 
 const nyttNavn = z.object({
   navn: z.string().trim().min(1, 'Gruppa må ha et navn').max(40, 'Navnet er for langt'),
@@ -13,9 +12,9 @@ const nyttNavn = z.object({
 })
 
 export async function lagGruppe(
-  _forrige: BrukerTilstand,
+  _forrige: Tilstand,
   formData: FormData,
-): Promise<BrukerTilstand> {
+): Promise<Tilstand> {
   const meg = await krevEier()
 
   const felter = nyttNavn.safeParse({
@@ -43,7 +42,7 @@ export async function lagGruppe(
     detaljer: { navn: felter.data.navn },
   })
 
-  revalidatePath('/brukere')
+  oppdaterAppen()
   return { ok: `Gruppa «${felter.data.navn}» er laget. Gi den sider, og legg folk i den.` }
 }
 
@@ -60,8 +59,8 @@ export async function lagGruppe(
  */
 export async function slettGruppe(
   binding: { gruppeId: string; navn: string },
-  _forrige: BrukerTilstand,
-): Promise<BrukerTilstand> {
+  _forrige: Tilstand,
+): Promise<Tilstand> {
   const meg = await krevEier()
 
   const { error } = await supabaseAdmin.from('grupper').delete().eq('id', binding.gruppeId)
@@ -73,15 +72,15 @@ export async function slettGruppe(
     detaljer: { gruppeId: binding.gruppeId, navn: binding.navn },
   })
 
-  revalidatePath('/brukere')
+  oppdaterAppen()
   return { ok: `Gruppa «${binding.navn}» er slettet.` }
 }
 
 /** Gir eller tar bort én side for én gruppe. */
 export async function settGruppeSide(
   binding: { gruppeId: string; gruppeNavn: string; sideId: string; sideNavn: string; gi: boolean },
-  _forrige: BrukerTilstand,
-): Promise<BrukerTilstand> {
+  _forrige: Tilstand,
+): Promise<Tilstand> {
   const meg = await krevEier()
 
   const { error } = binding.gi
@@ -109,7 +108,7 @@ export async function settGruppeSide(
     },
   })
 
-  revalidatePath('/brukere')
+  oppdaterAppen()
   return {
     ok: `«${binding.sideNavn}» ${binding.gi ? 'gis nå av' : 'gis ikke lenger av'} ${binding.gruppeNavn}.`,
   }
@@ -124,8 +123,8 @@ export async function settPersonGruppe(
     gruppeNavn: string
     inn: boolean
   },
-  _forrige: BrukerTilstand,
-): Promise<BrukerTilstand> {
+  _forrige: Tilstand,
+): Promise<Tilstand> {
   const meg = await krevEier()
 
   const { error } = binding.inn
@@ -153,7 +152,7 @@ export async function settPersonGruppe(
     },
   })
 
-  revalidatePath('/brukere')
+  oppdaterAppen()
   return {
     ok: `${binding.personNavn} er ${binding.inn ? 'lagt i' : 'tatt ut av'} ${binding.gruppeNavn}.`,
   }

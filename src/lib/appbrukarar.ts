@@ -1,80 +1,15 @@
 import 'server-only'
 
-import { lagServerKlient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import type { AppStatus } from '@/lib/appsok'
 
-export type AppkontoStatus = 'venter' | 'godkjent' | 'sperra'
-
-export type Appkonto = {
-  id: string
-  navn: string
-  epost: string
-  telefon: string | null
-  status: AppkontoStatus
-  navBrukerId: string
-  godkjentTid: string | null
-  registrert: string
-  /**
-   * Har personen tilgang i minst ett av de andre systemene fra før?
-   *
-   * Dette er det viktigste på skjermen. Appen ligger åpent, så hvem som
-   * helst kan sende en forespørsel. En som allerede finnes i utleien eller
-   * rørlageret er en kollega; en som ikke gjør det kan være hvem som helst.
-   */
-  kjentFraFør: boolean
-}
+export type AppkontoStatus = AppStatus
 
 /** En registrering som aldri ble til en person. Se `ny_appbrukar()`. */
 export type Foreldreløs = {
   navBrukerId: string
   epost: string
   registrert: string
-}
-
-type PersonRad = {
-  id: string
-  navn: string
-  epost: string
-  telefon: string | null
-  status: AppkontoStatus
-  nav_bruker_id: string
-  godkjent_tid: string | null
-  opprettet: string
-  system_tilgang: { system_id: string }[] | null
-}
-
-function tilAppkonto(rad: PersonRad): Appkonto {
-  return {
-    id: rad.id,
-    navn: rad.navn,
-    epost: rad.epost,
-    telefon: rad.telefon,
-    status: rad.status,
-    navBrukerId: rad.nav_bruker_id,
-    godkjentTid: rad.godkjent_tid,
-    registrert: rad.opprettet,
-    kjentFraFør: (rad.system_tilgang?.length ?? 0) > 0,
-  }
-}
-
-/**
- * Alle som har registrert seg i appen.
- *
- * `nav_bruker_id is not null` er ikke en detalj: `personer` inneholder også
- * folk som bare finnes i de andre systemene. Uten dette leddet ville de
- * dukket opp som forespørsler de aldri har sendt.
- */
-export async function hentAppkontoer(): Promise<Appkonto[]> {
-  const supabase = await lagServerKlient()
-
-  const { data, error } = await supabase
-    .from('personer')
-    .select('id, navn, epost, telefon, status, nav_bruker_id, godkjent_tid, opprettet, system_tilgang(system_id)')
-    .not('nav_bruker_id', 'is', null)
-    .order('opprettet', { ascending: false })
-
-  if (error) throw new Error(`Kunne ikke hente appkontoer: ${error.message}`)
-  return (data as PersonRad[]).map(tilAppkonto)
 }
 
 /**

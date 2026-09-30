@@ -1,11 +1,10 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
 import { krevEier } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { logg } from '@/lib/data'
 import type { AppkontoStatus } from '@/lib/appbrukarar'
-import type { BrukerTilstand } from './actions'
+import { oppdaterAppen, type Tilstand } from './tilstand'
 
 const ORD: Record<AppkontoStatus, string> = {
   venter: 'satt på vent',
@@ -21,8 +20,8 @@ const ORD: Record<AppkontoStatus, string> = {
  */
 export async function settAppstatus(
   binding: { personId: string; epost: string; navBrukerId: string; nyStatus: AppkontoStatus },
-  _forrige: BrukerTilstand,
-): Promise<BrukerTilstand> {
+  _forrige: Tilstand,
+): Promise<Tilstand> {
   const meg = await krevEier()
 
   /*
@@ -72,7 +71,7 @@ export async function settAppstatus(
     detaljer: { personId: binding.personId, epost: binding.epost },
   })
 
-  revalidatePath('/brukere')
+  oppdaterAppen()
   return { ok: `${binding.epost} er ${ORD[binding.nyStatus]}.` }
 }
 
@@ -86,8 +85,8 @@ export async function settAppstatus(
  */
 export async function slettForeldreløs(
   binding: { navBrukerId: string; epost: string },
-  _forrige: BrukerTilstand,
-): Promise<BrukerTilstand> {
+  _forrige: Tilstand,
+): Promise<Tilstand> {
   const meg = await krevEier()
 
   // Siste skanse: en konto med `personer`-rad er ikke foreldreløs, og skal
@@ -102,6 +101,21 @@ export async function slettForeldreløs(
     return { feil: 'Kontoen hører til en person likevel. Last siden på nytt.' }
   }
 
+  /*
+   * Og aldri en admin. En admin i adminbordet har ingen personrad, og ser
+   * derfor ut som en foreldreløs for alt annet enn denne sjekken. Å slette
+   * innloggingen ville tatt admin-raden med seg (on delete cascade).
+   */
+  const { data: admin } = await supabaseAdmin
+    .from('admin_brukere')
+    .select('id')
+    .eq('id', binding.navBrukerId)
+    .maybeSingle()
+
+  if (admin) {
+    return { feil: 'Dette er innloggingen til en admin i adminbordet, og den kan ikke slettes herfra.' }
+  }
+
   const { error } = await supabaseAdmin.auth.admin.deleteUser(binding.navBrukerId)
   if (error) {
     return { feil: `Kunne ikke slette: ${error.message}` }
@@ -113,6 +127,6 @@ export async function slettForeldreløs(
     detaljer: { navBrukerId: binding.navBrukerId, epost: binding.epost },
   })
 
-  revalidatePath('/brukere')
+  oppdaterAppen()
   return { ok: `${binding.epost} er fjernet og kan registrere seg på nytt.` }
 }
