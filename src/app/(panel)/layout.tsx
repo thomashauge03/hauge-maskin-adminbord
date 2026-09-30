@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { HMLogo } from '@/components/hm-logo'
 import { krevAdmin } from '@/lib/auth'
+import { tellVentende } from '@/lib/appbrukarar'
 import { loggUt } from '@/app/logg-inn/actions'
 import { KNAPP_LITEN, Merke } from '@/components/ui'
 import { Meny } from './meny'
@@ -17,6 +18,7 @@ export default async function PanelLayout({
   children: React.ReactNode
 }) {
   const bruker = await krevAdmin()
+  const ventende = await tellVentende()
 
   return (
     <>
@@ -46,7 +48,7 @@ export default async function PanelLayout({
         </div>
 
         <div className="mx-auto max-w-7xl px-4">
-          <Meny />
+          <Meny ventende={ventende} />
         </div>
       </header>
 
