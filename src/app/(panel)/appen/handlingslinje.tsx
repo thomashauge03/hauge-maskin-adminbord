@@ -59,14 +59,21 @@ export function Handlingslinje({
           {valgte.length} valgt{skjulte > 0 ? ` (${skjulte} skjult av søket)` : ''}
         </strong>
 
-        <form action={godkjenn} className="flex flex-wrap items-center gap-2">
-          <Idene valgte={valgte} />
-          <button type="submit" disabled={opptatt} className={KNAPP_PRIMÆR}>
-            {godkjenner ? 'Godkjenner …' : 'Godkjenn'}
-          </button>
+        {/* Begge gruppevelgerne står utenfor skjemaene, og verdien reiser med i et
+            skjult felt. React tilbakestiller et skjema etter hver handling, og en
+            kontrollert select inni det faller da tilbake til første valg i DOM-en
+            mens tilstanden husker gruppa – et nytt forsøk etter en feil ville
+            sendt «ingen gruppe». Skjulte felt tegnes på nytt fra tilstanden. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <form action={godkjenn}>
+            <Idene valgte={valgte} />
+            <input type="hidden" name="gruppe" value={gruppeVedGodkjenning} />
+            <button type="submit" disabled={opptatt} className={KNAPP_PRIMÆR}>
+              {godkjenner ? 'Godkjenner …' : 'Godkjenn'}
+            </button>
+          </form>
           <span className="text-sm">og legg i</span>
           <select
-            name="gruppe"
             value={gruppeVedGodkjenning}
             onChange={(e) => settGruppeVedGodkjenning(e.target.value)}
             aria-label="Gruppe ved godkjenning"
@@ -79,7 +86,7 @@ export function Handlingslinje({
               </option>
             ))}
           </select>
-        </form>
+        </div>
 
         {grupper.length > 0 && (
           <div className="flex flex-wrap items-center gap-2">
