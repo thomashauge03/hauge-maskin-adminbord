@@ -91,11 +91,17 @@ export async function slettForeldreløs(
 
   // Siste skanse: en konto med `personer`-rad er ikke foreldreløs, og skal
   // aldri kunne slettes herfra uansett hva skjermen viste da den ble lastet.
-  const { data: finnes } = await supabaseAdmin
+  const { data: finnes, error: finnesFeil } = await supabaseAdmin
     .from('personer')
     .select('id')
     .eq('nav_bruker_id', binding.navBrukerId)
     .maybeSingle()
+
+  // Begge sjekkene stopper på feil. Et oppslag som feiler gir `data: null`,
+  // som ser ut som «ingen rad», og en slettet innlogging kommer ikke tilbake.
+  if (finnesFeil) {
+    return { feil: `Kunne ikke sjekke om kontoen hører til en person: ${finnesFeil.message}` }
+  }
 
   if (finnes) {
     return { feil: 'Kontoen hører til en person likevel. Last siden på nytt.' }
@@ -106,11 +112,15 @@ export async function slettForeldreløs(
    * derfor ut som en foreldreløs for alt annet enn denne sjekken. Å slette
    * innloggingen ville tatt admin-raden med seg (on delete cascade).
    */
-  const { data: admin } = await supabaseAdmin
+  const { data: admin, error: adminFeil } = await supabaseAdmin
     .from('admin_brukere')
     .select('id')
     .eq('id', binding.navBrukerId)
     .maybeSingle()
+
+  if (adminFeil) {
+    return { feil: `Kunne ikke sjekke om kontoen er en admin: ${adminFeil.message}` }
+  }
 
   if (admin) {
     return { feil: 'Dette er innloggingen til en admin i adminbordet, og den kan ikke slettes herfra.' }
