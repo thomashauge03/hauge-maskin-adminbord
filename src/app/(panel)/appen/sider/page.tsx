@@ -126,7 +126,7 @@ export default async function SiderSide() {
                             ? 'vises aldri på telefonen'
                             : gir.length > 0
                               ? `gis av ${gir.join(', ')}`
-                              : 'ingen gruppe gir den – ingen ser den'}
+                              : 'ingen gruppe gir den'}
                         </div>
                       </div>
                     </div>
