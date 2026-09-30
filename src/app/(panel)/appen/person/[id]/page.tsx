@@ -75,6 +75,14 @@ export default async function PersonSide({ params }: { params: Promise<{ id: str
     grunn: grunnFor(s.id, unntak, fraGrupper),
   }))
   const antallSett = rader.filter((r) => r.grunn.ser && !r.barePC).length
+  const sideord = antallSett === 1 ? 'side' : 'sider'
+  // Den som venter eller er stengt ute ser ingenting nå, så tallet sier hva de
+  // får – ikke hva de ser. Uten sidelista er det ingen tall å vise: 0 ville
+  // sett ut som et svar.
+  const antallTekst =
+    person.status === 'godkjent'
+      ? `Ser ${antallSett} ${sideord}`
+      : `Får ${antallSett} ${sideord} når de er godkjent`
   const mineGrupper = grupper.filter((g) => person.grupper.includes(g.id))
 
   return (
@@ -147,9 +155,9 @@ export default async function PersonSide({ params }: { params: Promise<{ id: str
       <Kort>
         <KortTittel
           handling={
-            <span className="text-xs text-[var(--blekk-svak)]">
-              Ser {antallSett} {antallSett === 1 ? 'side' : 'sider'}
-            </span>
+            sidefeil ? undefined : (
+              <span className="text-xs text-[var(--blekk-svak)]">{antallTekst}</span>
+            )
           }
         >
           Hva {person.navn} ser i appen
