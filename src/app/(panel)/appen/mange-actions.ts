@@ -47,7 +47,9 @@ async function perBit<T, R>(
   const rader: R[] = []
   for (const bit of iBiter(liste, BIT)) {
     const { data, error } = await spør(bit)
-    if (error) return { ferdige, rader, feil: error.message }
+    // Kallerne spør om `feil` er satt. En feil med tom melding skal ikke se ut
+    // som at alt gikk bra.
+    if (error) return { ferdige, rader, feil: error.message || 'ukjent feil' }
     ferdige.push(...bit)
     rader.push(...(data ?? []))
   }
@@ -100,15 +102,39 @@ export async function godkjennMange(_forrige: Tilstand, data: FormData): Promise
    * E-posten bekreftes per person før statusen settes, som i settAppstatus –
    * se begrunnelsen der. Den som ikke fikk bekreftet e-posten, blir ikke
    * godkjent.
+   *
+   * Utfallet avgjøres av om kallet ga en feil, aldri av teksten i den: en feil
+   * uten melding skal ikke kunne slippe noen inn uten bekreftet e-post.
    */
   const bekreftet = await medHøyst(8, personer, async (p) => {
     const { error: feil } = await supabaseAdmin.auth.admin.updateUserById(p.nav_bruker_id, {
       email_confirm: true,
     })
-    return { p, feil: feil?.message ?? null }
+    return { p, ok: !feil, grunn: feil?.message || 'ukjent feil' }
   })
-  const klare = bekreftet.filter((b) => !b.feil).map((b) => b.p)
-  const feilet = bekreftet.filter((b) => b.feil).map((b) => b.p.epost)
+  const klare = bekreftet.filter((b) => b.ok).map((b) => b.p)
+  const feilet = bekreftet.filter((b) => !b.ok)
+
+  // Grunnen går til tjenerloggen, uten adressene: svaret på skjermen navngir
+  // dem, og persondata hører ikke hjemme i en logg som ligger hos Vercel.
+  if (feilet.length > 0) {
+    console.error(
+      `Kunne ikke bekrefte e-posten til ${feilet.length} av ${personer.length}: ${[
+        ...new Set(feilet.map((f) => f.grunn)),
+      ].join('; ')}`,
+    )
+  }
+
+  /*
+   * Navnene på dem som falt ut følger med ALLE svar herfra og ned, også
+   * feilsvarene. Svaret skal navngi dem som feilet, og et svar som stopper
+   * tidlig ville ellers latt dem forsvinne stille.
+   */
+  const ikkeBekreftet =
+    feilet.length > 0
+      ? `Fikk ikke bekreftet e-posten til ${feilet.map((f) => f.p.epost).join(', ')}, så de er ikke godkjent.`
+      : ''
+  const medIkkeBekreftet = (tekst: string) => (ikkeBekreftet ? `${tekst}. ${ikkeBekreftet}` : tekst)
 
   const godkjenning = { status: 'godkjent', godkjent_av: meg.id, godkjent_tid: new Date().toISOString() }
   const skrevet = await perBit(klare, (bit) =>
@@ -122,7 +148,9 @@ export async function godkjennMange(_forrige: Tilstand, data: FormData): Promise
   )
   const godkjente = skrevet.ferdige
   const stoppet = skrevet.feil
-  if (stoppet && godkjente.length === 0) return { feil: `Kunne ikke godkjenne: ${stoppet}` }
+  if (stoppet && godkjente.length === 0) {
+    return { feil: medIkkeBekreftet(`Kunne ikke godkjenne: ${stoppet}`) }
+  }
 
   /*
    * Stoppet det midt i, er bitene før feilen godkjent på ekte. De logges og
@@ -147,9 +175,10 @@ export async function godkjennMange(_forrige: Tilstand, data: FormData): Promise
       if (gruppeFeil) {
         oppdaterAppen()
         return {
-          feil:
+          feil: medIkkeBekreftet(
             `${godkjente.length} godkjent, men ikke lagt i ${gruppeNavn}: ${gruppeFeil.message}` +
-            (stoppet ? `. Resten ble heller ikke godkjent: ${stoppet}` : ''),
+              (stoppet ? `. Resten ble heller ikke godkjent: ${stoppet}` : ''),
+          ),
         }
       }
       await loggMange(
@@ -163,7 +192,9 @@ export async function godkjennMange(_forrige: Tilstand, data: FormData): Promise
   oppdaterAppen()
   if (stoppet) {
     return {
-      feil: `${godkjente.length} godkjent${gruppe ? ` og lagt i ${gruppe.navn}` : ''} før det stoppet: ${stoppet}`,
+      feil: medIkkeBekreftet(
+        `${godkjente.length} godkjent${gruppe ? ` og lagt i ${gruppe.navn}` : ''} før det stoppet: ${stoppet}`,
+      ),
     }
   }
   return {
@@ -171,10 +202,7 @@ export async function godkjennMange(_forrige: Tilstand, data: FormData): Promise
       godkjente.length > 0
         ? `${godkjente.length} godkjent${gruppe ? ` og lagt i ${gruppe.navn}` : ' – de ser ingenting før de er i en gruppe'}.`
         : undefined,
-    feil:
-      feilet.length > 0
-        ? `Fikk ikke bekreftet e-posten til ${feilet.join(', ')}, så de er ikke godkjent.`
-        : undefined,
+    feil: ikkeBekreftet || undefined,
   }
 }
 
@@ -221,7 +249,7 @@ export async function settGruppeForMange(
       )
       .select('person_id')
     endret = satt ?? []
-    feil = error?.message ?? null
+    feil = error ? error.message || 'ukjent feil' : null
   } else {
     const ut = await perBit(personer, (bit) =>
       supabaseAdmin
