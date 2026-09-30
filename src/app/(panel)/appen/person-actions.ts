@@ -152,6 +152,10 @@ export async function slettForeldreløs(
  *
  * Personraden blir stående når personen finnes i andre systemer –
  * kontooversikten under Brukere bruker den.
+ *
+ * Stopper det etter at noe er slettet, logges det som `appkonto.slettet_delvis`
+ * og skjermen bygges på nytt. Ellers ville lista og historikken fortsatt vist
+ * personen slik de var før, og ingen ville sett hva som er borte.
  */
 export async function slettFraAppen(
   binding: { personId: string },
@@ -185,12 +189,26 @@ export async function slettFraAppen(
     return { feil: 'Dette er innloggingen til en admin i adminbordet, og den kan ikke slettes herfra.' }
   }
 
+  const stoppetHalvveis = (steg: string, feil: string) =>
+    logg('appkonto.slettet_delvis', {
+      utfortAv: meg.id,
+      utfortAvEpost: meg.epost,
+      detaljer: { personId: p.id, epost: p.epost, steg, feil },
+    })
+
   const rydding = await Promise.all([
     supabaseAdmin.from('person_gruppe').delete().eq('person_id', p.id),
     supabaseAdmin.from('side_tilgang').delete().eq('person_id', p.id),
   ])
   const ryddeFeil = rydding.find((r) => r.error)?.error
-  if (ryddeFeil) return { feil: `Kunne ikke fjerne grupper og unntak: ${ryddeFeil.message}` }
+  if (ryddeFeil) {
+    // De to slettingene går hver for seg, så den ene kan ha gått gjennom selv om
+    // den andre feilet. Skjermen bygges på nytt uansett; historikken får bare
+    // en rad når noe faktisk ble borte.
+    oppdaterAppen()
+    if (rydding.some((r) => !r.error)) await stoppetHalvveis('grupper_og_unntak', ryddeFeil.message)
+    return { feil: `Kunne ikke fjerne grupper og unntak: ${ryddeFeil.message}` }
+  }
 
   const iAndreSystemer = ((p.system_tilgang as unknown[] | null)?.length ?? 0) > 0
   const { error: radFeil } = iAndreSystemer
@@ -199,15 +217,20 @@ export async function slettFraAppen(
         .update({ status: 'venter', godkjent_av: null, godkjent_tid: null })
         .eq('id', p.id)
     : await supabaseAdmin.from('personer').delete().eq('id', p.id)
-  if (radFeil) return { feil: `Grupper og unntak er fjernet, men personen står: ${radFeil.message}` }
+  if (radFeil) {
+    oppdaterAppen()
+    await stoppetHalvveis('personrad', radFeil.message)
+    return { feil: `Grupper og unntak er fjernet, men personen står: ${radFeil.message}` }
+  }
 
   const { error: innloggingFeil } = await supabaseAdmin.auth.admin.deleteUser(p.nav_bruker_id as string)
   if (innloggingFeil) {
     oppdaterAppen()
+    await stoppetHalvveis('innlogging', innloggingFeil.message)
     return {
       feil: `Grupper og unntak er fjernet, men innloggingen står igjen: ${innloggingFeil.message}. Den ligger nå ${
         iAndreSystemer ? 'i køen' : 'under «Registreringer som ikke kom fram»'
-      } på Brukere, og kan slettes derfra.`,
+      } under Appen › Brukere, og kan slettes derfra.`,
     }
   }
 

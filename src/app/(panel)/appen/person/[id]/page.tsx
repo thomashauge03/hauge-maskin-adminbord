@@ -28,6 +28,7 @@ const HANDLING: Record<string, string> = {
   'appkonto.sperra': 'Stengt ute',
   'appkonto.venter': 'Satt på vent',
   'appkonto.slettet': 'Slettet fra appen',
+  'appkonto.slettet_delvis': 'Sletting stoppet halvveis',
   'gruppe.person_inn': 'Lagt i gruppe',
   'gruppe.person_ut': 'Tatt ut av gruppe',
   'side.gitt': 'Fikk side',
