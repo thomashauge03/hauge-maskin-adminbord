@@ -59,7 +59,7 @@ export function normaliser(tekst: string): string {
     .replace(/ø/g, 'o')
     .replace(/å/g, 'a')
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036F]/g, '')
     .replace(/aa/g, 'a')
     .replace(/oe/g, 'o')
     .trim()
