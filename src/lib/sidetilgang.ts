@@ -2,7 +2,7 @@ import 'server-only'
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { alleRader } from '@/lib/supabase/alle-rader'
-import { hentRaaSider } from '@/lib/github-sider'
+import { hentRaaSider, type RaaSide } from '@/lib/github-sider'
 
 /**
  * Sidene i mobilappen.
@@ -35,17 +35,8 @@ export type Side = {
   nokkel: boolean
 }
 
-/**
- * Henter sidelista slik appen ser den.
- *
- * Feiler hentingen, kaster vi. Alternativet – å svare med tom liste – ville
- * sett ut som «ingen sider finnes», og en admin kunne krysset av på et tomt
- * skjema uten å forstå hvorfor ingenting stod der.
- */
-export async function hentSiderFraFila(): Promise<Side[]> {
-  const { sider } = await hentRaaSider()
-
-  return sider
+function tilSider(raa: RaaSide[]): Side[] {
+  return raa
     .filter((p) => p && p.name && p.url && p.hidden !== true)
     .map((p) => ({
       id: String(p.id || p.name),
@@ -58,6 +49,41 @@ export async function hentSiderFraFila(): Promise<Side[]> {
       barePC: p.plattform === 'pc',
       nokkel: p.nokkel !== false,
     }))
+}
+
+/**
+ * Henter sidelista slik appen ser den.
+ *
+ * Feiler hentingen, kaster vi. Alternativet – å svare med tom liste – ville
+ * sett ut som «ingen sider finnes», og en admin kunne krysset av på et tomt
+ * skjema uten å forstå hvorfor ingenting stod der.
+ */
+export async function hentSiderFraFila(): Promise<Side[]> {
+  const { sider } = await hentRaaSider()
+  return tilSider(sider)
+}
+
+/** Alle side-id-ene i fila – også skjulte og halvferdige. */
+function alleIderI(raa: RaaSide[]): Set<string> {
+  return new Set(raa.map((p) => String(p?.id || p?.name || '')).filter(Boolean))
+}
+
+/**
+ * Sidelista og alle id-ene i fila, fra én henting.
+ *
+ * «Finnes ikke lenger» må avgjøres mot hele fila. Lista appen viser, hopper
+ * over skjulte sider – en side som er skjult på PC, men har oppsett her,
+ * ville ellers sett foreldreløs ut, og «Rydd bort» ville slettet oppsettet
+ * den skal ha tilbake når den vises igjen.
+ */
+export async function hentSidelista(): Promise<{ sider: Side[]; alleIder: Set<string> }> {
+  const { sider } = await hentRaaSider()
+  return { sider: tilSider(sider), alleIder: alleIderI(sider) }
+}
+
+export async function hentAlleSideIder(): Promise<Set<string>> {
+  const { sider } = await hentRaaSider()
+  return alleIderI(sider)
 }
 
 /** Hvor mange personer som har et eget unntak, per side. */

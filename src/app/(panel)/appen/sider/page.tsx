@@ -5,7 +5,7 @@ import { kanRedigereSider } from '@/lib/github-sider'
 import {
   hentAvvikPerSide,
   hentSideStandardIder,
-  hentSiderFraFila,
+  hentSidelista,
   type Side,
 } from '@/lib/sidetilgang'
 import { foreldreløse, siderFraGrupper } from '@/lib/sideregel'
@@ -26,9 +26,10 @@ export default async function SiderSide() {
   ])
 
   let sider: Side[] = []
+  let alleIder = new Set<string>()
   let sidefeil: string | null = null
   try {
-    sider = await hentSiderFraFila()
+    ;({ sider, alleIder } = await hentSidelista())
   } catch (e) {
     sidefeil = e instanceof Error ? e.message : 'Ukjent feil'
   }
@@ -39,15 +40,12 @@ export default async function SiderSide() {
   )
   // Overskriftene i appens liste – ikke tilgangsgruppene. Forslag i feltet.
   const overskrifter = [...new Set(sider.map((s) => s.gruppe))].sort()
-  // Uten sidelista vet vi ikke hva som finnes, og da er ingenting foreldreløst.
-  const glemte = sidefeil
-    ? []
-    : foreldreløse(
-        new Set(sider.map((s) => s.id)),
-        grupper.flatMap((g) => g.sider),
-        avvik.keys(),
-        gamleStandard,
-      )
+  // Uten sidelista – eller med en tom fil – vet vi ikke hva som finnes, og da
+  // er ingenting foreldreløst.
+  const glemte =
+    sidefeil || alleIder.size === 0
+      ? []
+      : foreldreløse(alleIder, grupper.flatMap((g) => g.sider), avvik.keys(), gamleStandard)
 
   return (
     <div className="space-y-7">
@@ -163,9 +161,19 @@ export default async function SiderSide() {
             liggende til noen fjerner dem.
           </p>
           <ul className="mt-3">
-            {glemte.map((id) => (
-              <ForeldreløsSide key={id} sideId={id} />
-            ))}
+            {glemte.map((id) =>
+              erEier ? (
+                <ForeldreløsSide key={id} sideId={id} />
+              ) : (
+                <li
+                  key={id}
+                  className="flex items-center justify-between gap-3 border-b border-[var(--kant)] px-4 py-2 last:border-b-0"
+                >
+                  <span className="hm-kode text-sm">{id}</span>
+                  <span className="text-xs text-[var(--blekk-svak)]">Bare eier kan rydde</span>
+                </li>
+              )
+            )}
           </ul>
         </Kort>
       )}

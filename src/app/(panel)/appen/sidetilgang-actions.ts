@@ -4,6 +4,7 @@ import { krevEier } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { logg } from '@/lib/data'
 import { unntakFor } from '@/lib/sideregel'
+import { hentAlleSideIder } from '@/lib/sidetilgang'
 import { oppdaterAppen, type Tilstand } from './tilstand'
 
 /**
@@ -93,6 +94,22 @@ export async function ryddForeldreløs(
   _forrige: Tilstand,
 ): Promise<Tilstand> {
   const meg = await krevEier()
+
+  /*
+   * Skjermen kan være gammel, og fila kan ha blitt endret fra PC-en siden.
+   * Står siden der fortsatt – også skjult – er den ikke foreldreløs, og da
+   * skal oppsettet bli. Kan vi ikke lese fila, rydder vi ingenting.
+   */
+  let iFila: Set<string>
+  try {
+    iFila = await hentAlleSideIder()
+  } catch (e) {
+    return { feil: `Fikk ikke sjekket sider.json, så ingenting er ryddet: ${e instanceof Error ? e.message : 'ukjent feil'}` }
+  }
+  if (iFila.size === 0) return { feil: 'sider.json er tom eller ukjent, så ingenting er ryddet.' }
+  if (iFila.has(binding.sideId)) {
+    return { feil: `«${binding.sideId}» står fortsatt i sider.json (kanskje skjult), så oppsettet blir stående.` }
+  }
 
   const svar = await Promise.all([
     supabaseAdmin.from('side_tilgang').delete().eq('side_id', binding.sideId),
