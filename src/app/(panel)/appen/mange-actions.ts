@@ -166,12 +166,13 @@ export async function godkjennMange(_forrige: Tilstand, data: FormData): Promise
 
     if (gruppe) {
       const { id: gruppeId, navn: gruppeNavn } = gruppe
-      const { error: gruppeFeil } = await supabaseAdmin
+      const { data: satt, error: gruppeFeil } = await supabaseAdmin
         .from('person_gruppe')
         .upsert(
           godkjente.map((p) => ({ person_id: p.id, gruppe_id: gruppeId })),
           { onConflict: 'person_id,gruppe_id', ignoreDuplicates: true },
         )
+        .select('person_id')
       if (gruppeFeil) {
         oppdaterAppen()
         return {
@@ -181,10 +182,16 @@ export async function godkjennMange(_forrige: Tilstand, data: FormData): Promise
           ),
         }
       }
+      // Svaret har bare radene som ble satt inn. Den som alt lå i gruppa – de kan
+      // settes opp før godkjenningen – skal ikke få en ny «lagt i gruppe» i
+      // historikken.
+      const nye = new Set((satt ?? []).map((r) => r.person_id as string))
       await loggMange(
         'gruppe.person_inn',
         meg,
-        godkjente.map((p) => ({ personId: p.id, person: p.navn, gruppe: gruppeNavn })),
+        godkjente
+          .filter((p) => nye.has(p.id))
+          .map((p) => ({ personId: p.id, person: p.navn, gruppe: gruppeNavn })),
       )
     }
   }
