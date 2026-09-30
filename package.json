@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "node --test src/**/*.test.mjs"
+    "test": "node --test src/**/*.test.mjs",
+    "test:sql": "node supabase/test/kjor.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.3",
