@@ -1,7 +1,7 @@
-// Høyst n om gangen. Kjøres med `npm test`.
+// Høyst n om gangen, og lister i biter. Kjøres med `npm test`.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { medHøyst } from './samtidig.ts'
+import { iBiter, medHøyst } from './samtidig.ts'
 
 const vent = (ms) => new Promise((ferdig) => setTimeout(ferdig, ms))
 
@@ -27,4 +27,32 @@ test('aldri flere enn n om gangen', async () => {
 
 test('tom liste gir tomt svar', async () => {
   assert.deepEqual(await medHøyst(8, [], async () => 1), [])
+})
+
+const tall = (antall) => Array.from({ length: antall }, (_, i) => i)
+
+test('iBiter: 250 blir hundre, hundre og femti', () => {
+  assert.deepEqual(
+    iBiter(tall(250), 100).map((bit) => bit.length),
+    [100, 100, 50],
+  )
+})
+
+test('iBiter: nøyaktig hundre blir én bit, ikke en ekstra tom en', () => {
+  const biter = iBiter(tall(100), 100)
+  assert.equal(biter.length, 1)
+  assert.equal(biter[0].length, 100)
+})
+
+test('iBiter: tom liste gir ingen biter', () => {
+  assert.deepEqual(iBiter([], 100), [])
+})
+
+test('iBiter: rekkefølgen holdes, og ingenting går tapt eller kommer to ganger', () => {
+  assert.deepEqual(iBiter(['a', 'b', 'c', 'd', 'e'], 2), [['a', 'b'], ['c', 'd'], ['e']])
+  assert.deepEqual(iBiter(tall(250), 100).flat(), tall(250))
+})
+
+test('iBiter: størrelse under én blir én, så løkka aldri står fast', () => {
+  assert.deepEqual(iBiter(['a', 'b', 'c'], 0), [['a'], ['b'], ['c']])
 })

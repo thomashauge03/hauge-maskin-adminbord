@@ -25,3 +25,20 @@ export async function medHøyst<T, R>(
   await Promise.all(Array.from({ length: Math.max(1, Math.min(n, liste.length)) }, arbeider))
   return svar
 }
+
+/**
+ * Deler lista i biter på høyst `størrelse`, i samme rekkefølge.
+ *
+ * Id-ene i et `in`-filter reiser i adressen, og 200 uuid-er blir rundt 8 KB.
+ * Mange porter og mellomtjenere kapper adressen omtrent der, så en handling
+ * på mange spør i biter i stedet for med hele lista.
+ */
+export function iBiter<T>(liste: readonly T[], størrelse: number): T[][] {
+  // Null ville gitt en løkke som aldri kommer videre.
+  const steg = Math.max(1, Math.floor(størrelse))
+  const biter: T[][] = []
+  for (let fra = 0; fra < liste.length; fra += steg) {
+    biter.push(liste.slice(fra, fra + steg))
+  }
+  return biter
+}

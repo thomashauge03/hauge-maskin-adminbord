@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { krevEier } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { loggMange } from '@/lib/data'
-import { medHøyst } from '@/lib/samtidig'
+import { iBiter, medHøyst } from '@/lib/samtidig'
 import { oppdaterAppen, type Tilstand } from './tilstand'
 
 /*
@@ -20,9 +20,39 @@ const iderSkjema = z
   .array(z.string().uuid())
   .min(1, 'Velg minst én.')
   .max(MAKS, `Høyst ${MAKS} om gangen.`)
+  // Uten dette kan samme person havne i to biter, og bli talt og loggført to ganger.
+  .transform((liste) => [...new Set(liste)])
 const gruppeSkjema = z.string().uuid('Velg en gruppe.')
 
+/*
+ * Hundre id-er i et filter er rundt 4 KB i adressen, halvparten av det mange
+ * porter slipper gjennom – se iBiter. Selv `MAKS` blir bare fem kall.
+ */
+const BIT = 100
+
 type Person = { id: string; navn: string; epost: string; nav_bruker_id: string }
+
+/**
+ * Spør bit for bit, etter hverandre, og samler radene.
+ *
+ * Stopper ved første feil, men gir fra seg det som gikk gjennom før den:
+ * `ferdige` er elementene i bitene som lyktes. En skriving som stopper midt i
+ * har endret noe på ekte, og skjermen og loggen må få vite det.
+ */
+async function perBit<T, R>(
+  liste: readonly T[],
+  spør: (bit: T[]) => PromiseLike<{ data: R[] | null; error: { message: string } | null }>,
+): Promise<{ ferdige: T[]; rader: R[]; feil: string | null }> {
+  const ferdige: T[] = []
+  const rader: R[] = []
+  for (const bit of iBiter(liste, BIT)) {
+    const { data, error } = await spør(bit)
+    if (error) return { ferdige, rader, feil: error.message }
+    ferdige.push(...bit)
+    rader.push(...(data ?? []))
+  }
+  return { ferdige, rader, feil: null }
+}
 
 async function finnGruppe(id: string): Promise<{ gruppe: { id: string; navn: string } } | { feil: string }> {
   const { data, error } = await supabaseAdmin.from('grupper').select('id, navn').eq('id', id).maybeSingle()
@@ -53,15 +83,17 @@ export async function godkjennMange(_forrige: Tilstand, data: FormData): Promise
     gruppe = funnet.gruppe
   }
 
-  const { data: rader, error } = await supabaseAdmin
-    .from('personer')
-    .select('id, navn, epost, nav_bruker_id')
-    .in('id', ider.data)
-    .neq('status', 'godkjent')
-    .not('nav_bruker_id', 'is', null)
-  if (error) return { feil: `Kunne ikke lese de valgte: ${error.message}` }
+  const lest = await perBit(ider.data, (bit) =>
+    supabaseAdmin
+      .from('personer')
+      .select('id, navn, epost, nav_bruker_id')
+      .in('id', bit)
+      .neq('status', 'godkjent')
+      .not('nav_bruker_id', 'is', null),
+  )
+  if (lest.feil) return { feil: `Kunne ikke lese de valgte: ${lest.feil}` }
 
-  const personer = (rader ?? []) as Person[]
+  const personer = lest.rader as Person[]
   if (personer.length === 0) return { ok: 'Alle de valgte var allerede godkjent.' }
 
   /*
@@ -78,20 +110,30 @@ export async function godkjennMange(_forrige: Tilstand, data: FormData): Promise
   const klare = bekreftet.filter((b) => !b.feil).map((b) => b.p)
   const feilet = bekreftet.filter((b) => b.feil).map((b) => b.p.epost)
 
-  if (klare.length > 0) {
-    const { error: statusFeil } = await supabaseAdmin
+  const godkjenning = { status: 'godkjent', godkjent_av: meg.id, godkjent_tid: new Date().toISOString() }
+  const skrevet = await perBit(klare, (bit) =>
+    supabaseAdmin
       .from('personer')
-      .update({ status: 'godkjent', godkjent_av: meg.id, godkjent_tid: new Date().toISOString() })
+      .update(godkjenning)
       .in(
         'id',
-        klare.map((p) => p.id),
-      )
-    if (statusFeil) return { feil: `Kunne ikke godkjenne: ${statusFeil.message}` }
+        bit.map((p) => p.id),
+      ),
+  )
+  const godkjente = skrevet.ferdige
+  const stoppet = skrevet.feil
+  if (stoppet && godkjente.length === 0) return { feil: `Kunne ikke godkjenne: ${stoppet}` }
 
+  /*
+   * Stoppet det midt i, er bitene før feilen godkjent på ekte. De logges og
+   * legges i gruppa som om alt gikk, ellers står de godkjent uten gruppe, og
+   * «Godkjenn» på nytt tar bare dem som er igjen.
+   */
+  if (godkjente.length > 0) {
     await loggMange(
       'appkonto.godkjent',
       meg,
-      klare.map((p) => ({ personId: p.id, epost: p.epost })),
+      godkjente.map((p) => ({ personId: p.id, epost: p.epost })),
     )
 
     if (gruppe) {
@@ -99,26 +141,35 @@ export async function godkjennMange(_forrige: Tilstand, data: FormData): Promise
       const { error: gruppeFeil } = await supabaseAdmin
         .from('person_gruppe')
         .upsert(
-          klare.map((p) => ({ person_id: p.id, gruppe_id: gruppeId })),
+          godkjente.map((p) => ({ person_id: p.id, gruppe_id: gruppeId })),
           { onConflict: 'person_id,gruppe_id', ignoreDuplicates: true },
         )
       if (gruppeFeil) {
         oppdaterAppen()
-        return { feil: `${klare.length} godkjent, men ikke lagt i ${gruppeNavn}: ${gruppeFeil.message}` }
+        return {
+          feil:
+            `${godkjente.length} godkjent, men ikke lagt i ${gruppeNavn}: ${gruppeFeil.message}` +
+            (stoppet ? `. Resten ble heller ikke godkjent: ${stoppet}` : ''),
+        }
       }
       await loggMange(
         'gruppe.person_inn',
         meg,
-        klare.map((p) => ({ personId: p.id, person: p.navn, gruppe: gruppeNavn })),
+        godkjente.map((p) => ({ personId: p.id, person: p.navn, gruppe: gruppeNavn })),
       )
     }
   }
 
   oppdaterAppen()
+  if (stoppet) {
+    return {
+      feil: `${godkjente.length} godkjent${gruppe ? ` og lagt i ${gruppe.navn}` : ''} før det stoppet: ${stoppet}`,
+    }
+  }
   return {
     ok:
-      klare.length > 0
-        ? `${klare.length} godkjent${gruppe ? ` og lagt i ${gruppe.navn}` : ' – de ser ingenting før de er i en gruppe'}.`
+      godkjente.length > 0
+        ? `${godkjente.length} godkjent${gruppe ? ` og lagt i ${gruppe.navn}` : ' – de ser ingenting før de er i en gruppe'}.`
         : undefined,
     feil:
       feilet.length > 0
@@ -144,39 +195,50 @@ export async function settGruppeForMange(
   if ('feil' in funnet) return { feil: funnet.feil }
   const { gruppe } = funnet
 
-  const { data: rader, error: lesFeil } = await supabaseAdmin
-    .from('personer')
-    .select('id, navn')
-    .in('id', ider.data)
-    .not('nav_bruker_id', 'is', null)
-  if (lesFeil) return { feil: `Kunne ikke lese de valgte: ${lesFeil.message}` }
-  const personer = (rader ?? []) as { id: string; navn: string }[]
+  const lest = await perBit(ider.data, (bit) =>
+    supabaseAdmin
+      .from('personer')
+      .select('id, navn')
+      .in('id', bit)
+      .not('nav_bruker_id', 'is', null),
+  )
+  if (lest.feil) return { feil: `Kunne ikke lese de valgte: ${lest.feil}` }
+  const personer = lest.rader as { id: string; navn: string }[]
   if (personer.length === 0) {
     return { feil: 'Ingen av de valgte har konto i appen lenger. Last siden på nytt.' }
   }
 
   // Svaret sier hvilke rader som faktisk ble endret. Da blir tallet og
   // loggen riktige også for dem som alt var der – eller aldri var det.
-  const { data: endret, error } = inn
-    ? await supabaseAdmin
-        .from('person_gruppe')
-        .upsert(
-          personer.map((p) => ({ person_id: p.id, gruppe_id: gruppe.id })),
-          { onConflict: 'person_id,gruppe_id', ignoreDuplicates: true },
-        )
-        .select('person_id')
-    : await supabaseAdmin
+  let endret: { person_id: string }[]
+  let feil: string | null
+  if (inn) {
+    const { data: satt, error } = await supabaseAdmin
+      .from('person_gruppe')
+      .upsert(
+        personer.map((p) => ({ person_id: p.id, gruppe_id: gruppe.id })),
+        { onConflict: 'person_id,gruppe_id', ignoreDuplicates: true },
+      )
+      .select('person_id')
+    endret = satt ?? []
+    feil = error?.message ?? null
+  } else {
+    const ut = await perBit(personer, (bit) =>
+      supabaseAdmin
         .from('person_gruppe')
         .delete()
         .eq('gruppe_id', gruppe.id)
         .in(
           'person_id',
-          personer.map((p) => p.id),
+          bit.map((p) => p.id),
         )
-        .select('person_id')
-  if (error) return { feil: `Kunne ikke endre: ${error.message}` }
+        .select('person_id'),
+    )
+    endret = ut.rader
+    feil = ut.feil
+  }
 
-  const berørte = new Set((endret ?? []).map((r) => r.person_id as string))
+  const berørte = new Set(endret.map((r) => r.person_id))
   await loggMange(
     inn ? 'gruppe.person_inn' : 'gruppe.person_ut',
     meg,
@@ -184,6 +246,13 @@ export async function settGruppeForMange(
       .filter((p) => berørte.has(p.id))
       .map((p) => ({ personId: p.id, person: p.navn, gruppe: gruppe.navn })),
   )
+
+  if (feil) {
+    // Har bitene før feilen endret noe, er det endret på ekte.
+    if (berørte.size === 0) return { feil: `Kunne ikke endre: ${feil}` }
+    oppdaterAppen()
+    return { feil: `${berørte.size} ${inn ? 'lagt i' : 'tatt ut av'} ${gruppe.navn} før det stoppet: ${feil}` }
+  }
 
   oppdaterAppen()
   const uendret = personer.length - berørte.size
@@ -204,23 +273,27 @@ export async function stengUteMange(_forrige: Tilstand, data: FormData): Promise
   const ider = iderSkjema.safeParse(data.getAll('id'))
   if (!ider.success) return { feil: ider.error.issues[0].message }
 
-  const { data: stengte, error } = await supabaseAdmin
-    .from('personer')
-    .update({ status: 'sperra' })
-    .in('id', ider.data)
-    .neq('status', 'sperra')
-    .not('nav_bruker_id', 'is', null)
-    .select('id, epost')
-  if (error) return { feil: `Kunne ikke stenge ute: ${error.message}` }
-  if (!stengte || stengte.length === 0) return { ok: 'Alle de valgte var allerede stengt ute.' }
+  const stengt = await perBit(ider.data, (bit) =>
+    supabaseAdmin
+      .from('personer')
+      .update({ status: 'sperra' })
+      .in('id', bit)
+      .neq('status', 'sperra')
+      .not('nav_bruker_id', 'is', null)
+      .select('id, epost'),
+  )
+  const stengte = stengt.rader as { id: string; epost: string }[]
+  if (stengte.length === 0 && stengt.feil) return { feil: `Kunne ikke stenge ute: ${stengt.feil}` }
+  if (stengte.length === 0) return { ok: 'Alle de valgte var allerede stengt ute.' }
 
   await loggMange(
     'appkonto.sperra',
     meg,
-    stengte.map((p) => ({ personId: p.id as string, epost: p.epost as string })),
+    stengte.map((p) => ({ personId: p.id, epost: p.epost })),
   )
 
   oppdaterAppen()
+  if (stengt.feil) return { feil: `${stengte.length} stengt ute før det stoppet: ${stengt.feil}` }
   return {
     ok: `${stengte.length} stengt ute. De beholder gruppene, så «Slipp inn igjen» gir dem det samme tilbake.`,
   }
