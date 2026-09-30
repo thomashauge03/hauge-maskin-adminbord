@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo, useState } from 'react'
+import { startTransition, useMemo, useOptimistic } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { FELT, KNAPP_LITEN, Kort, KortTittel, Merke } from '@/components/ui'
 import {
@@ -47,19 +47,20 @@ export function Brukerliste({
   grupper: { id: string; navn: string }[]
 }) {
   const params = useSearchParams()
-  const søkestreng = params.toString()
   const gruppenavn = useMemo(() => new Map(grupper.map((g) => [g.id, g.navn])), [grupper])
   const kjente = useMemo(() => new Set(grupper.map((g) => g.id)), [grupper])
 
-  const [valg, settValgTilstand] = useState<Filtervalg>(() => lesValg(params, kjente))
-  const [sistSett, settSistSett] = useState(søkestreng)
-
-  /* Adressen er endret utenfra – tallet i menyen, eller «Se medlemmer» fra
-     Grupper. Da gjelder det lenka sier, ikke det som stod i feltene. */
-  if (søkestreng !== sistSett) {
-    settSistSett(søkestreng)
-    settValgTilstand(lesValg(params, kjente))
-  }
+  /* Adressen er eneste kilde, så en lenke utenfra – tallet i menyen, «Se
+     medlemmer» fra Grupper, tilbake-knappen – alltid gjelder. useOptimistic
+     viser det brukeren nettopp valgte til routeren har fått med seg adressen.
+     En egen kopi i useState ligger ett steg foran useSearchParams (routeren
+     oppdaterer seg i en overgang), og hver tast ble da rullet tilbake og satt
+     inn igjen, med markøren på slutten av feltet. */
+  const fraAdressen = useMemo(() => lesValg(params, kjente), [params, kjente])
+  const [valg, settOptimistiskValg] = useOptimistic(
+    fraAdressen,
+    (_gammelt, nytt: Filtervalg) => nytt,
+  )
 
   const søk = useMemo(() => lagSøk(brukere, gruppenavn), [brukere, gruppenavn])
   const treff = useMemo(() => søk(valg), [søk, valg])
@@ -67,12 +68,12 @@ export function Brukerliste({
 
   function settValg(endring: Partial<Filtervalg>) {
     const nye = { ...valg, ...endring }
-    const streng = skrivValg(nye)
-    settValgTilstand(nye)
-    settSistSett(streng.replace(/^\?/, ''))
-    // Next.js fanger replaceState, så useSearchParams følger med – uten en
-    // rundtur til serveren per tastetrykk.
-    window.history.replaceState(null, '', `${window.location.pathname}${streng}`)
+    startTransition(() => {
+      settOptimistiskValg(nye)
+      // Next.js fanger replaceState, så useSearchParams følger med – uten en
+      // rundtur til serveren per tastetrykk.
+      window.history.replaceState(null, '', `${window.location.pathname}${skrivValg(nye)}`)
+    })
   }
 
   return (
