@@ -7,6 +7,9 @@ import { Foreldreløse } from './foreldrelose'
 
 export const metadata: Metadata = { title: 'Appen' }
 
+// Å godkjenne 200 er rundt 25 runder med 8 eksterne kall, og handlingen arver sidens grense.
+export const maxDuration = 60
+
 export default async function AppenSide() {
   const meg = await krevAdmin()
 
