@@ -1,9 +1,9 @@
 'use client'
 
 import Link from 'next/link'
-import { startTransition, useMemo, useOptimistic } from 'react'
+import { startTransition, useCallback, useMemo, useOptimistic, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { FELT, KNAPP_LITEN, Kort, KortTittel, Merke } from '@/components/ui'
+import { FELT, Feilstripe, KNAPP_LITEN, Kort, KortTittel, Merke } from '@/components/ui'
 import {
   lagSøk,
   lesValg,
@@ -13,6 +13,8 @@ import {
   type AppStatus,
   type Filtervalg,
 } from '@/lib/appsok'
+import { Handlingslinje } from './handlingslinje'
+import type { Tilstand } from './tilstand'
 
 const STATUS: Record<AppStatus, { type: 'gul' | 'grønn' | 'rød'; ord: string }> = {
   venter: { type: 'gul', ord: 'Venter' },
@@ -42,9 +44,11 @@ const VELGER = 'border-2 border-[var(--kant)] bg-[var(--flate-opp)] px-2 py-1.5 
 export function Brukerliste({
   brukere,
   grupper,
+  erEier,
 }: {
   brukere: Appbruker[]
   grupper: { id: string; navn: string }[]
+  erEier: boolean
 }) {
   const params = useSearchParams()
   const gruppenavn = useMemo(() => new Map(grupper.map((g) => [g.id, g.navn])), [grupper])
@@ -65,6 +69,43 @@ export function Brukerliste({
   const søk = useMemo(() => lagSøk(brukere, gruppenavn), [brukere, gruppenavn])
   const treff = useMemo(() => søk(valg), [søk, valg])
   const antall = useMemo(() => tellStatus(brukere), [brukere])
+
+  const [valgte, settValgte] = useState<Set<string>>(() => new Set())
+  const [melding, settMelding] = useState<Tilstand | null>(null)
+
+  // Valgte som ikke finnes lenger – slettet i mellomtiden – skal ikke telle.
+  const finnes = useMemo(() => new Set(brukere.map((b) => b.id)), [brukere])
+  const synlige = useMemo(() => new Set(treff.map((b) => b.id)), [treff])
+  const valgteNå = useMemo(() => [...valgte].filter((id) => finnes.has(id)), [valgte, finnes])
+  const skjulte = valgteNå.filter((id) => !synlige.has(id)).length
+  const alleTreffValgt = treff.length > 0 && treff.every((b) => valgte.has(b.id))
+
+  /* Utvalget tømmes bare når alt gikk. Feilet noen, står de fortsatt valgt,
+     så du kan prøve igjen uten å lete dem fram. */
+  const ferdig = useCallback((svar: Tilstand) => {
+    settMelding(svar.ok || svar.feil ? svar : null)
+    if (!svar.feil) settValgte(new Set())
+  }, [])
+
+  function veksle(id: string) {
+    settValgte((før) => {
+      const ny = new Set(før)
+      if (ny.has(id)) ny.delete(id)
+      else ny.add(id)
+      return ny
+    })
+  }
+
+  function veksleAlleTreff() {
+    settValgte((før) => {
+      const ny = new Set(før)
+      for (const b of treff) {
+        if (alleTreffValgt) ny.delete(b.id)
+        else ny.add(b.id)
+      }
+      return ny
+    })
+  }
 
   function settValg(endring: Partial<Filtervalg>) {
     const nye = { ...valg, ...endring }
@@ -146,6 +187,22 @@ export function Brukerliste({
           Brukere
         </KortTittel>
 
+        {melding?.ok && (
+          <p className="border-b border-[var(--kant)] px-4 py-2 text-sm">{melding.ok}</p>
+        )}
+        {melding?.feil && (
+          <div className="px-4 py-3">
+            <Feilstripe tittel="Ikke alt gikk">{melding.feil}</Feilstripe>
+          </div>
+        )}
+
+        {erEier && treff.length > 0 && (
+          <label className="flex items-center gap-2 border-b border-[var(--kant)] px-4 py-2 text-sm">
+            <input type="checkbox" checked={alleTreffValgt} onChange={veksleAlleTreff} />
+            {alleTreffValgt ? 'Fjern valget av treffene' : `Velg alle ${treff.length} treff`}
+          </label>
+        )}
+
         {treff.length === 0 ? (
           <p className="px-4 py-6 text-sm text-[var(--blekk-svak)]">
             {brukere.length === 0
@@ -159,6 +216,15 @@ export function Brukerliste({
                 key={b.id}
                 className="flex items-center gap-3 border-b border-[var(--kant)] px-4 py-3 last:border-b-0"
               >
+                {erEier && (
+                  <input
+                    type="checkbox"
+                    checked={valgte.has(b.id)}
+                    onChange={() => veksle(b.id)}
+                    aria-label={`Velg ${b.navn}`}
+                    className="h-4 w-4 flex-none"
+                  />
+                )}
                 <Link href={`/appen/person/${b.id}`} className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <strong className="truncate">{b.navn}</strong>
@@ -189,6 +255,10 @@ export function Brukerliste({
           </ul>
         )}
       </Kort>
+
+      {erEier && valgteNå.length > 0 && (
+        <Handlingslinje valgte={valgteNå} skjulte={skjulte} grupper={grupper} ferdig={ferdig} />
+      )}
     </div>
   )
 }

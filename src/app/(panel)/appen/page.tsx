@@ -26,7 +26,7 @@ export default async function AppenSide() {
   return (
     <div className="space-y-7">
       <Suspense fallback={null}>
-        <Brukerliste brukere={brukere} grupper={grupper} />
+        <Brukerliste brukere={brukere} grupper={grupper} erEier={meg.rolle === 'eier'} />
       </Suspense>
       <Foreldreløse
         liste={foreldreløse.liste}

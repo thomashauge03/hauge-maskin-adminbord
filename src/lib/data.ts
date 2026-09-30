@@ -269,3 +269,32 @@ export async function logg(
     console.error(`Kunne ikke logge «${handling}»: ${error.message}`)
   }
 }
+
+/**
+ * Som logg(), med én rad per person, i én skriving.
+ *
+ * Historikken på personsiden leter etter personId i detaljene. En handling
+ * på tjue personer må derfor bli tjue rader – ikke én rad med en liste ingen
+ * indeks finner fram i.
+ */
+export async function loggMange(
+  handling: string,
+  utførtAv: { id: string; epost: string },
+  detaljer: Record<string, unknown>[],
+): Promise<void> {
+  if (detaljer.length === 0) return
+
+  const { error } = await supabaseAdmin.from('hendelseslogg').insert(
+    detaljer.map((d) => ({
+      handling,
+      utfort_av: utførtAv.id,
+      utfort_av_epost: utførtAv.epost,
+      system_id: null,
+      detaljer: d,
+    })),
+  )
+
+  if (error) {
+    console.error(`Kunne ikke logge «${handling}» for ${detaljer.length}: ${error.message}`)
+  }
+}
