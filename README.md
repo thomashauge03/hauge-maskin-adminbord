@@ -8,6 +8,9 @@ Vercel-prosjektene ligger, om de virker, og hvem som har tilgang hvor.
 - **Systemer** – registeret. Per system: Supabase-prosjekt, Vercel-prosjekt,
   repo, produksjonsadresse, notat. Detaljside med tjenestehelse, diskbruk,
   radtall, utrullingshistorikk, domener og nøkler.
+- **Appen** – hvem som slipper inn i mobilappen, og hvilke sider de ser. Søk og
+  filter over alle brukerne, godkjenning og grupper for mange om gangen, en
+  side per person, grupper og sider. Ingen ser noe før de er i en gruppe.
 - **Brukere** – alle kontoer i alle systemene samlet på e-post. Opprett bruker,
   sett passord, sperr konto – i hvilket som helst av systemene, fra ett sted.
 - **Logg** – hva som er gjort herfra. Kan ikke redigeres.
@@ -41,6 +44,8 @@ Fullt oppsett, inkludert migrasjonene og den første brukeren, står i
 |---|---|
 | `npm run dev` | Utviklingsserver |
 | `npm run build` | Produksjonsbygg |
+| `npm test` | Enhetstestene (`node:test`) |
+| `npm run test:sql` | Migrasjonene og tilgangsregelen mot Postgres i Docker |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run lint` | ESLint |
 
