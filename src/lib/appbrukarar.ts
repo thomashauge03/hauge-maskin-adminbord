@@ -154,3 +154,98 @@ async function alleNavbrukere(): Promise<User[]> {
     if (data.users.length < 1000) return ut
   }
 }
+
+export type Appperson = Appbruker & {
+  navBrukerId: string
+  godkjentTid: string | null
+  /** Navnet på den som godkjente – ikke en id ingen kjenner igjen */
+  godkjentAv: string | null
+}
+
+/** Én person med egne unntak. null når personen ikke har konto i appen. */
+export async function hentAppperson(
+  id: string,
+): Promise<{ person: Appperson; unntak: Map<string, boolean> } | null> {
+  const [person, medlemskap, unntak] = await Promise.all([
+    supabaseAdmin
+      .from('personer')
+      .select(
+        'id, navn, epost, telefon, status, opprettet, nav_bruker_id, godkjent_tid, godkjent_av, system_tilgang(system_id)',
+      )
+      .eq('id', id)
+      .not('nav_bruker_id', 'is', null)
+      .maybeSingle(),
+    supabaseAdmin.from('person_gruppe').select('gruppe_id').eq('person_id', id),
+    supabaseAdmin.from('side_tilgang').select('side_id, gi').eq('person_id', id),
+  ])
+
+  if (person.error) throw new Error(`Kunne ikke hente personen: ${person.error.message}`)
+  if (medlemskap.error) throw new Error(`Kunne ikke hente gruppene: ${medlemskap.error.message}`)
+  if (unntak.error) throw new Error(`Kunne ikke hente unntakene: ${unntak.error.message}`)
+  if (!person.data) return null
+
+  const p = person.data
+  let godkjentAv: string | null = null
+  if (p.godkjent_av) {
+    const { data } = await supabaseAdmin
+      .from('admin_brukere')
+      .select('navn, epost')
+      .eq('id', p.godkjent_av)
+      .maybeSingle()
+    godkjentAv = data ? String(data.navn || data.epost) : null
+  }
+
+  const egne = unntak.data ?? []
+  return {
+    person: {
+      id: p.id as string,
+      navn: p.navn as string,
+      epost: p.epost as string,
+      telefon: (p.telefon as string | null) ?? null,
+      status: p.status as AppStatus,
+      registrert: p.opprettet as string,
+      kjentFraFør: ((p.system_tilgang as unknown[] | null)?.length ?? 0) > 0,
+      grupper: (medlemskap.data ?? []).map((r) => r.gruppe_id as string),
+      unntak: egne.length,
+      navBrukerId: p.nav_bruker_id as string,
+      godkjentTid: (p.godkjent_tid as string | null) ?? null,
+      godkjentAv,
+    },
+    unntak: new Map(egne.map((r) => [r.side_id as string, r.gi as boolean])),
+  }
+}
+
+export type Hendelse = {
+  id: number
+  tid: string
+  handling: string
+  av: string | null
+  detaljer: Record<string, unknown>
+}
+
+/**
+ * Det som er gjort med én person, nyeste først.
+ *
+ * Alle handlinger på en person skriver personId i detaljene – også de som
+ * gjøres på mange om gangen, som får én rad per person. Indeksen på feltet
+ * står i migrasjon 0017; uten den går dette like fort så lenge loggen er
+ * liten.
+ */
+export async function hentHistorikk(personId: string, antall = 50): Promise<Hendelse[]> {
+  const { data, error } = await supabaseAdmin
+    .from('hendelseslogg')
+    .select('id, tid, handling, utfort_av_epost, detaljer')
+    .eq('detaljer->>personId', personId)
+    .order('tid', { ascending: false })
+    .limit(antall)
+
+  if (error) throw new Error(`Kunne ikke hente historikken: ${error.message}`)
+
+  return (data ?? []).map((h) => ({
+    id: h.id as number,
+    tid: h.tid as string,
+    handling: h.handling as string,
+    av: (h.utfort_av_epost as string | null) ?? null,
+    detaljer: (h.detaljer as Record<string, unknown>) ?? {},
+  }))
+}

@@ -1,5 +1,6 @@
 'use server'
 
+import { redirect } from 'next/navigation'
 import { krevEier } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { logg } from '@/lib/data'
@@ -139,4 +140,83 @@ export async function slettForeldreløs(
 
   oppdaterAppen()
   return { ok: `${binding.epost} er fjernet og kan registrere seg på nytt.` }
+}
+
+/**
+ * Fjerner en person fra appen: innloggingen, gruppene og unntakene.
+ *
+ * Rekkefølgen er valgt slik at en feil underveis alltid etterlater noe som
+ * synes og kan ryddes. Innloggingen slettes sist: feiler det, står personen
+ * enten i køen (raden ble stående) eller under «Registreringer som ikke kom
+ * fram» (raden ble slettet), og kan fjernes derfra.
+ *
+ * Personraden blir stående når personen finnes i andre systemer –
+ * kontooversikten under Brukere bruker den.
+ */
+export async function slettFraAppen(
+  binding: { personId: string },
+  _forrige: Tilstand,
+): Promise<Tilstand> {
+  const meg = await krevEier()
+
+  const { data: p, error } = await supabaseAdmin
+    .from('personer')
+    .select('id, navn, epost, nav_bruker_id, system_tilgang(system_id)')
+    .eq('id', binding.personId)
+    .maybeSingle()
+  if (error) return { feil: `Kunne ikke lese personen: ${error.message}` }
+  if (!p || !p.nav_bruker_id) {
+    return { feil: 'Personen har ikke konto i appen lenger. Last siden på nytt.' }
+  }
+
+  // Aldri en admin. Innloggingen i appen er den samme som i adminbordet, og
+  // å slette den ville tatt admin-raden med seg (on delete cascade).
+  // Oppslaget stopper på feil: et som feiler gir `data: null`, som ser ut som
+  // «ikke en admin», og en slettet innlogging kommer ikke tilbake.
+  const { data: admin, error: adminFeil } = await supabaseAdmin
+    .from('admin_brukere')
+    .select('id')
+    .eq('id', p.nav_bruker_id)
+    .maybeSingle()
+  if (adminFeil) {
+    return { feil: `Kunne ikke sjekke om kontoen er en admin: ${adminFeil.message}` }
+  }
+  if (admin) {
+    return { feil: 'Dette er innloggingen til en admin i adminbordet, og den kan ikke slettes herfra.' }
+  }
+
+  const rydding = await Promise.all([
+    supabaseAdmin.from('person_gruppe').delete().eq('person_id', p.id),
+    supabaseAdmin.from('side_tilgang').delete().eq('person_id', p.id),
+  ])
+  const ryddeFeil = rydding.find((r) => r.error)?.error
+  if (ryddeFeil) return { feil: `Kunne ikke fjerne grupper og unntak: ${ryddeFeil.message}` }
+
+  const iAndreSystemer = ((p.system_tilgang as unknown[] | null)?.length ?? 0) > 0
+  const { error: radFeil } = iAndreSystemer
+    ? await supabaseAdmin
+        .from('personer')
+        .update({ status: 'venter', godkjent_av: null, godkjent_tid: null })
+        .eq('id', p.id)
+    : await supabaseAdmin.from('personer').delete().eq('id', p.id)
+  if (radFeil) return { feil: `Grupper og unntak er fjernet, men personen står: ${radFeil.message}` }
+
+  const { error: innloggingFeil } = await supabaseAdmin.auth.admin.deleteUser(p.nav_bruker_id as string)
+  if (innloggingFeil) {
+    oppdaterAppen()
+    return {
+      feil: `Grupper og unntak er fjernet, men innloggingen står igjen: ${innloggingFeil.message}. Den ligger nå ${
+        iAndreSystemer ? 'i køen' : 'under «Registreringer som ikke kom fram»'
+      } på Brukere, og kan slettes derfra.`,
+    }
+  }
+
+  await logg('appkonto.slettet', {
+    utfortAv: meg.id,
+    utfortAvEpost: meg.epost,
+    detaljer: { personId: p.id, epost: p.epost, beholdtPersonrad: iAndreSystemer },
+  })
+
+  oppdaterAppen()
+  redirect('/appen')
 }
