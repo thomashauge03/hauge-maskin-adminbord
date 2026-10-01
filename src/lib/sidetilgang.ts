@@ -9,7 +9,7 @@ import { hentRaaSider, type RaaSide } from '@/lib/github-sider'
  *
  * De bor i `sider.json` på GitHub, samme fil skrivebordsappen leser og
  * skriver. Begge kan redigere; GitHub hindrer at de overskriver hverandre
- * ved å kreve SHA-en til versjonen man så. Se lib/github-sider.ts.
+ * ved å kreve SHA-en til versjonen man så. Se lib/sidefila.ts.
  *
  * Hvem som ser hvilken side står i lib/sideregel.ts.
  */
