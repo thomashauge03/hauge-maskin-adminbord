@@ -3,7 +3,8 @@
 -- Samme tilfeller som src/lib/sideregel.test.mjs. Står regelen ett sted og
 -- ikke det andre, viser adminbordet noe annet enn appen gjør.
 --
--- Adminer følger gruppene som alle andre (0018). Ingen ser alt.
+-- Adminer følger gruppene som alle andre (0018). Ingen ser alt, og ingen
+-- admin slipper inn uten å ha registrert seg (0019).
 
 -- ── Folk ───────────────────────────────────────────────────────
 -- Uten 'navn' i metadataene hopper triggeren ny_appbrukar over dem, så
@@ -110,8 +111,8 @@ select test.forvent('Ingen innlogget', '', '{}');
 
 select test.forvent_status('Ola', '00000000-0000-0000-0000-00000000000a', 'godkjent:false');
 select test.forvent_status('Vent', '00000000-0000-0000-0000-00000000000d', 'venter:false');
--- Slipper inn (0014), men får ingenting gratis
-select test.forvent_status('Admin uten personrad', '00000000-0000-0000-0000-0000000000a1', 'godkjent:false');
+-- Ingen rad: appen viser «Noe gikk galt» og slipper ikke kontoen inn
+select test.forvent_status('Admin uten personrad', '00000000-0000-0000-0000-0000000000a1', '');
 select test.forvent_status('Admin med personrad', '00000000-0000-0000-0000-0000000000a2', 'godkjent:false');
 select test.forvent_status('Admin som er slått av', '00000000-0000-0000-0000-0000000000a3', '');
 
