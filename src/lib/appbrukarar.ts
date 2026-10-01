@@ -2,7 +2,7 @@ import 'server-only'
 
 import type { User } from '@supabase/supabase-js'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { alleRader } from '@/lib/supabase/alle-rader'
+import { alleRader, følgSidene } from '@/lib/supabase/alle-rader'
 import type { AppStatus, Appbruker } from '@/lib/appsok'
 
 export type AppkontoStatus = AppStatus
@@ -153,14 +153,10 @@ export async function hentForeldreløse(): Promise<Foreldreløs[]> {
 }
 
 /** Alle innloggingene i navet. listUsers gir høyst 1000 om gangen. */
-async function alleNavbrukere(): Promise<User[]> {
-  const ut: User[] = []
-  for (let side = 1; ; side++) {
-    const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page: side, perPage: 1000 })
-    if (error) throw new Error(`Kunne ikke hente navbrukere: ${error.message}`)
-    ut.push(...data.users)
-    if (data.users.length < 1000) return ut
-  }
+function alleNavbrukere(): Promise<User[]> {
+  return følgSidene<User>('navbrukere', (side) =>
+    supabaseAdmin.auth.admin.listUsers({ page: side, perPage: 1000 }),
+  )
 }
 
 export type Appperson = Appbruker & {
