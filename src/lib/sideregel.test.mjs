@@ -39,6 +39,10 @@ test('Begge: samme side fra to grupper kommer med én gang', () => {
   assert.deepEqual(ser(['sjafor', 'kontor']), ['leveringseddel', 'tripletex', 'utleie'])
 })
 
+test('Dobbel: samme side fra unntak og gruppe kommer med én gang', () => {
+  assert.deepEqual(ser(['sjafor'], { utleie: true }), ['leveringseddel', 'utleie'])
+})
+
 test('grunnen nevner alle gruppene som gir siden', () => {
   const fra = siderFraGrupper(['sjafor', 'kontor'], GRUPPER)
   assert.deepEqual(grunnFor('utleie', new Map(), fra), {

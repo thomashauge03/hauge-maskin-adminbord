@@ -18,7 +18,9 @@ insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000f', 'begge@hm.no'),
   ('00000000-0000-0000-0000-0000000000a1', 'admin@hm.no'),
   ('00000000-0000-0000-0000-0000000000a2', 'admin2@hm.no'),
-  ('00000000-0000-0000-0000-0000000000a3', 'gammel@hm.no');
+  ('00000000-0000-0000-0000-0000000000a3', 'gammel@hm.no'),
+  ('00000000-0000-0000-0000-0000000000a4', 'slattav@hm.no'),
+  ('00000000-0000-0000-0000-000000000010', 'dobbel@hm.no');
 
 insert into public.personer (id, navn, epost, nav_bruker_id, status) values
   ('10000000-0000-0000-0000-00000000000a', 'Ola',    'ola@hm.no',    '00000000-0000-0000-0000-00000000000a', 'godkjent'),
@@ -27,12 +29,16 @@ insert into public.personer (id, navn, epost, nav_bruker_id, status) values
   ('10000000-0000-0000-0000-00000000000d', 'Vent',   'vent@hm.no',   '00000000-0000-0000-0000-00000000000d', 'venter'),
   ('10000000-0000-0000-0000-00000000000e', 'Sperra', 'sperra@hm.no', '00000000-0000-0000-0000-00000000000e', 'sperra'),
   ('10000000-0000-0000-0000-00000000000f', 'Begge',  'begge@hm.no',  '00000000-0000-0000-0000-00000000000f', 'godkjent'),
-  ('10000000-0000-0000-0000-0000000000a2', 'Admin2', 'admin2@hm.no', '00000000-0000-0000-0000-0000000000a2', 'godkjent');
+  ('10000000-0000-0000-0000-0000000000a2', 'Admin2', 'admin2@hm.no', '00000000-0000-0000-0000-0000000000a2', 'godkjent'),
+  ('10000000-0000-0000-0000-0000000000a4', 'Slått av', 'slattav@hm.no', '00000000-0000-0000-0000-0000000000a4', 'godkjent'),
+  ('10000000-0000-0000-0000-000000000010', 'Dobbel', 'dobbel@hm.no', '00000000-0000-0000-0000-000000000010', 'godkjent');
 
 insert into public.admin_brukere (id, navn, epost, rolle, aktiv) values
-  ('00000000-0000-0000-0000-0000000000a1', 'Admin',  'admin@hm.no',  'eier',  true),
-  ('00000000-0000-0000-0000-0000000000a2', 'Admin2', 'admin2@hm.no', 'drift', true),
-  ('00000000-0000-0000-0000-0000000000a3', 'Gammel', 'gammel@hm.no', 'drift', false);
+  ('00000000-0000-0000-0000-0000000000a1', 'Admin',    'admin@hm.no',   'eier',  true),
+  ('00000000-0000-0000-0000-0000000000a2', 'Admin2',   'admin2@hm.no',  'drift', true),
+  ('00000000-0000-0000-0000-0000000000a3', 'Gammel',   'gammel@hm.no',  'drift', false),
+  -- Slått av som admin, men registrert i appen som alle andre
+  ('00000000-0000-0000-0000-0000000000a4', 'Slått av', 'slattav@hm.no', 'drift', false);
 
 insert into public.grupper (id, navn) values
   ('20000000-0000-0000-0000-000000000001', 'Sjåfør'),
@@ -52,7 +58,9 @@ insert into public.person_gruppe (person_id, gruppe_id) values
   ('10000000-0000-0000-0000-00000000000e', '20000000-0000-0000-0000-000000000001'),
   ('10000000-0000-0000-0000-00000000000f', '20000000-0000-0000-0000-000000000001'),
   ('10000000-0000-0000-0000-00000000000f', '20000000-0000-0000-0000-000000000002'),
-  ('10000000-0000-0000-0000-0000000000a2', '20000000-0000-0000-0000-000000000002');
+  ('10000000-0000-0000-0000-0000000000a2', '20000000-0000-0000-0000-000000000002'),
+  ('10000000-0000-0000-0000-0000000000a4', '20000000-0000-0000-0000-000000000001'),
+  ('10000000-0000-0000-0000-000000000010', '20000000-0000-0000-0000-000000000001');
 
 insert into public.side_tilgang (person_id, side_id, gi) values
   -- Per: tatt bort, selv om begge gruppene hans gir den
@@ -60,7 +68,9 @@ insert into public.side_tilgang (person_id, side_id, gi) values
   -- Per: gitt uten gruppe
   ('10000000-0000-0000-0000-00000000000c', 'smartdok', true),
   -- Kari: tatt bort det hun aldri hadde
-  ('10000000-0000-0000-0000-00000000000b', 'tripletex', false);
+  ('10000000-0000-0000-0000-00000000000b', 'tripletex', false),
+  -- Dobbel: gitt særskilt det Sjåfør også gir
+  ('10000000-0000-0000-0000-000000000010', 'utleie', true);
 
 -- Den gamle standardregelen skal ikke gi noen noe lenger.
 insert into public.side_standard (side_id, standard) values ('tilbudssystem', false);
@@ -105,6 +115,9 @@ select test.forvent('Per (unntak begge veier)', '00000000-0000-0000-0000-0000000
 select test.forvent('Vent (venter, i gruppe)', '00000000-0000-0000-0000-00000000000d', '{}');
 select test.forvent('Sperra (stengt ute, i gruppe)', '00000000-0000-0000-0000-00000000000e', '{}');
 select test.forvent('Begge (samme side fra to grupper)', '00000000-0000-0000-0000-00000000000f', array['leveringseddel', 'tripletex', 'utleie']);
+select test.forvent('Dobbel (samme side fra unntak og gruppe)', '00000000-0000-0000-0000-000000000010', array['leveringseddel', 'utleie']);
+-- Om man er admin eller ikke, betyr ingenting for appen – personraden avgjør
+select test.forvent('Admin som er slått av, med personrad (Sjåfør)', '00000000-0000-0000-0000-0000000000a4', array['leveringseddel', 'utleie']);
 select test.forvent('Admin uten personrad', '00000000-0000-0000-0000-0000000000a1', '{}');
 select test.forvent('Admin med personrad (Kontor)', '00000000-0000-0000-0000-0000000000a2', array['tripletex', 'utleie']);
 select test.forvent('Ingen innlogget', '', '{}');
@@ -115,6 +128,7 @@ select test.forvent_status('Vent', '00000000-0000-0000-0000-00000000000d', 'vent
 select test.forvent_status('Admin uten personrad', '00000000-0000-0000-0000-0000000000a1', '');
 select test.forvent_status('Admin med personrad', '00000000-0000-0000-0000-0000000000a2', 'godkjent:false');
 select test.forvent_status('Admin som er slått av', '00000000-0000-0000-0000-0000000000a3', '');
+select test.forvent_status('Admin som er slått av, med personrad', '00000000-0000-0000-0000-0000000000a4', 'godkjent:false');
 
 reset role;
 
