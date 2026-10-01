@@ -41,6 +41,24 @@ test('søk på navn uten æøå', () => {
   assert.deepEqual(ider({ q: 'bjorn hakonsen' }), ['a'])
 })
 
+// NFD deler ikke opp disse, så aksentfjerningen tar dem ikke.
+test('normaliser: ł, đ, ð, ŋ, ŧ, þ, ß og ı skrives som folk skriver dem uten', () => {
+  for (const [navn, skrevet] of [
+    ['Łukasz', 'lukasz'],
+    ['Đorđe', 'dorde'],
+    ['Guðrún', 'gudrun'],
+    ['Iŋgá', 'inga'],
+    ['Ŧ', 't'],
+    ['Þór', 'thor'],
+    ['Strauß', 'strauss'],
+    ['Yıldız', 'yildiz'],
+  ]) {
+    assert.equal(normaliser(navn), skrevet, navn)
+  }
+  const s = lagSøk([bruker('l', { navn: 'Łukasz Wójcik' })], GRUPPER)
+  assert.deepEqual(s({ ...STANDARDVALG, q: 'lukasz wojcik' }).map((b) => b.id), ['l'])
+})
+
 test('flere ord må alle treffe, i hvilket som helst felt', () => {
   assert.deepEqual(ider({ q: 'ola kontor' }), ['c'])
   assert.deepEqual(ider({ q: 'ola sjåfør' }), ['c'])
@@ -50,6 +68,14 @@ test('flere ord må alle treffe, i hvilket som helst felt', () => {
 test('telefon med og uten mellomrom', () => {
   assert.deepEqual(ider({ q: '91234567' }), ['a'])
   assert.deepEqual(ider({ q: '912 34' }), ['a'])
+})
+
+test('telefon med bindestrek, parentes eller punktum: bare sifrene sammenlignes', () => {
+  assert.deepEqual(ider({ q: '912-34-567' }), ['a'])
+  assert.deepEqual(ider({ q: '(912) 34 567' }), ['a'])
+  assert.deepEqual(ider({ q: '912.34.567' }), ['a'])
+  // Tegn uten sifre er ikke et nummer, og skal ikke treffe alle som har telefon
+  assert.deepEqual(ider({ q: '-' }), [])
 })
 
 test('e-post', () => {

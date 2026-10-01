@@ -46,11 +46,30 @@ export const STANDARDVALG: Filtervalg = {
 }
 
 /**
+ * Bokstaver NFD ikke deler opp, og som aksentfjerningen derfor ikke tar:
+ * polsk ł, đ fra Balkan og samisk, islandsk ð og þ, samisk ŋ og ŧ, tysk ß
+ * og tyrkisk ı. «lukasz» skal finne Łukasz.
+ */
+const UTEN_AKSENT: Record<string, string> = {
+  ł: 'l',
+  đ: 'd',
+  ð: 'd',
+  ŋ: 'n',
+  ŧ: 't',
+  þ: 'th',
+  ß: 'ss',
+  ı: 'i',
+}
+
+/**
  * Gjør tekst sammenlignbar. Brukes likt på søket og på det det søkes i.
  *
  * aa og oe er de gamle skrivemåtene for å og ø, og det folk skriver på et
  * tastatur uten dem. Derfor finner både «bjorn» og «bjoern» Bjørn, og
  * «haakon» finner Håkon.
+ *
+ * Samme regel som søket i mobilappen (www/sidelista.js). Repoene deler ikke
+ * kode, så den står to steder, og er testet begge.
  */
 export function normaliser(tekst: string): string {
   return tekst
@@ -58,6 +77,7 @@ export function normaliser(tekst: string): string {
     .replace(/æ/g, 'ae')
     .replace(/ø/g, 'o')
     .replace(/å/g, 'a')
+    .replace(/[łđðŋŧþßı]/g, (b) => UTEN_AKSENT[b])
     .normalize('NFD')
     .replace(/[\u0300-\u036F]/g, '')
     .replace(/aa/g, 'a')
@@ -66,6 +86,13 @@ export function normaliser(tekst: string): string {
 }
 
 const bareSifre = (tekst: string) => tekst.replace(/\D/g, '')
+
+/**
+ * Ser ordet ut som (en del av) et telefonnummer? Sifre, med eller uten
+ * bindestrek, parentes, punktum, skråstrek eller pluss – og minst ett siffer,
+ * ellers ville «-» truffet alle som har telefon.
+ */
+const erNummer = (ord: string) => /^[\d()+\-./]+$/.test(ord) && /\d/.test(ord)
 
 const navnsortering = new Intl.Collator('nb')
 
@@ -106,10 +133,10 @@ export function lagSøk(
           return false
         }
         if (valg.ukjent && b.kjentFraFør) return false
-        // Et tall treffer også telefonnummeret uten mellomrom:
-        // «91234567» finner «912 34 567».
+        // Et nummer sammenlignes på sifrene alene, begge veier: «91234567»,
+        // «912-34-567» og «(912) 34 567» finner alle «912 34 567».
         return ord.every(
-          (o) => tekst.includes(o) || (sifre !== '' && /^\d+$/.test(o) && sifre.includes(o)),
+          (o) => tekst.includes(o) || (sifre !== '' && erNummer(o) && sifre.includes(bareSifre(o))),
         )
       })
       .map(({ bruker }) => bruker)
