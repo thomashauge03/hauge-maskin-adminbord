@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { krevEier } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { loggMange } from '@/lib/data'
-import { iBiter, medHøyst } from '@/lib/samtidig'
+import { medHøyst, perBit } from '@/lib/samtidig'
 import { oppdaterAppen, type Tilstand } from './tilstand'
 
 /*
@@ -31,30 +31,6 @@ const gruppeSkjema = z.string().uuid('Velg en gruppe.')
 const BIT = 100
 
 type Person = { id: string; navn: string; epost: string; nav_bruker_id: string }
-
-/**
- * Spør bit for bit, etter hverandre, og samler radene.
- *
- * Stopper ved første feil, men gir fra seg det som gikk gjennom før den:
- * `ferdige` er elementene i bitene som lyktes. En skriving som stopper midt i
- * har endret noe på ekte, og skjermen og loggen må få vite det.
- */
-async function perBit<T, R>(
-  liste: readonly T[],
-  spør: (bit: T[]) => PromiseLike<{ data: R[] | null; error: { message: string } | null }>,
-): Promise<{ ferdige: T[]; rader: R[]; feil: string | null }> {
-  const ferdige: T[] = []
-  const rader: R[] = []
-  for (const bit of iBiter(liste, BIT)) {
-    const { data, error } = await spør(bit)
-    // Kallerne spør om `feil` er satt. En feil med tom melding skal ikke se ut
-    // som at alt gikk bra.
-    if (error) return { ferdige, rader, feil: error.message || 'ukjent feil' }
-    ferdige.push(...bit)
-    rader.push(...(data ?? []))
-  }
-  return { ferdige, rader, feil: null }
-}
 
 async function finnGruppe(id: string): Promise<{ gruppe: { id: string; navn: string } } | { feil: string }> {
   const { data, error } = await supabaseAdmin.from('grupper').select('id, navn').eq('id', id).maybeSingle()
@@ -85,7 +61,7 @@ export async function godkjennMange(_forrige: Tilstand, data: FormData): Promise
     gruppe = funnet.gruppe
   }
 
-  const lest = await perBit(ider.data, (bit) =>
+  const lest = await perBit(ider.data, BIT, (bit) =>
     supabaseAdmin
       .from('personer')
       .select('id, navn, epost, nav_bruker_id')
@@ -137,7 +113,7 @@ export async function godkjennMange(_forrige: Tilstand, data: FormData): Promise
   const medIkkeBekreftet = (tekst: string) => (ikkeBekreftet ? `${tekst}. ${ikkeBekreftet}` : tekst)
 
   const godkjenning = { status: 'godkjent', godkjent_av: meg.id, godkjent_tid: new Date().toISOString() }
-  const skrevet = await perBit(klare, (bit) =>
+  const skrevet = await perBit(klare, BIT, (bit) =>
     supabaseAdmin
       .from('personer')
       .update(godkjenning)
@@ -230,7 +206,7 @@ export async function settGruppeForMange(
   if ('feil' in funnet) return { feil: funnet.feil }
   const { gruppe } = funnet
 
-  const lest = await perBit(ider.data, (bit) =>
+  const lest = await perBit(ider.data, BIT, (bit) =>
     supabaseAdmin
       .from('personer')
       .select('id, navn')
@@ -258,7 +234,7 @@ export async function settGruppeForMange(
     endret = satt ?? []
     feil = error ? error.message || 'ukjent feil' : null
   } else {
-    const ut = await perBit(personer, (bit) =>
+    const ut = await perBit(personer, BIT, (bit) =>
       supabaseAdmin
         .from('person_gruppe')
         .delete()
@@ -308,7 +284,7 @@ export async function stengUteMange(_forrige: Tilstand, data: FormData): Promise
   const ider = iderSkjema.safeParse(data.getAll('id'))
   if (!ider.success) return { feil: ider.error.issues[0].message }
 
-  const stengt = await perBit(ider.data, (bit) =>
+  const stengt = await perBit(ider.data, BIT, (bit) =>
     supabaseAdmin
       .from('personer')
       .update({ status: 'sperra' })

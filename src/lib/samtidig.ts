@@ -42,3 +42,28 @@ export function iBiter<T>(liste: readonly T[], størrelse: number): T[][] {
   }
   return biter
 }
+
+/**
+ * Spør bit for bit, etter hverandre, og samler radene.
+ *
+ * Stopper ved første feil, men gir fra seg det som gikk gjennom før den:
+ * `ferdige` er elementene i bitene som lyktes. En skriving som stopper midt i
+ * har endret noe på ekte, og skjermen og loggen må få vite det.
+ */
+export async function perBit<T, R>(
+  liste: readonly T[],
+  størrelse: number,
+  spør: (bit: T[]) => PromiseLike<{ data: R[] | null; error: { message: string } | null }>,
+): Promise<{ ferdige: T[]; rader: R[]; feil: string | null }> {
+  const ferdige: T[] = []
+  const rader: R[] = []
+  for (const bit of iBiter(liste, størrelse)) {
+    const { data, error } = await spør(bit)
+    // Kallerne spør om `feil` er satt. En feil med tom melding skal ikke se ut
+    // som at alt gikk bra.
+    if (error) return { ferdige, rader, feil: error.message || 'ukjent feil' }
+    ferdige.push(...bit)
+    rader.push(...(data ?? []))
+  }
+  return { ferdige, rader, feil: null }
+}

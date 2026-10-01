@@ -1,7 +1,7 @@
 // Høyst n om gangen, og lister i biter. Kjøres med `npm test`.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { iBiter, medHøyst } from './samtidig.ts'
+import { iBiter, medHøyst, perBit } from './samtidig.ts'
 
 const vent = (ms) => new Promise((ferdig) => setTimeout(ferdig, ms))
 
@@ -55,4 +55,52 @@ test('iBiter: rekkefølgen holdes, og ingenting går tapt eller kommer to ganger
 
 test('iBiter: størrelse under én blir én, så løkka aldri står fast', () => {
   assert.deepEqual(iBiter(['a', 'b', 'c'], 0), [['a'], ['b'], ['c']])
+})
+
+/* En spørring som svarer med én rad per id den får, og feiler på kall
+   nummer `feilPå`. Slik oppfører en skriving med .select() seg. */
+function spørring({ feilPå = null, melding = 'nede' } = {}) {
+  const kall = []
+  const spør = async (bit) => {
+    kall.push(bit)
+    if (kall.length === feilPå) return { data: null, error: { message: melding } }
+    return { data: bit.map((id) => ({ id })), error: null }
+  }
+  return { spør, kall }
+}
+
+test('perBit: alt gikk – alle er ferdige, med radene fra hver bit', async () => {
+  const { spør, kall } = spørring()
+  const svar = await perBit(tall(250), 100, spør)
+  assert.deepEqual(kall.map((bit) => bit.length), [100, 100, 50])
+  assert.equal(svar.feil, null)
+  assert.deepEqual(svar.ferdige, tall(250))
+  assert.deepEqual(svar.rader.map((r) => r.id), tall(250))
+})
+
+/* Bitene før feilen er skrevet på ekte. Glemmer bokføringen dem, sier
+   skjermen «ingenting skjedde» om folk som faktisk er godkjent, og loggen
+   mangler dem. */
+test('perBit: stopper ved første feil, og gir fra seg bitene før den', async () => {
+  const { spør, kall } = spørring({ feilPå: 2 })
+  const svar = await perBit(tall(250), 100, spør)
+  assert.equal(kall.length, 2, 'spurte videre etter feilen')
+  assert.equal(svar.feil, 'nede')
+  assert.deepEqual(svar.ferdige, tall(100))
+  assert.deepEqual(svar.rader.map((r) => r.id), tall(100))
+})
+
+test('perBit: en feil uten melding er fortsatt en feil', async () => {
+  const { spør } = spørring({ feilPå: 1, melding: '' })
+  const svar = await perBit(tall(10), 100, spør)
+  assert.equal(svar.feil, 'ukjent feil')
+  assert.deepEqual(svar.ferdige, [])
+})
+
+// En skriving uten .select() svarer uten rader. Bitene er like fullt skrevet.
+test('perBit: svar uten rader teller som ferdige', async () => {
+  const svar = await perBit(tall(150), 100, async () => ({ data: null, error: null }))
+  assert.equal(svar.feil, null)
+  assert.deepEqual(svar.ferdige, tall(150))
+  assert.deepEqual(svar.rader, [])
 })
