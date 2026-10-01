@@ -9,7 +9,7 @@ import {
   type Side,
 } from '@/lib/sidetilgang'
 import { foreldreløse, siderFraGrupper } from '@/lib/sideregel'
-import { Kort, KortTittel, Merke } from '@/components/ui'
+import { Feilstripe, Kort, KortTittel, Merke } from '@/components/ui'
 import { NySide, SideRedigering } from '../side-handlinger'
 import { ForeldreløsSide } from '../sidetilgang-handlinger'
 
@@ -22,7 +22,12 @@ export default async function SiderSide() {
   const [grupper, avvik, gamleStandard] = await Promise.all([
     hentGrupper(),
     hentAvvikPerSide(),
-    hentSideStandardIder(),
+    // Leses bare av gamle appversjoner, og trengs bare til opprydningen under.
+    // Feiler den, skal ikke sidelista falle med den.
+    hentSideStandardIder().then(
+      (ider) => ({ ider, feil: null as string | null }),
+      (e: unknown) => ({ ider: [] as string[], feil: e instanceof Error ? e.message : 'Ukjent feil' }),
+    ),
   ])
 
   let sider: Side[] = []
@@ -45,7 +50,7 @@ export default async function SiderSide() {
   const glemte =
     sidefeil || alleIder.size === 0
       ? []
-      : foreldreløse(alleIder, grupper.flatMap((g) => g.sider), avvik.keys(), gamleStandard)
+      : foreldreløse(alleIder, grupper.flatMap((g) => g.sider), avvik.keys(), gamleStandard.ider)
 
   return (
     <div className="space-y-7">
@@ -176,6 +181,13 @@ export default async function SiderSide() {
             )}
           </ul>
         </Kort>
+      )}
+
+      {gamleStandard.feil && (
+        <Feilstripe tittel="Fikk ikke lest side_standard">
+          Den brukes bare av gamle appversjoner. Rader som bare står der, er ikke med blant
+          tilgangene til sider som ikke finnes. {gamleStandard.feil}
+        </Feilstripe>
       )}
     </div>
   )
