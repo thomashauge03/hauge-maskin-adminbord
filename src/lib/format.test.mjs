@@ -2,8 +2,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-// Vercel kjører i UTC. Settes før fila lastes: formatene lages når den
-// lastes, og skal ikke kunne arve tida på maskinen testen kjører på.
+// Vercel kjører i UTC. Settes før fila lastes, for formatene lages da.
+// Mangler tidssonen i visDato, gir det UTC her – ikke tida på maskinen
+// testen kjører på, som her i landet ville skjult feilen.
 process.env.TZ = 'UTC'
 const { visDato } = await import('./format.ts')
 
