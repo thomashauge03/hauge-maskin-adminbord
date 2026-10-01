@@ -89,14 +89,22 @@ export function Brukerliste({
   )
 
   /* Adressen skrives høyst én gang i sekundet – se lib/adresseskriver.ts.
+
+     Et skriv som venter, holder alle overganger tilbake, også navigasjonen
+     når noen trykker på en lenke. Når det så kommer, legger Next.js lista
+     over navigasjonen, og klikket blir borte. Derfor skrives det som venter,
+     ved hvert klikk – fanget på vei ned, før React og lenken ser det.
+
      Går nettleseren tilbake mens et skriv venter, skal det ikke skrives: det
      ville lagt filteret over adressen vi kom tilbake til. */
   const [skriver] = useState(() =>
     lagAdresseskriver((adresse) => window.history.replaceState(null, '', adresse)),
   )
   useEffect(() => {
+    window.addEventListener('click', skriver.nå, true)
     window.addEventListener('popstate', skriver.slipp)
     return () => {
+      window.removeEventListener('click', skriver.nå, true)
       window.removeEventListener('popstate', skriver.slipp)
       skriver.slipp()
     }
@@ -162,9 +170,6 @@ export function Brukerliste({
             type="search"
             value={valg.q}
             onChange={(e) => settValg({ q: e.target.value })}
-            // Feltet mister fokus når noen trykker på noe, kanskje en lenke.
-            // Da skal adressen være skrevet før vi drar.
-            onBlur={skriver.nå}
             placeholder="Søk på navn, e-post, telefon eller gruppe"
             aria-label="Søk blant brukerne"
             className={FELT}
