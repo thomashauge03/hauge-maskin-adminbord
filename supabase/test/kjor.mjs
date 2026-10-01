@@ -9,32 +9,61 @@ const her = dirname(fileURLToPath(import.meta.url))
 const migrasjoner = join(her, '..', 'migrations')
 const navn = `hm-sqltest-${process.pid}`
 
-const docker = (args, input) => spawnSync('docker', args, { input, encoding: 'utf8' })
+// Tidsgrense på hvert kall: et docker-kall som henger, skal ikke holde testen
+// gående for alltid. Første `run` kan måtte hente bildet, og får lengst.
+const SEKUND = 1000
+const docker = (args, input, ms = 120 * SEKUND) =>
+  spawnSync('docker', args, { input, encoding: 'utf8', timeout: ms })
 const vent = (ms) => new Promise((ferdig) => setTimeout(ferdig, ms))
+const grunn = (svar) =>
+  [svar.error?.message, svar.stderr, svar.stdout].filter(Boolean).join('\n') || `kode ${svar.status}`
 
 function kjør(fil) {
   const svar = docker(
     ['exec', '-i', navn, 'psql', '-U', 'postgres', '-q', '-v', 'ON_ERROR_STOP=1'],
     readFileSync(fil, 'utf8'),
   )
-  if (svar.status !== 0) throw new Error(`${fil}\n${svar.stderr || svar.stdout}`)
+  if (svar.status !== 0) throw new Error(`${fil}\n${grunn(svar)}`)
 }
 
 async function klar() {
   // Bildet starter en midlertidig tjener mens det setter seg opp, og så den
   // ekte. pg_isready alene kan svare ja fra den første.
   for (let i = 0; i < 240; i++) {
-    const logg = docker(['logs', navn])
+    const logg = docker(['logs', navn], undefined, 30 * SEKUND)
     const ferdigSatt = `${logg.stdout}${logg.stderr}`.includes('PostgreSQL init process complete')
-    if (ferdigSatt && docker(['exec', navn, 'pg_isready', '-U', 'postgres']).status === 0) return
+    if (ferdigSatt && docker(['exec', navn, 'pg_isready', '-U', 'postgres'], undefined, 30 * SEKUND).status === 0) return
     await vent(500)
   }
   throw new Error('Postgres ble aldri klar')
 }
 
-const start = docker(['run', '-d', '--rm', '--name', navn, '-e', 'POSTGRES_PASSWORD=test', 'postgres:17'])
+let stoppet = false
+function stopp() {
+  if (stoppet) return
+  stoppet = true
+  docker(['stop', navn], undefined, 60 * SEKUND)
+}
+
+// Ctrl-C avslutter Node uten å kjøre finally, og da ble beholderen stående.
+// SIGBREAK er Ctrl-Break på Windows; på andre system kommer den aldri.
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK']) {
+  process.on(signal, () => {
+    console.error(`\nAvbrutt (${signal}) – stopper ${navn}`)
+    stopp()
+    process.exit(130)
+  })
+}
+
+const start = docker(
+  ['run', '-d', '--rm', '--name', navn, '-e', 'POSTGRES_PASSWORD=test', 'postgres:17'],
+  undefined,
+  10 * 60 * SEKUND,
+)
 if (start.status !== 0) {
-  console.error(`Fikk ikke startet Postgres i Docker:\n${start.stderr}`)
+  console.error(`Fikk ikke startet Postgres i Docker:\n${grunn(start)}`)
+  // Gikk tida ut, kan beholderen likevel ha kommet opp
+  stopp()
   process.exit(1)
 }
 
@@ -52,5 +81,5 @@ try {
   console.error(feil.message)
   process.exitCode = 1
 } finally {
-  docker(['stop', navn])
+  stopp()
 }
