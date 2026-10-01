@@ -2,6 +2,7 @@
 
 import { useActionState, useState } from 'react'
 import { FELT, KNAPP_FARLIG, KNAPP_LITEN, KNAPP_SEKUNDÆR } from '@/components/ui'
+import type { Valgside } from '@/lib/gruppevalg'
 import type { Tilstand } from './tilstand'
 import {
   lagGruppe,
@@ -56,7 +57,7 @@ function GruppeSideKryss({
   gir,
 }: {
   gruppe: { id: string; navn: string }
-  side: { id: string; navn: string; gruppe: string }
+  side: Valgside
   gir: boolean
 }) {
   const [tilstand, send, endrer] = useActionState(
@@ -74,6 +75,7 @@ function GruppeSideKryss({
     <li className="flex items-center justify-between gap-3 border-b border-[var(--kant)] px-4 py-2 last:border-b-0">
       <div className="min-w-0">
         <span className={gir ? '' : 'text-[var(--blekk-svak)]'}>{side.navn}</span>
+        {side.merknad && <div className="text-xs text-[var(--blekk-svak)]">{side.merknad}</div>}
         {tilstand.feil && <div className="text-xs text-hm-red-ink">{tilstand.feil}</div>}
       </div>
       <form action={send}>
@@ -91,7 +93,7 @@ export function GruppeDetalj({
   sider,
 }: {
   gruppe: { id: string; navn: string; antallPersoner: number }
-  sider: { id: string; navn: string; gruppe: string; gir: boolean }[]
+  sider: Valgside[]
 }) {
   const [modus, settModus] = useState<'lukket' | 'sider' | 'slett'>('lukket')
   const [slettTilstand, sendSlett, sletter] = useActionState(

@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { krevAdmin } from '@/lib/auth'
 import { hentGrupper } from '@/lib/grupper'
+import { siderIValget } from '@/lib/gruppevalg'
 import { hentSiderFraFila, type Side } from '@/lib/sidetilgang'
 import { Kort, KortTittel } from '@/components/ui'
 import { GruppeDetalj, NyGruppe } from '../gruppe-handlinger'
@@ -22,9 +23,6 @@ export default async function GrupperSide() {
     sidefeil = e instanceof Error ? e.message : 'Ukjent feil'
   }
 
-  // Sider merket for PC vises aldri på telefonen. Å gi dem i en gruppe gjør
-  // ingenting, så de står ikke i valget.
-  const telefonsider = sider.filter((s) => !s.barePC)
   const navnPå = new Map(sider.map((s) => [s.id, s.navn]))
 
   return (
@@ -85,12 +83,7 @@ export default async function GrupperSide() {
               {erEier && !sidefeil && (
                 <GruppeDetalj
                   gruppe={{ id: g.id, navn: g.navn, antallPersoner: g.antallPersoner }}
-                  sider={telefonsider.map((s) => ({
-                    id: s.id,
-                    navn: s.navn,
-                    gruppe: s.gruppe,
-                    gir: g.sider.includes(s.id),
-                  }))}
+                  sider={siderIValget(sider, g.sider)}
                 />
               )}
             </li>
