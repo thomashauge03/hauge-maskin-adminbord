@@ -3,9 +3,13 @@
  *
  * Alt som står under «Gir:» skal kunne tas ut her. Valget viser sidene
  * telefonen kan vise, og i tillegg det gruppa gir som telefonen ikke viser:
- * sider merket for PC, og id-er som ikke står i sidelista (skjult eller
- * slettet i sider.json). De står med en merknad. Gir gruppa dem ikke, står
- * de ikke – å legge dem til ville ikke gjort noe.
+ * sider merket for PC, og id-er som ikke står i sidelista (skjult, slettet
+ * eller uferdig i sider.json). De står med en merknad. Gir gruppa dem ikke,
+ * står de ikke – å legge dem til ville ikke gjort noe.
+ *
+ * Er sidelista tom, er fila tom eller ukjent, og da vet vi ikke hva som er
+ * slettet. Ellers ville alt gruppa gir, sett slettet ut og blitt tilbudt
+ * tatt ut – på samme måte rydder Sider-fanen ingenting da.
  *
  * Ingen import, med vilje: testene kjører fila direkte i Node.
  */
@@ -25,6 +29,7 @@ export function siderIValget(
 ): Valgside[] {
   const gis = new Set(gir)
   const kjente = new Set(sider.map((s) => s.id))
+  const ukjente = sider.length === 0 ? [] : gir.filter((id) => !kjente.has(id))
   return [
     ...sider
       .filter((s) => !s.barePC || gis.has(s.id))
@@ -35,14 +40,12 @@ export function siderIValget(
         gir: gis.has(s.id),
         merknad: s.barePC ? 'Bare PC – vises ikke på telefonen' : null,
       })),
-    ...gir
-      .filter((id) => !kjente.has(id))
-      .map((id) => ({
-        id,
-        navn: id,
-        gruppe: '',
-        gir: true,
-        merknad: 'Skjult eller slettet i sider.json',
-      })),
+    ...ukjente.map((id) => ({
+      id,
+      navn: id,
+      gruppe: '',
+      gir: true,
+      merknad: 'Skjult, slettet eller uferdig i sider.json',
+    })),
   ]
 }

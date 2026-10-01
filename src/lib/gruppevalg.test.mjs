@@ -31,3 +31,9 @@ test('en side gruppa gir som ikke er i sidelista, står med id-en og merknad', (
   assert.deepEqual(kort(valg), ['utleie:-', 'tripletex:-', 'borte:gir:merknad'])
   assert.equal(valg[2].navn, 'borte')
 })
+
+/* En tom eller ukjent fil sier ingenting om hva som er slettet. Ellers så
+   alt gruppa gir, slettet ut – og ble tilbudt tatt ut. */
+test('uten sidelista står ingenting som slettet', () => {
+  assert.deepEqual(kort(siderIValget([], ['utleie', 'regnskap'])), [])
+})
