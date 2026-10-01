@@ -2,6 +2,8 @@
 --
 -- Samme tilfeller som src/lib/sideregel.test.mjs. Står regelen ett sted og
 -- ikke det andre, viser adminbordet noe annet enn appen gjør.
+--
+-- Adminer følger gruppene som alle andre (0018). Ingen ser alt.
 
 -- ── Folk ───────────────────────────────────────────────────────
 -- Uten 'navn' i metadataene hopper triggeren ny_appbrukar over dem, så
@@ -48,7 +50,8 @@ insert into public.person_gruppe (person_id, gruppe_id) values
   ('10000000-0000-0000-0000-00000000000d', '20000000-0000-0000-0000-000000000001'),
   ('10000000-0000-0000-0000-00000000000e', '20000000-0000-0000-0000-000000000001'),
   ('10000000-0000-0000-0000-00000000000f', '20000000-0000-0000-0000-000000000001'),
-  ('10000000-0000-0000-0000-00000000000f', '20000000-0000-0000-0000-000000000002');
+  ('10000000-0000-0000-0000-00000000000f', '20000000-0000-0000-0000-000000000002'),
+  ('10000000-0000-0000-0000-0000000000a2', '20000000-0000-0000-0000-000000000002');
 
 insert into public.side_tilgang (person_id, side_id, gi) values
   -- Per: tatt bort, selv om begge gruppene hans gir den
@@ -102,12 +105,14 @@ select test.forvent('Vent (venter, i gruppe)', '00000000-0000-0000-0000-00000000
 select test.forvent('Sperra (stengt ute, i gruppe)', '00000000-0000-0000-0000-00000000000e', '{}');
 select test.forvent('Begge (samme side fra to grupper)', '00000000-0000-0000-0000-00000000000f', array['leveringseddel', 'tripletex', 'utleie']);
 select test.forvent('Admin uten personrad', '00000000-0000-0000-0000-0000000000a1', '{}');
+select test.forvent('Admin med personrad (Kontor)', '00000000-0000-0000-0000-0000000000a2', array['tripletex', 'utleie']);
 select test.forvent('Ingen innlogget', '', '{}');
 
 select test.forvent_status('Ola', '00000000-0000-0000-0000-00000000000a', 'godkjent:false');
 select test.forvent_status('Vent', '00000000-0000-0000-0000-00000000000d', 'venter:false');
-select test.forvent_status('Admin uten personrad', '00000000-0000-0000-0000-0000000000a1', 'godkjent:true');
-select test.forvent_status('Admin med personrad', '00000000-0000-0000-0000-0000000000a2', 'godkjent:true');
+-- Slipper inn (0014), men får ingenting gratis
+select test.forvent_status('Admin uten personrad', '00000000-0000-0000-0000-0000000000a1', 'godkjent:false');
+select test.forvent_status('Admin med personrad', '00000000-0000-0000-0000-0000000000a2', 'godkjent:false');
 select test.forvent_status('Admin som er slått av', '00000000-0000-0000-0000-0000000000a3', '');
 
 reset role;
