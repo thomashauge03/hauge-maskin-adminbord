@@ -8,6 +8,7 @@ import { forkort, krypter } from '@/lib/krypto'
 import { hentSupabaseProsjekter } from '@/lib/plattform/supabase-api'
 import { logg } from '@/lib/data'
 import { ROTASJON_DAGER } from '@/lib/rotasjon'
+import { visDato } from '@/lib/format'
 
 export type TokenTilstand = { feil?: string; ok?: string }
 
@@ -156,7 +157,9 @@ export async function byttKontoToken(
   return {
     ok:
       `Tokenet er byttet og virker – ser ${prøve.data.length} prosjekter. ` +
-      `Neste bytte innen ${neste.toLocaleDateString('nb-NO')}. ` +
+      // Norsk tid: Vercel kjører i UTC, og den første timen eller to etter
+      // midnatt ga det gårsdagens dato.
+      `Neste bytte innen ${visDato(neste.toISOString())}. ` +
       `Husk å slette det gamle i Supabase-konsollet.`,
   }
 }
