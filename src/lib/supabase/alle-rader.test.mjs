@@ -66,6 +66,18 @@ test('følgSidene: side ti og videre blir ikke til side én igjen', async () => 
   assert.deepEqual(spurt, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
 })
 
+// Et svar som sier «en side til» for alltid, skal ikke holde oss i løkka.
+test('følgSidene: en side uten brukere er den siste, uansett hva svaret sier', async () => {
+  const spurt = []
+  const brukere = await følgSidene('navbrukere', async (side) => {
+    spurt.push(side)
+    if (spurt.length > 5) throw new Error('løkka kommer aldri ut')
+    return { data: { users: side === 1 ? ['a'] : [], nextPage: side + 1 }, error: null }
+  })
+  assert.deepEqual(brukere, ['a'])
+  assert.deepEqual(spurt, [1, 2])
+})
+
 test('følgSidene: en feil sier hva som ikke kunne hentes', async () => {
   await assert.rejects(
     følgSidene('navbrukere', async () => ({ data: { users: [] }, error: { message: 'nede' } })),
