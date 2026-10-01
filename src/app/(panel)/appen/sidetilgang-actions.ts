@@ -38,13 +38,19 @@ export async function settSideUnntak(
   let fraGrupper = false
   const gruppeIder = (mine ?? []).map((r) => r.gruppe_id as string)
   if (gruppeIder.length > 0) {
-    const { count, error } = await supabaseAdmin
+    /*
+     * Raden, ikke en telling. Tellingen kommer i et svarhode, og et svar uten
+     * den ville blitt lest som «ingen gruppe gir siden». Da lagres et «ser
+     * ikke» som «følger gruppene» – og personen ser siden likevel.
+     */
+    const { data, error } = await supabaseAdmin
       .from('gruppe_sider')
-      .select('gruppe_id', { count: 'exact', head: true })
+      .select('gruppe_id')
       .eq('side_id', binding.sideId)
       .in('gruppe_id', gruppeIder)
+      .limit(1)
     if (error) return { feil: `Kunne ikke lese gruppesidene: ${error.message}` }
-    fraGrupper = (count ?? 0) > 0
+    fraGrupper = data.length > 0
   }
 
   const lagre = unntakFor(binding.ser, fraGrupper)
