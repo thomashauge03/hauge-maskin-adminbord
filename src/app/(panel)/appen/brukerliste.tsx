@@ -1,9 +1,10 @@
 'use client'
 
 import Link from 'next/link'
-import { startTransition, useCallback, useMemo, useOptimistic, useState } from 'react'
+import { startTransition, useCallback, useEffect, useMemo, useOptimistic, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { FELT, Feilstripe, KNAPP_LITEN, Kort, KortTittel, Merke } from '@/components/ui'
+import { lagAdresseskriver } from '@/lib/adresseskriver'
 import { visDato } from '@/lib/format'
 import {
   lagSøk,
@@ -87,6 +88,20 @@ export function Brukerliste({
     (_gammelt, nytt: Filtervalg) => nytt,
   )
 
+  /* Adressen skrives høyst én gang i sekundet – se lib/adresseskriver.ts.
+     Går nettleseren tilbake mens et skriv venter, skal det ikke skrives: det
+     ville lagt filteret over adressen vi kom tilbake til. */
+  const [skriver] = useState(() =>
+    lagAdresseskriver((adresse) => window.history.replaceState(null, '', adresse)),
+  )
+  useEffect(() => {
+    window.addEventListener('popstate', skriver.slipp)
+    return () => {
+      window.removeEventListener('popstate', skriver.slipp)
+      skriver.slipp()
+    }
+  }, [skriver])
+
   const søk = useMemo(() => lagSøk(brukere, gruppenavn), [brukere, gruppenavn])
   const treff = useMemo(() => søk(valg), [søk, valg])
   const antall = useMemo(() => tellStatus(brukere), [brukere])
@@ -130,11 +145,12 @@ export function Brukerliste({
 
   function settValg(endring: Partial<Filtervalg>) {
     const nye = { ...valg, ...endring }
-    startTransition(() => {
+    // Overgangen varer til adressen er skrevet, så useOptimistic holder på
+    // valget så lenge. Next.js fanger replaceState, så useSearchParams følger
+    // med – uten en rundtur til serveren.
+    startTransition(async () => {
       settOptimistiskValg(nye)
-      // Next.js fanger replaceState, så useSearchParams følger med – uten en
-      // rundtur til serveren per tastetrykk.
-      window.history.replaceState(null, '', `${window.location.pathname}${skrivValg(nye)}`)
+      await skriver.skriv(`${window.location.pathname}${skrivValg(nye)}`)
     })
   }
 
@@ -146,6 +162,9 @@ export function Brukerliste({
             type="search"
             value={valg.q}
             onChange={(e) => settValg({ q: e.target.value })}
+            // Feltet mister fokus når noen trykker på noe, kanskje en lenke.
+            // Da skal adressen være skrevet før vi drar.
+            onBlur={skriver.nå}
             placeholder="Søk på navn, e-post, telefon eller gruppe"
             aria-label="Søk blant brukerne"
             className={FELT}
