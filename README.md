@@ -16,6 +16,9 @@ Vercel-prosjektene ligger, om de virker, og hvem som har tilgang hvor.
 - **Logg** – hva som er gjort herfra. Kan ikke redigeres.
 - **Innstillinger** – om tokenene virker.
 
+Adminbordet virker også på telefon: menyen ligger nederst, brede tabeller
+blir lister, og det kan legges på Hjem-skjermen med HM-ikonet.
+
 Oversikten viser også Supabase- og Vercel-prosjekter som *ikke* står i
 registeret. Et prosjekt ingen husker koster penger hver måned.
 
