@@ -12,8 +12,9 @@ import { env } from '@/lib/env'
  * autorisasjonsmekanisme, blant annet fordi server actions kjører som
  * POST mot siden de brukes fra.
  *
- * Matcheren utelater innloggingssiden og cron-ruten: der finnes ingen
- * sesjon å friske opp, og et unødvendig nettverkskall til Supabase per
+ * Matcheren utelater innloggingssiden, cron-ruten og manifestet telefonen
+ * henter til Hjem-skjermen (ikonene er .png og går forbi fra før): der finnes
+ * ingen sesjon å friske opp, og et unødvendig nettverkskall til Supabase per
  * forespørsel gjør bare innlogging tregere.
  */
 export async function proxy(request: NextRequest) {
@@ -44,5 +45,7 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!logg-inn|api/status|_next/static|_next/image|.*\\.png$).*)'],
+  matcher: [
+    '/((?!logg-inn|api/status|_next/static|_next/image|manifest\\.webmanifest|.*\\.png$).*)',
+  ],
 }

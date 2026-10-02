@@ -29,6 +29,9 @@ export const metadata: Metadata = {
   // Adminbordet skal ikke finnes i noen søkemotor. Hodet i
   // next.config.ts sier det samme – dette er beltet i tillegg til selen.
   robots: { index: false, follow: false },
+  // Hjem-skjermen på iPhone. Svart statuslinje – samme svart som
+  // innloggingssiden og themeColor.
+  appleWebApp: { capable: true, title: 'Adminbord', statusBarStyle: 'black' },
 }
 
 export const viewport: Viewport = {
