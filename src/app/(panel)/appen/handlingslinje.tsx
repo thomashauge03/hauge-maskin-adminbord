@@ -37,6 +37,12 @@ export function Handlingslinje({
   const [gruppeVedGodkjenning, settGruppeVedGodkjenning] = useState('')
   const [gruppe, settGruppe] = useState(grupper[0]?.id ?? '')
   const [bekreftStenging, settBekreftStenging] = useState(false)
+  const [flere, settFlere] = useState(false)
+
+  // Under md står bare godkjenningen framme, resten bak «Flere valg». På
+  // telefon tok linja ellers fem rader, rundt 40 % av skjermen, og dekket
+  // lista man valgte fra.
+  const ekstra = flere ? 'flex' : 'hidden md:flex'
 
   const kjør =
     (handling: (forrige: Tilstand, data: FormData) => Promise<Tilstand>) =>
@@ -55,9 +61,20 @@ export function Handlingslinje({
   return (
     <div className="border-2 border-[var(--kant-sterk)] bg-[var(--flate-opp)] px-4 py-3 shadow-lg">
       <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
-        <strong className="text-sm">
-          {valgte.length} valgt{skjulte > 0 ? ` (${skjulte} skjult av søket)` : ''}
-        </strong>
+        {/* På telefon står antallet og «Fjern valget» på første linje. Fra md
+            løser boksen seg opp (contents), og knappen går sist, som før. */}
+        <div className="flex w-full items-center justify-between gap-3 md:contents">
+          <strong className="text-sm">
+            {valgte.length} valgt{skjulte > 0 ? ` (${skjulte} skjult av søket)` : ''}
+          </strong>
+          <button
+            type="button"
+            onClick={() => ferdig({})}
+            className={`${KNAPP_LITEN} md:order-last`}
+          >
+            Fjern valget
+          </button>
+        </div>
 
         {/* Begge gruppevelgerne står utenfor skjemaene, og verdien reiser med i et
             skjult felt. React tilbakestiller et skjema etter hver handling, og en
@@ -88,8 +105,17 @@ export function Handlingslinje({
           </select>
         </div>
 
+        <button
+          type="button"
+          onClick={() => settFlere((f) => !f)}
+          aria-expanded={flere}
+          className={`${KNAPP_LITEN} md:hidden`}
+        >
+          {flere ? 'Færre valg' : 'Flere valg'}
+        </button>
+
         {grupper.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2">
+          <div className={`${ekstra} flex-wrap items-center gap-2`}>
             <select
               value={gruppe}
               onChange={(e) => settGruppe(e.target.value)}
@@ -119,31 +145,29 @@ export function Handlingslinje({
           </div>
         )}
 
-        {bekreftStenging ? (
-          <form action={steng} className="flex flex-wrap items-center gap-2">
-            <Idene valgte={valgte} />
-            <span className="text-sm">Stenge ute {valgte.length}?</span>
-            <button type="submit" disabled={opptatt} className={KNAPP_FARLIG}>
-              {stenger ? 'Stenger …' : 'Ja, steng ute'}
+        <div className={`${ekstra} flex-wrap items-center gap-2`}>
+          {bekreftStenging ? (
+            <form action={steng} className="flex flex-wrap items-center gap-2">
+              <Idene valgte={valgte} />
+              <span className="text-sm">Stenge ute {valgte.length}?</span>
+              <button type="submit" disabled={opptatt} className={KNAPP_FARLIG}>
+                {stenger ? 'Stenger …' : 'Ja, steng ute'}
+              </button>
+              <button type="button" onClick={() => settBekreftStenging(false)} className={KNAPP_LITEN}>
+                Avbryt
+              </button>
+            </form>
+          ) : (
+            <button
+              type="button"
+              onClick={() => settBekreftStenging(true)}
+              disabled={opptatt}
+              className={KNAPP_FARLIG}
+            >
+              Steng ute
             </button>
-            <button type="button" onClick={() => settBekreftStenging(false)} className={KNAPP_LITEN}>
-              Avbryt
-            </button>
-          </form>
-        ) : (
-          <button
-            type="button"
-            onClick={() => settBekreftStenging(true)}
-            disabled={opptatt}
-            className={KNAPP_FARLIG}
-          >
-            Steng ute
-          </button>
-        )}
-
-        <button type="button" onClick={() => ferdig({})} className={KNAPP_LITEN}>
-          Fjern valget
-        </button>
+          )}
+        </div>
       </div>
     </div>
   )
