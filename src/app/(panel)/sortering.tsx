@@ -34,7 +34,7 @@ export function Sorteringsvelger({ aktiv }: { aktiv: Sortering }) {
           key={v.verdi}
           href={v.href}
           aria-current={v.verdi === aktiv ? 'true' : undefined}
-          className={`px-3 py-2 text-xs font-bold tracking-wide uppercase transition-colors ${
+          className={`px-3 py-2 text-xs font-bold tracking-wide uppercase transition-colors pointer-coarse:py-3.5 ${
             v.verdi === aktiv
               ? 'bg-hm-black text-white'
               : 'text-[var(--blekk-svak)] hover:bg-[var(--flate-2)] hover:text-[var(--blekk)]'

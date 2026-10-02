@@ -5,9 +5,14 @@
 
    Samme merkefarger og former som resten av Hauge Maskin-appene,
    men annen brukskontekst. Utleieappen brukes ute i sollys med
-   hansker, og har derfor 56 px trykkflater. Adminbordet brukes
+   hansker, og har derfor 56 px trykkflater. Adminbordet brukes mest
    ved skrivebord, med mus, og skal vise mange systemer samtidig.
    Derfor: tettere flater, mindre knapper, mer tabell.
+
+   Det brukes også fra telefonen – godkjenne folk i appen, se om noe
+   er nede. Derfor går flatene opp til 44 px på berøring, brede
+   tabeller blir lister på smal skjerm, og menyen flytter ned
+   (Bunnmeny i meny.tsx).
 
    Farger og skygger er beholdt identiske på tvers av appene, slik
    at det er åpenbart at det hører sammen.
@@ -195,4 +200,15 @@ body {
   font-family: var(--font-mono);
   font-size: 0.8125rem;
   letter-spacing: -0.01em;
+}
+
+/* ── Felt på berøringsskjerm ──────────────────────────────────
+   iPhone zoomer inn på et felt med skrift under 16 px, og zoomer ikke ut
+   igjen. Kodefeltene (.hm-kode, 13 px) og de små nedtrekkslistene gjorde
+   det. Regelen står utenfor lagene med vilje: da slår den Tailwinds
+   text-sm, og selektoren er sterkere enn .hm-kode. */
+@media (pointer: coarse) {
+  :is(input, select, textarea):not([type='checkbox'], [type='radio']) {
+    font-size: 1rem;
+  }
 }

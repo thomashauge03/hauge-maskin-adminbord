@@ -6,7 +6,7 @@ import { hentAppperson, hentHistorikk, type Hendelse } from '@/lib/appbrukarar'
 import { hentGrupper } from '@/lib/grupper'
 import { hentSiderFraFila, type Side } from '@/lib/sidetilgang'
 import { grunnFor, siderFraGrupper } from '@/lib/sideregel'
-import { Kort, KortTittel, Merke } from '@/components/ui'
+import { Kort, KortTittel, LENKE_ALENE, Merke } from '@/components/ui'
 import { visDatoTid } from '@/lib/format'
 import { AppkontoHandlinger } from '../../person-handlinger'
 import { PersonGrupper } from '../../gruppe-handlinger'
@@ -88,7 +88,7 @@ export default async function PersonSide({ params }: { params: Promise<{ id: str
 
   return (
     <div className="space-y-6">
-      <Link href="/appen" className="text-sm underline">
+      <Link href="/appen" className={LENKE_ALENE}>
         ← Alle brukere
       </Link>
 

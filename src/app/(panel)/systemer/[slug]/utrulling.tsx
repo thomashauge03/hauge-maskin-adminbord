@@ -57,7 +57,7 @@ export async function Utrullingsdel({ system }: { system: System }) {
                       href={`https://${dep.url}`}
                       target="_blank"
                       rel="noreferrer"
-                      className="underline"
+                      className="underline pointer-coarse:inline-flex pointer-coarse:min-h-11 pointer-coarse:items-center"
                     >
                       åpne
                     </a>
@@ -98,7 +98,7 @@ export async function Utrullingsdel({ system }: { system: System }) {
                   href={`https://${dom.navn}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="hm-kode underline"
+                  className="hm-kode underline pointer-coarse:inline-flex pointer-coarse:min-h-11 pointer-coarse:items-center"
                 >
                   {dom.navn}
                 </a>

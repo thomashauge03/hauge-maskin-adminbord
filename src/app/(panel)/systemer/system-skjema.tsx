@@ -177,7 +177,7 @@ export function SystemSkjema({
           />
         </label>
 
-        <label className="flex items-center gap-2.5">
+        <label className="flex items-center gap-2.5 pointer-coarse:min-h-11">
           <input
             type="checkbox"
             name="aktiv"
@@ -188,7 +188,7 @@ export function SystemSkjema({
           <span className="text-sm font-semibold">Aktiv</span>
         </label>
 
-        <label className="flex items-center gap-2.5">
+        <label className="flex items-center gap-2.5 pointer-coarse:min-h-11">
           <input
             type="checkbox"
             name="overvakes"

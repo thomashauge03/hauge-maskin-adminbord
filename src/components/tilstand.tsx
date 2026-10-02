@@ -67,7 +67,7 @@ export function Feildetalj({ feil }: { feil: HentFeil }) {
       <p className="text-sm text-[var(--blekk-svak)]">{feil.melding}</p>
       {feil.raatt && (
         <details>
-          <summary className="cursor-pointer text-xs text-[var(--blekk-svak)] underline">
+          <summary className="cursor-pointer text-xs text-[var(--blekk-svak)] underline pointer-coarse:py-3.5">
             Vis rått svar
           </summary>
           <pre className="hm-kode mt-1 overflow-x-auto border border-[var(--kant)] bg-[var(--flate-2)] p-2 text-[11px] whitespace-pre-wrap">

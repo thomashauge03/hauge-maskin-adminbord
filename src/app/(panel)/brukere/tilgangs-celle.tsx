@@ -91,7 +91,7 @@ export function TilgangsCelle({
       <button
         onClick={() => settÅpen(true)}
         title={`${merke.forklaring} Trykk for å ${harTilgang ? 'endre eller fjerne' : 'gi'} tilgang.`}
-        className="mx-auto block cursor-pointer rounded-none px-1 py-0.5 hover:bg-[var(--flate-2)]"
+        className="mx-auto block cursor-pointer rounded-none px-1 py-0.5 hover:bg-[var(--flate-2)] pointer-coarse:min-h-11 pointer-coarse:min-w-11"
       >
         {merke.tekst === '–' ? (
           <span className="text-[var(--blekk-svak)]">–</span>
@@ -138,7 +138,7 @@ export function TilgangsCelle({
               <select
                 name="rolle"
                 defaultValue={standard}
-                className={`${FELT} py-1 text-sm`}
+                className={`${FELT} py-1 text-sm pointer-coarse:min-h-11`}
                 aria-label={`Rolle i ${systemNavn}`}
               >
                 {roller.map((r) => (
@@ -166,7 +166,7 @@ export function TilgangsCelle({
                       ? 'midlertidig passord (påkrevd)'
                       : 'midlertidig passord (valgfritt)'
                   }
-                  className={`${FELT} py-1 text-sm`}
+                  className={`${FELT} py-1 text-sm pointer-coarse:min-h-11`}
                   aria-label="Midlertidig passord"
                 />
                 {!krevArPassord && (

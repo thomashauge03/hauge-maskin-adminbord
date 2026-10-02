@@ -22,7 +22,7 @@ export function Underfaner() {
             key={f.href}
             href={f.href}
             aria-current={aktiv ? 'page' : undefined}
-            className={`-mb-[2px] border-b-4 px-3 py-2 text-sm font-semibold ${
+            className={`-mb-[2px] border-b-4 px-3 py-2 text-sm font-semibold pointer-coarse:py-3 ${
               aktiv
                 ? 'border-hm-red text-[var(--blekk)]'
                 : 'border-transparent text-[var(--blekk-svak)] hover:text-[var(--blekk)]'

@@ -8,6 +8,7 @@ import {
   Kodebit,
   Kort,
   KortTittel,
+  LENKE_ALENE,
   Merke,
   Seksjonstittel,
 } from '@/components/ui'
@@ -63,7 +64,7 @@ export default async function SystemSide({
                 href={system.produksjonsUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="text-sm underline"
+                className={LENKE_ALENE}
               >
                 Åpne appen
               </a>
@@ -73,7 +74,7 @@ export default async function SystemSide({
                 href={`https://github.com/${system.githubRepo}`}
                 target="_blank"
                 rel="noreferrer"
-                className="text-sm underline"
+                className={LENKE_ALENE}
               >
                 GitHub
               </a>
@@ -83,7 +84,7 @@ export default async function SystemSide({
                 href={`https://supabase.com/dashboard/project/${system.supabaseProsjektRef}`}
                 target="_blank"
                 rel="noreferrer"
-                className="text-sm underline"
+                className={LENKE_ALENE}
               >
                 Supabase
               </a>
@@ -187,7 +188,7 @@ export default async function SystemSide({
           </Kort>
 
           <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-            <Link href="/systemer" className="text-sm underline">
+            <Link href="/systemer" className={LENKE_ALENE}>
               Tilbake til registeret
             </Link>
             <SlettSystem

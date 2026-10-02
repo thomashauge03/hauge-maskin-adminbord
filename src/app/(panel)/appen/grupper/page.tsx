@@ -66,7 +66,10 @@ export default async function GrupperSide() {
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-3">
                   <strong>{g.navn}</strong>
-                  <Link href={`/appen?gruppe=${g.id}`} className="text-xs underline">
+                  <Link
+                    href={`/appen?gruppe=${g.id}`}
+                    className="inline-flex items-center text-xs underline pointer-coarse:min-h-11"
+                  >
                     Se medlemmer ({g.antallPersoner})
                   </Link>
                 </div>

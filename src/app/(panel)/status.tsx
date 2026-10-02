@@ -112,7 +112,11 @@ export async function Statusdel({
           ({ system, maalinger, samletTilstand, kontoEpost, aktivitet }) => (
           <Kort key={system.id} className="hm-inn">
             <KortTittel handling={<TilstandsMerke tilstand={samletTilstand} />}>
-              <Link href={`/systemer/${system.slug}`} className="hover:underline">
+              {/* Treffområdet vokser på berøring, raden gjør det ikke. */}
+              <Link
+                href={`/systemer/${system.slug}`}
+                className="hover:underline pointer-coarse:-my-3 pointer-coarse:inline-block pointer-coarse:py-3"
+              >
                 {system.navn}
               </Link>
             </KortTittel>

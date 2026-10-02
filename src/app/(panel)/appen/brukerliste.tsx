@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { startTransition, useCallback, useEffect, useMemo, useOptimistic, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { FELT, Feilstripe, KNAPP_LITEN, Kort, KortTittel, Merke } from '@/components/ui'
+import { FELT, Feilstripe, KNAPP_LITEN, Kort, KortTittel, Merke, VELGER } from '@/components/ui'
 import { lagAdresseskriver } from '@/lib/adresseskriver'
 import { visDato } from '@/lib/format'
 import {
@@ -23,8 +23,6 @@ const STATUS: Record<AppStatus, { type: 'gul' | 'grønn' | 'rød'; ord: string }
   godkjent: { type: 'grønn', ord: 'Slipper inn' },
   sperra: { type: 'rød', ord: 'Stengt ute' },
 }
-
-const VELGER = 'border-2 border-[var(--kant)] bg-[var(--flate-opp)] px-2 py-1.5 text-sm'
 
 /**
  * Svaret på en handling på mange, nederst i vinduet.
@@ -233,8 +231,13 @@ export function Brukerliste({
         </KortTittel>
 
         {erEier && treff.length > 0 && (
-          <label className="flex items-center gap-2 border-b border-[var(--kant)] px-4 py-2 text-sm">
-            <input type="checkbox" checked={alleTreffValgt} onChange={veksleAlleTreff} />
+          <label className="flex items-center gap-2 border-b border-[var(--kant)] px-4 py-2 text-sm pointer-coarse:min-h-11">
+            <input
+              type="checkbox"
+              checked={alleTreffValgt}
+              onChange={veksleAlleTreff}
+              className="pointer-coarse:size-5"
+            />
             {alleTreffValgt ? 'Fjern valget av treffene' : `Velg alle ${treff.length} treff`}
           </label>
         )}
@@ -253,13 +256,18 @@ export function Brukerliste({
                 className="flex items-center gap-3 border-b border-[var(--kant)] px-4 py-3 last:border-b-0"
               >
                 {erEier && (
-                  <input
-                    type="checkbox"
-                    checked={valgte.has(b.id)}
-                    onChange={() => veksle(b.id)}
-                    aria-label={`Velg ${b.navn}`}
-                    className="h-4 w-4 flex-none"
-                  />
+                  /* På berøring er trykkområdet hele høyden på raden rundt
+                     boksen. Boksen alene er 16 px, og et bomtrykk ved siden av
+                     åpnet personsiden. */
+                  <label className="flex flex-none cursor-pointer items-center justify-center pointer-coarse:-my-3 pointer-coarse:-ml-3 pointer-coarse:min-w-11 pointer-coarse:self-stretch pointer-coarse:px-3">
+                    <input
+                      type="checkbox"
+                      checked={valgte.has(b.id)}
+                      onChange={() => veksle(b.id)}
+                      aria-label={`Velg ${b.navn}`}
+                      className="h-4 w-4 pointer-coarse:size-5"
+                    />
+                  </label>
                 )}
                 <Link href={`/appen/person/${b.id}`} className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">

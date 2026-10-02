@@ -157,7 +157,7 @@ function Felter({
             name="farge"
             type="color"
             defaultValue={farge || '#e2001a'}
-            className="h-8 w-12 cursor-pointer border-2 border-[var(--kant)] bg-transparent"
+            className="h-8 w-12 cursor-pointer border-2 border-[var(--kant)] bg-transparent pointer-coarse:h-11"
           />
         </label>
 
@@ -168,7 +168,7 @@ function Felter({
 
       {/* På som standard: nye systemer skal få knappen uten at noen gjør noe.
           Står som nokkel: false i sider.json bare når den er slått av. */}
-      <label className="flex items-center gap-2 pt-1 text-sm">
+      <label className="flex items-center gap-2 pt-1 text-sm pointer-coarse:min-h-11">
         <input name="nokkel" type="checkbox" defaultChecked={nokkel !== false} />
         Nøkkelknapp
         <span className="text-xs text-[var(--blekk-svak)]">

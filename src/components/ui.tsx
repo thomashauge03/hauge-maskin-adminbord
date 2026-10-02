@@ -7,6 +7,11 @@ import Link from 'next/link'
    Målene er strammere enn i utleieappen: adminbordet brukes med
    mus ved et skrivebord, og skal få mange systemer på skjermen
    samtidig. 44 px i stedet for 56.
+
+   På berøringsskjerm går de små knappene og nedtrekkslistene opp
+   til 44 px (`pointer-coarse:`). Det er fingeren, ikke skjerm-
+   bredden, som trenger plassen: et nettbrett får store flater, og
+   PC-en med mus beholder tettheten.
    ═══════════════════════════════════════════════════════════ */
 
 export const KNAPP_PRIMÆR =
@@ -16,19 +21,32 @@ export const KNAPP_SEKUNDÆR =
   'hm-trykk inline-flex min-h-[2.75rem] items-center justify-center gap-2 border-2 border-[var(--kant)] bg-[var(--flate-opp)] px-4 text-sm font-semibold hover:border-[var(--kant-sterk)] disabled:opacity-50'
 
 export const KNAPP_LITEN =
-  'hm-trykk inline-flex min-h-[2.25rem] items-center justify-center gap-1.5 border-2 border-[var(--kant)] bg-[var(--flate-opp)] px-3 text-xs font-semibold hover:border-[var(--kant-sterk)] disabled:opacity-50'
+  'hm-trykk inline-flex min-h-[2.25rem] items-center justify-center gap-1.5 border-2 border-[var(--kant)] bg-[var(--flate-opp)] px-3 text-xs font-semibold hover:border-[var(--kant-sterk)] disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:min-w-11'
 
 /** Farlige handlinger ser farlige ut. Rød kant, ikke rød flate – en
     full rød flate ville konkurrert med primærknappen om blikket. */
 export const KNAPP_FARLIG =
-  'hm-trykk inline-flex min-h-[2.25rem] items-center justify-center gap-1.5 border-2 border-hm-red bg-transparent px-3 text-xs font-bold tracking-wide text-hm-red-ink uppercase hover:bg-hm-red hover:text-white disabled:opacity-50'
+  'hm-trykk inline-flex min-h-[2.25rem] items-center justify-center gap-1.5 border-2 border-hm-red bg-transparent px-3 text-xs font-bold tracking-wide text-hm-red-ink uppercase hover:bg-hm-red hover:text-white disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:min-w-11'
 
-/** 16 px hindrer at iOS zoomer inn når feltet får fokus. */
+/** 16 px hindrer at iOS zoomer inn når feltet får fokus. Felt som krymper
+    skriften – FELT_KODE, og text-sm i matrisecellene – får 16 px igjen på
+    berøring fra regelen nederst i globals.css. */
 export const FELT =
   'w-full border-2 border-[var(--kant)] bg-[var(--flate-opp)] px-3 py-2.5 text-base text-[var(--blekk)] outline-none transition-colors placeholder:text-[var(--blekk-svak)] focus:border-hm-red'
 
 /** Nøkler og prosjekt-ID-er limes inn og leses tegn for tegn. */
 export const FELT_KODE = `${FELT} hm-kode`
+
+/** Nedtrekksliste i filtre og handlingslinjer. Smalere enn FELT, som tar
+    hele bredden. */
+export const VELGER =
+  'border-2 border-[var(--kant)] bg-[var(--flate-opp)] px-2 py-1.5 text-sm pointer-coarse:min-h-11'
+
+/** Lenke som står alene, ikke inne i en setning – som «← Alle brukere». På
+    berøring er den like høy som en knapp; lenker i løpende tekst er unntatt
+    (WCAG 2.5.8). */
+export const LENKE_ALENE =
+  'inline-flex items-center text-sm underline pointer-coarse:min-h-11'
 
 export const ETIKETT =
   'mb-1.5 block text-xs font-bold tracking-widest text-[var(--blekk-svak)] uppercase'
@@ -185,7 +203,9 @@ export function Tallkort({
 }) {
   return (
     <div className="border-2 border-[var(--kant)] bg-[var(--flate-opp)] px-4 py-3">
-      <p className={ETIKETT}>{merkelapp}</p>
+      {/* «DATABASESTØRRELSE» med full sperring stakk ut av kortet i to
+          kolonner på telefon. */}
+      <p className={`${ETIKETT} hyphens-auto break-words`}>{merkelapp}</p>
       <p className="hm-display hm-tall text-3xl">{verdi}</p>
       {under && (
         <p className="mt-0.5 text-xs text-[var(--blekk-svak)]">{under}</p>

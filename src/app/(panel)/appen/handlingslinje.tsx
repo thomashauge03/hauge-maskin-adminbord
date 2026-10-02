@@ -1,11 +1,9 @@
 'use client'
 
 import { useActionState, useState } from 'react'
-import { KNAPP_FARLIG, KNAPP_LITEN, KNAPP_PRIMÆR } from '@/components/ui'
+import { KNAPP_FARLIG, KNAPP_LITEN, KNAPP_PRIMÆR, VELGER } from '@/components/ui'
 import { godkjennMange, settGruppeForMange, stengUteMange } from './mange-actions'
 import type { Tilstand } from './tilstand'
-
-const VELGER = 'border-2 border-[var(--kant)] bg-[var(--flate-opp)] px-2 py-1.5 text-sm'
 
 function Idene({ valgte }: { valgte: string[] }) {
   return (

@@ -24,7 +24,7 @@ export default async function PanelLayout({
     <>
       <header className="border-b-2 border-[var(--kant)] bg-[var(--flate-opp)]">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 pt-3">
-          <Link href="/" className="flex items-center gap-3">
+          <Link href="/" className="flex items-center gap-3 pointer-coarse:min-h-11">
             <HMLogo størrelse="sm" />
             <span className="hm-display text-lg">Adminbord</span>
           </Link>
