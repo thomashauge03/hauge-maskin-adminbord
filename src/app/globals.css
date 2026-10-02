@@ -71,11 +71,29 @@
   }
 }
 
+/* ── Bunnmenyen på telefon ────────────────────────────────────
+   Høyden står ett sted fordi tre ting må vite den: menyen selv,
+   plassholderen under siden og den klebrige handlingslinja i Appen.
+   Ellers legger noe seg bak menyen den dagen høyden endres. 3.625rem er
+   56 px fane pluss 2 px kant. */
+:root {
+  --bunnlinje: calc(3.625rem + env(safe-area-inset-bottom));
+}
+@media (min-width: 48rem) {
+  :root {
+    --bunnlinje: 0px;
+  }
+}
+
 body {
   background: var(--flate);
   color: var(--blekk);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  /* Luft til hakket på liggende iPhone – viewportFit: 'cover' i
+     layout.tsx lar siden gå helt ut i kantene. */
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
 
 /* ── Overskrifter: kondensert og fete, som logoen ─────────── */

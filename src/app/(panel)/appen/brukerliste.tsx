@@ -302,7 +302,7 @@ export function Brukerliste({
       {/* Svaret og linja deler én klebrig boks. Hver for seg ville de begge festet
           seg til nederkanten og lagt seg oppå hverandre. */}
       {(melding || (erEier && valgteNå.length > 0)) && (
-        <div className="sticky bottom-0 z-10 space-y-2">
+        <div className="sticky bottom-[var(--bunnlinje)] z-10 space-y-2">
           {melding && <Svar svar={melding} lukk={() => settMelding(null)} />}
           {erEier && valgteNå.length > 0 && (
             <Handlingslinje valgte={valgteNå} skjulte={skjulte} grupper={grupper} ferdig={ferdig} />

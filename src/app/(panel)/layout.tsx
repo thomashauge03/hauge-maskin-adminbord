@@ -4,7 +4,7 @@ import { krevAdmin } from '@/lib/auth'
 import { tellVentende } from '@/lib/appbrukarar'
 import { loggUt } from '@/app/logg-inn/actions'
 import { KNAPP_LITEN, Merke } from '@/components/ui'
-import { Meny } from './meny'
+import { Bunnmeny, Meny } from './meny'
 
 /**
  * Layouten sjekker tilgang, men er ikke sikringen: hver side og hver
@@ -23,7 +23,7 @@ export default async function PanelLayout({
   return (
     <>
       <header className="border-b-2 border-[var(--kant)] bg-[var(--flate-opp)]">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 pt-3">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-3 md:pb-0">
           <Link href="/" className="flex items-center gap-3 pointer-coarse:min-h-11">
             <HMLogo størrelse="sm" />
             <span className="hm-display text-lg">Adminbord</span>
@@ -39,7 +39,8 @@ export default async function PanelLayout({
             <Merke type={bruker.rolle === 'eier' ? 'svart' : 'nøytral'}>
               {bruker.rolle}
             </Merke>
-            <form action={loggUt}>
+            {/* På telefon ligger Logg ut under «Mer» i bunnmenyen. */}
+            <form action={loggUt} className="hidden md:block">
               <button type="submit" className={KNAPP_LITEN}>
                 Logg ut
               </button>
@@ -47,7 +48,7 @@ export default async function PanelLayout({
           </div>
         </div>
 
-        <div className="mx-auto max-w-7xl px-4">
+        <div className="mx-auto hidden max-w-7xl px-4 md:block">
           <Meny ventende={ventende} />
         </div>
       </header>
@@ -61,6 +62,8 @@ export default async function PanelLayout({
           Hauge Maskin Adminbord
         </p>
       </footer>
+
+      <Bunnmeny ventende={ventende} navn={bruker.navn} rolle={bruker.rolle} />
     </>
   )
 }
