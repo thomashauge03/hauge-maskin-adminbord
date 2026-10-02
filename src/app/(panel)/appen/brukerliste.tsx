@@ -198,11 +198,12 @@ export function Brukerliste({
                 </option>
               ))}
             </select>
-            <label className="flex items-center gap-2 text-sm">
+            <label className="flex items-center gap-2 text-sm pointer-coarse:min-h-11">
               <input
                 type="checkbox"
                 checked={valg.ukjent}
                 onChange={(e) => settValg({ ukjent: e.target.checked })}
+                className="pointer-coarse:size-5"
               />
               Bare ukjente
             </label>

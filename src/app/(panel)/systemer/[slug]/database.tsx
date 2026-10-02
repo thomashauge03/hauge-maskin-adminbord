@@ -59,8 +59,10 @@ export async function Databasedel({
               : undefined
           }
         />
+        {/* Myk bindestrek: i to kolonner på telefon får ordet ikke plass,
+            og nettlesere uten norsk ordliste delte det som «…STØRRE-LSE». */}
         <Tallkort
-          merkelapp="Databasestørrelse"
+          merkelapp={'Database­størrelse'}
           verdi={visBytes(d.logiskStørrelse)}
           under="pg_database_size"
         />

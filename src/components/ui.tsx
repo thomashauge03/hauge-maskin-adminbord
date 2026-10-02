@@ -46,7 +46,7 @@ export const VELGER =
     berøring er den like høy som en knapp; lenker i løpende tekst er unntatt
     (WCAG 2.5.8). */
 export const LENKE_ALENE =
-  'inline-flex items-center text-sm underline pointer-coarse:min-h-11'
+  'inline-flex items-center text-sm underline pointer-coarse:min-h-11 pointer-coarse:min-w-11'
 
 export const ETIKETT =
   'mb-1.5 block text-xs font-bold tracking-widest text-[var(--blekk-svak)] uppercase'

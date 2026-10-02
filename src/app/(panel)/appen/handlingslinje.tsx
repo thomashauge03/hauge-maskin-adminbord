@@ -103,16 +103,17 @@ export function Handlingslinje({
               </option>
             ))}
           </select>
+          {/* Her og ikke for seg selv: på telefon deler den linje med
+              gruppevalget i stedet for å ta en egen. */}
+          <button
+            type="button"
+            onClick={() => settFlere((f) => !f)}
+            aria-expanded={flere}
+            className={`${KNAPP_LITEN} md:hidden`}
+          >
+            {flere ? 'Færre valg' : 'Flere valg'}
+          </button>
         </div>
-
-        <button
-          type="button"
-          onClick={() => settFlere((f) => !f)}
-          aria-expanded={flere}
-          className={`${KNAPP_LITEN} md:hidden`}
-        >
-          {flere ? 'Færre valg' : 'Flere valg'}
-        </button>
 
         {grupper.length > 0 && (
           <div className={`${ekstra} flex-wrap items-center gap-2`}>

@@ -115,7 +115,7 @@ export async function Statusdel({
               {/* Treffområdet vokser på berøring, raden gjør det ikke. */}
               <Link
                 href={`/systemer/${system.slug}`}
-                className="hover:underline pointer-coarse:-my-3 pointer-coarse:inline-block pointer-coarse:py-3"
+                className="hover:underline pointer-coarse:-my-3.5 pointer-coarse:inline-block pointer-coarse:min-w-11 pointer-coarse:py-3.5"
               >
                 {system.navn}
               </Link>

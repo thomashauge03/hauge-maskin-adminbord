@@ -96,7 +96,7 @@ export function HoldILive({
 
       {vist.logg && vist.logg.length > 0 && (
         <details className="border-2 border-[var(--kant)] bg-[var(--flate-2)]">
-          <summary className="cursor-pointer px-3 py-2 text-xs font-bold tracking-widest uppercase pointer-coarse:py-3.5">
+          <summary className="cursor-pointer px-3 py-2 text-xs font-bold tracking-widest uppercase pointer-coarse:min-h-11 pointer-coarse:py-3.5">
             Hva skjedde ({vist.logg.length} steg)
           </summary>
           <ol className="space-y-1 px-3 pb-3 text-xs">
