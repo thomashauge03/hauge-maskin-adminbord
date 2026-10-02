@@ -13,6 +13,16 @@ type Handling = (
   formData: FormData,
 ) => Promise<CelleTilstand>
 
+/** Merket i cellen, eller en strek når det ikke er noe å si. Delt med
+    lesevisningen drift får, så de to viser det samme. */
+export function TilgangsMerket({ merke }: { merke: Tilgangsmerke }) {
+  return merke.tekst === '–' ? (
+    <span className="text-[var(--blekk-svak)]">–</span>
+  ) : (
+    <Merke type={merke.merke}>{merke.tekst}</Merke>
+  )
+}
+
 /**
  * Én celle i matrisen: har personen tilgang til dette systemet, og med
  * hvilken rolle.
@@ -27,6 +37,7 @@ type Handling = (
  * samme – og da de to bestemte hver for seg, viste de ikke det samme.
  */
 export function TilgangsCelle({
+  visning = 'celle',
   epost,
   navn,
   systemNavn,
@@ -41,6 +52,9 @@ export function TilgangsCelle({
   gi,
   taBort,
 }: {
+  /** 'celle' i matrisen, 'rad' i lista per person på telefon. Logikken er
+      den samme; bare formen på knappen og bredden på skjemaet skiller. */
+  visning?: 'celle' | 'rad'
   epost: string
   navn: string
   systemNavn: string
@@ -87,17 +101,30 @@ export function TilgangsCelle({
     fjernTilstand.feil || fjernTilstand.ok ? fjernTilstand : gittTilstand
 
   if (!åpen) {
+    if (visning === 'rad') {
+      return (
+        <button
+          onClick={() => settÅpen(true)}
+          className="flex min-h-12 w-full cursor-pointer items-center justify-between gap-3 px-4 py-2 text-left hover:bg-[var(--flate-2)]"
+        >
+          <span className="text-sm font-semibold">{systemNavn}</span>
+          <span className="flex items-center gap-2">
+            <TilgangsMerket merke={merke} />
+            <span aria-hidden="true" className="text-[var(--blekk-svak)]">
+              ›
+            </span>
+          </span>
+        </button>
+      )
+    }
+
     return (
       <button
         onClick={() => settÅpen(true)}
         title={`${merke.forklaring} Trykk for å ${harTilgang ? 'endre eller fjerne' : 'gi'} tilgang.`}
         className="mx-auto block cursor-pointer rounded-none px-1 py-0.5 hover:bg-[var(--flate-2)] pointer-coarse:min-h-11 pointer-coarse:min-w-11"
       >
-        {merke.tekst === '–' ? (
-          <span className="text-[var(--blekk-svak)]">–</span>
-        ) : (
-          <Merke type={merke.merke}>{merke.tekst}</Merke>
-        )}
+        <TilgangsMerket merke={merke} />
       </button>
     )
   }
@@ -111,7 +138,9 @@ export function TilgangsCelle({
       : roller.find((r) => r.erStandard)?.verdi) ?? roller[0]?.verdi
 
   return (
-    <div className="min-w-[13rem] space-y-2 border-2 border-hm-red bg-[var(--flate-opp)] p-2 text-left">
+    <div
+      className={`${visning === 'rad' ? 'm-2' : 'min-w-[13rem]'} space-y-2 border-2 border-hm-red bg-[var(--flate-opp)] p-2 text-left`}
+    >
       <p className="text-xs font-bold">{systemNavn}</p>
       <p className="hm-kode text-[11px] text-[var(--blekk-svak)]">{epost}</p>
 

@@ -1,13 +1,49 @@
-import { hentAlleBrukere, samlePåEpost } from '@/lib/brukere'
+import {
+  hentAlleBrukere,
+  samlePåEpost,
+  type Brukerliste as Systemliste,
+  type SamletPerson,
+} from '@/lib/brukere'
 import type { System } from '@/lib/typer'
 import { Feilstripe, Kort, KortTittel, Merke, Tallkort } from '@/components/ui'
 import { visSiden } from '@/lib/format'
 import { settSperret, slettBrukerISystem } from './actions'
 import { giTilgangTilSystem, taBortTilgangFraSystem } from './tilgang-actions'
-import { TilgangsCelle } from './tilgangs-celle'
+import { TilgangsCelle, TilgangsMerket } from './tilgangs-celle'
+import { Personsok } from './personsok'
 import { hentAlleRoller, hentAlleTilgangsoppsett } from '@/lib/tilgang'
-import { tilgangsmerke } from '@/lib/tilgangsmerke'
+import { tilgangsmerke, type Tilgangsmerke } from '@/lib/tilgangsmerke'
 import { BrukerHandlinger } from './bruker-handlinger'
+
+/** Det drift ser: merket, og på telefon forklaringen som tekst – der finnes
+    ingen hover-tekst. */
+function Tilgangsvisning({
+  merke,
+  systemNavn,
+  visning,
+}: {
+  merke: Tilgangsmerke
+  systemNavn: string
+  visning: 'celle' | 'rad'
+}) {
+  if (visning === 'celle') {
+    return (
+      <span title={merke.forklaring}>
+        <TilgangsMerket merke={merke} />
+      </span>
+    )
+  }
+
+  return (
+    <div className="px-4 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm font-semibold">{systemNavn}</span>
+        <TilgangsMerket merke={merke} />
+      </div>
+      <p className="mt-1 text-xs text-[var(--blekk-svak)]">{merke.forklaring}</p>
+    </div>
+  )
+}
 
 /**
  * Kontoer og tilgang i alle systemene. Egen komponent bak en Suspense-grense
@@ -78,6 +114,49 @@ export async function Brukerliste({
     (s, l) => s + (l.rader?.filter((r) => r.annenKunde > 0).length ?? 0),
     0,
   )
+
+  /*
+   * Én celle, bygget ett sted: matrisen og lista per person viser den samme.
+   * To kopier av propsene til TilgangsCelle ville drevet fra hverandre første
+   * gang den ene ble endret.
+   */
+  function celle(p: SamletPerson, l: Systemliste, visning: 'celle' | 'rad') {
+    const rad = p.iSystem.get(l.system.slug)
+    const merke = tilgangsmerke(rad, {
+      systemNavn: l.system.navn,
+      harOppsett: l.veier.length > 0,
+    })
+
+    // Bare eier kan endre tilgang. For drift er cellen en ren visning – ingen
+    // knapp som later som.
+    if (!erEier) {
+      return <Tilgangsvisning merke={merke} systemNavn={l.system.navn} visning={visning} />
+    }
+
+    return (
+      <TilgangsCelle
+        visning={visning}
+        epost={p.epost}
+        navn={p.epost.split('@')[0]}
+        systemNavn={l.system.navn}
+        merke={merke}
+        harTilgang={rad?.harTilgang === true}
+        naavaerendeRolle={rad?.rolle ?? null}
+        harKonto={rad?.harKonto ?? false}
+        skrivbarVei={l.veier.find((v) => v.kanSkrive)?.etikett ?? null}
+        hvorforLaast={
+          l.veier.length === 0
+            ? `Adminbordet vet ikke hvilken tabell som avgjør tilgang i ${l.system.navn}. Legg inn tilgangsoppsett for systemet først.`
+            : (l.veier[0].notat ??
+              `Ingen av tilgangsveiene i ${l.system.navn} er merket som skrivbar.`)
+        }
+        roller={rollerPerSystem.get(l.system.id) ?? []}
+        krevArPassord={l.veier.find((v) => v.kanSkrive)?.brukerNokkel === 'auth_id'}
+        gi={giTilgangTilSystem.bind(null, l.system.id)}
+        taBort={taBortTilgangFraSystem.bind(null, l.system.id, p.epost)}
+      />
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -201,7 +280,9 @@ export async function Brukerliste({
       {/* ── Matrisen ──
           Personer nedover, systemer bortover. Dette er visningen som
           svarer på «hvem har tilgang til hva», og den som viser hvor
-          mange passord den felles innloggingen faktisk vil erstatte. */}
+          mange passord den felles innloggingen faktisk vil erstatte.
+          Den trenger rundt 150 px per system; under lg er lista per
+          person svaret. */}
       <Kort>
         <KortTittel
           handling={
@@ -220,11 +301,11 @@ export async function Brukerliste({
             herfra.
           </p>
         )}
-        <div className="overflow-x-auto">
+        <div className="hidden overflow-x-auto lg:block">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b-2 border-[var(--kant)]">
-                <th className="px-4 py-2 text-left text-xs font-bold tracking-widest uppercase">
+                <th className="sticky left-0 z-10 bg-[var(--flate-opp)] px-4 py-2 text-left text-xs font-bold tracking-widest uppercase">
                   E-post
                 </th>
                 {lest.map((l) => (
@@ -247,71 +328,22 @@ export async function Brukerliste({
                   key={p.epost}
                   className="border-b border-[var(--kant)] last:border-b-0"
                 >
+                  {/* Står fast ved sidelengs rulling – også på PC, når
+                      systemene blir flere enn skjermen rommer. */}
                   <th
                     scope="row"
-                    className="px-4 py-2 text-left font-semibold"
+                    className="sticky left-0 z-10 bg-[var(--flate-opp)] px-4 py-2 text-left font-semibold"
                   >
                     {p.epost}
                   </th>
-                  {lest.map((l) => {
-                    const rad = p.iSystem.get(l.system.slug)
-                    const merke = tilgangsmerke(rad, {
-                      systemNavn: l.system.navn,
-                      harOppsett: l.veier.length > 0,
-                    })
-
-                    // Bare eier kan endre tilgang. For drift er cellen en
-                    // ren visning – ingen knapp som later som.
-                    if (!erEier) {
-                      return (
-                        <td
-                          key={l.system.id}
-                          className="px-2 py-2 text-center"
-                          title={merke.forklaring}
-                        >
-                          {merke.tekst === '–' ? (
-                            <span className="text-[var(--blekk-svak)]">–</span>
-                          ) : (
-                            <Merke type={merke.merke}>{merke.tekst}</Merke>
-                          )}
-                        </td>
-                      )
-                    }
-
-                    return (
-                      <td key={l.system.id} className="px-2 py-2 text-center align-top">
-                        <TilgangsCelle
-                          epost={p.epost}
-                          navn={p.epost.split('@')[0]}
-                          systemNavn={l.system.navn}
-                          merke={merke}
-                          harTilgang={rad?.harTilgang === true}
-                          naavaerendeRolle={rad?.rolle ?? null}
-                          harKonto={rad?.harKonto ?? false}
-                          skrivbarVei={
-                            l.veier.find((v) => v.kanSkrive)?.etikett ?? null
-                          }
-                          hvorforLaast={
-                            l.veier.length === 0
-                              ? `Adminbordet vet ikke hvilken tabell som avgjør tilgang i ${l.system.navn}. Legg inn tilgangsoppsett for systemet først.`
-                              : (l.veier[0].notat ??
-                                `Ingen av tilgangsveiene i ${l.system.navn} er merket som skrivbar.`)
-                          }
-                          roller={rollerPerSystem.get(l.system.id) ?? []}
-                          krevArPassord={
-                            l.veier.find((v) => v.kanSkrive)?.brukerNokkel ===
-                            'auth_id'
-                          }
-                          gi={giTilgangTilSystem.bind(null, l.system.id)}
-                          taBort={taBortTilgangFraSystem.bind(
-                            null,
-                            l.system.id,
-                            p.epost,
-                          )}
-                        />
-                      </td>
-                    )
-                  })}
+                  {lest.map((l) => (
+                    <td
+                      key={l.system.id}
+                      className={`px-2 py-2 text-center ${erEier ? 'align-top' : ''}`}
+                    >
+                      {celle(p, l, 'celle')}
+                    </td>
+                  ))}
                   <td className="hm-tall px-4 py-2 text-right text-xs text-[var(--blekk-svak)]">
                     {visSiden(p.sistInnlogget, naa)}
                   </td>
@@ -319,6 +351,43 @@ export async function Brukerliste({
               ))}
             </tbody>
           </table>
+        </div>
+
+        <div className="lg:hidden">
+          <Personsok
+            personer={personer.map((p) => ({
+              epost: p.epost,
+              innhold: (
+                <details className="group">
+                  <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+                    <span className="min-w-0">
+                      <span className="block font-semibold break-all">{p.epost}</span>
+                      <span className="block text-xs text-[var(--blekk-svak)]">
+                        Tilgang i {p.antallMedTilgang} av {lest.length} systemer
+                        {p.sistInnlogget ? ` · sist inne ${visSiden(p.sistInnlogget, naa)}` : ''}
+                      </span>
+                    </span>
+                    <span
+                      aria-hidden="true"
+                      className="text-lg text-[var(--blekk-svak)] transition-transform group-open:rotate-90"
+                    >
+                      ›
+                    </span>
+                  </summary>
+                  <ul className="border-t border-[var(--kant)] bg-[var(--flate-2)]">
+                    {lest.map((l) => (
+                      <li
+                        key={l.system.id}
+                        className="border-b border-[var(--kant)] last:border-b-0"
+                      >
+                        {celle(p, l, 'rad')}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              ),
+            }))}
+          />
         </div>
       </Kort>
 
