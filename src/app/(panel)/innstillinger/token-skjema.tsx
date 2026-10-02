@@ -73,12 +73,14 @@ export function TokenSkjema({
       <label className="block">
         <span className={ETIKETT}>Nytt token for {epost}</span>
         {/* type=password sa det ikke star lesbart mens det limes inn.
-            autoComplete av, ellers tilbyr nettleseren a lagre et
-            produksjonstoken i passordbehandleren. */}
+            new-password, ikke off: Chrome overser off på passordfelt og
+            fyller inn det lagrede passordet, og nøkkelknappen fra
+            mobilappen ville tilbudt å fylle den felles innloggingen inn
+            her. Begge holder seg unna new-password. */}
         <input
           name="token"
           type="password"
-          autoComplete="off"
+          autoComplete="new-password"
           required
           minLength={20}
           placeholder="sbp_…"

@@ -134,12 +134,14 @@ export function Hemmeligheter({
           <label className="block">
             <span className={ETIKETT}>Verdi</span>
             {/* type=password så den ikke står lesbar på skjermen mens
-                den limes inn. autoComplete av, ellers tilbyr nettleseren
-                å lagre en produksjonsnøkkel i passordbehandleren. */}
+                den limes inn. new-password, ikke off: Chrome overser off på
+                passordfelt og fyller inn det lagrede passordet, og
+                nøkkelknappen fra mobilappen ville tilbudt å fylle den felles
+                innloggingen inn her. Begge holder seg unna new-password. */}
             <input
               name="verdi"
               type="password"
-              autoComplete="off"
+              autoComplete="new-password"
               required
               minLength={10}
               className={FELT_KODE}

@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono, Barlow_Condensed } from 'next/font/google'
+import { Lukkar } from '@/components/lukkar'
+import { Nokkelknapp } from '@/components/nokkelknapp'
 import './globals.css'
 
 const geistSans = Geist({
@@ -50,8 +52,18 @@ export default function RotLayout({
     <html
       lang="nb"
       className={`${geistSans.variable} ${geistMono.variable} ${barlow.variable} h-full`}
+      /* Lukkeren setter data-hm-lukkar på <html> før React tar over sida.
+         Uten denne regnes attributtet som et avvik. Gjelder bare <html>
+         selv, ikke det som ligger inni. */
+      suppressHydrationWarning
     >
-      <body className="flex min-h-full flex-col">{children}</body>
+      <body className="flex min-h-full flex-col">
+        {/* Først i body, så platene er malt før noe annet rekker å vises, og
+            nøkkelknappen lytter før Chrome sender porten fra appen. */}
+        <Lukkar />
+        <Nokkelknapp />
+        {children}
+      </body>
     </html>
   )
 }
