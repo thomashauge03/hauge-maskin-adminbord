@@ -150,9 +150,20 @@ export async function hentSupabaseProsjekter(token: string | null): Promise<
  * Helsesjekk per tjeneste for ett prosjekt.
  *
  * `services` er påkrevd – uten den svarer API-et med valideringsfeil,
- * ikke med alle tjenestene. `timeout_ms` settes lavt fordi adminbordet
- * spør flere prosjekter samtidig: ett prosjekt som henger skal ikke
- * bruke opp hele tidsfristen for hele oversikten.
+ * ikke med alle tjenestene.
+ *
+ * Tidsfristen er lav fordi adminbordet spør flere prosjekter samtidig:
+ * ett prosjekt som henger skal ikke bruke opp hele tidsfristen for hele
+ * oversikten. Den holdes på VÅR side, med `tidsfristMs`. Supabase sin
+ * egen `timeout_ms` står fortsatt som heltall i skjemaet deres, men
+ * API-et avviser den nå med «400 timeout_ms: Invalid input: expected
+ * number, received string» (sett 02.10.2026). En spørrestreng kan ikke
+ * bære annet enn tekst, så ingen verdi slipper gjennom, og dashbordet
+ * til Supabase sender den heller ikke. Ikke legg den inn igjen før et
+ * kall med den faktisk har fått 200.
+ *
+ * Fire sekunder, ikke tre: de tre Supabase fikk før, gjaldt bare sjekken
+ * hos dem. Vår frist må også dekke nettverket og et kaldt TLS-oppsett.
  */
 export async function hentProsjektHelse(
   token: string | null,
@@ -162,7 +173,6 @@ export async function hentProsjektHelse(
 
   const url = new URL(`${BASIS}/v1/projects/${encodeURIComponent(ref)}/health`)
   url.searchParams.set('services', TJENESTER.join(','))
-  url.searchParams.set('timeout_ms', '3000')
 
   const svar = await hentJson<
     {
@@ -170,7 +180,7 @@ export async function hentProsjektHelse(
       status: 'ACTIVE_HEALTHY' | 'COMING_UP' | 'UNHEALTHY'
       error?: string
     }[]
-  >(url.toString(), { token })
+  >(url.toString(), { token, tidsfristMs: 4000 })
 
   if (!svar.ok) return svar
   return {
