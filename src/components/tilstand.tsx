@@ -91,8 +91,8 @@ export function visKilde(kilde: Kilde): string {
 
 /**
  * Kilde og tilstand på én linje, slik den vises i systemkortene.
- * Teksten fra målingen står ved siden av merket, aldri i stedet for det:
- * «Pauset» alene sier ikke om det er greit.
+ * Teksten fra målingen står ved siden av eller under merket, aldri i stedet
+ * for det: «Pauset» alene sier ikke om det er greit.
  *
  * Er `fraLager` satt, kommer tilstanden fra en lagret måling fordi
  * live-kallet feilet. Da MÅ alderen vises. Uten den er «Pauset» en
@@ -100,6 +100,12 @@ export function visKilde(kilde: Kilde): string {
  * forskjellen mellom «vet» og «visste» som gjør et adminbord til å
  * stole på.
  */
+/** Meldinger lenger enn dette får egen linje. Ved siden av navnet og merket
+    ble en lang feilmelding presset inn i en stripe noen få ord bred – på
+    telefon, og i tre-kolonne-visningen på PC. Korte («Aktiv», «Klar») står
+    best på linja. */
+const LANG_MELDING = 24
+
 export function Kildelinje({
   kilde,
   tilstand,
@@ -113,25 +119,32 @@ export function Kildelinje({
   fraLager?: string | null
   naa: number
 }) {
+  const egenLinje = melding !== null && melding.length > LANG_MELDING
+
   return (
-    <div className="flex items-center justify-between gap-3 border-t border-[var(--kant)] px-4 py-2 first:border-t-0">
-      <span className="text-xs font-bold tracking-widest text-[var(--blekk-svak)] uppercase">
-        {kildeNavn[kilde]}
-      </span>
-      <span className="flex items-center gap-2 text-right">
-        {melding && (
-          <span className="text-sm text-[var(--blekk-svak)]">{melding}</span>
-        )}
-        {fraLager && (
-          <span
-            className="text-xs text-[var(--blekk-svak)] italic"
-            title={`Live-kallet feilet. Dette er siste lagrede måling, gjort ${visDatoTid(fraLager)}.`}
-          >
-            {visSiden(fraLager, naa)}
-          </span>
-        )}
-        <TilstandsMerke tilstand={tilstand} />
-      </span>
+    <div className="border-t border-[var(--kant)] px-4 py-2 first:border-t-0">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs font-bold tracking-widest text-[var(--blekk-svak)] uppercase">
+          {kildeNavn[kilde]}
+        </span>
+        <span className="flex items-center gap-2 text-right">
+          {melding && !egenLinje && (
+            <span className="text-sm text-[var(--blekk-svak)]">{melding}</span>
+          )}
+          {fraLager && (
+            <span
+              className="text-xs text-[var(--blekk-svak)] italic"
+              title={`Live-kallet feilet. Dette er siste lagrede måling, gjort ${visDatoTid(fraLager)}.`}
+            >
+              {visSiden(fraLager, naa)}
+            </span>
+          )}
+          <TilstandsMerke tilstand={tilstand} />
+        </span>
+      </div>
+      {egenLinje && (
+        <p className="mt-1 text-sm break-words text-[var(--blekk-svak)]">{melding}</p>
+      )}
     </div>
   )
 }
