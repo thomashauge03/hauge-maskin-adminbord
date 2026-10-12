@@ -18,7 +18,11 @@ const eslintConfig = defineConfig([
       ],
     },
   },
-  globalIgnores(['.next/**', 'out/**', 'build/**', 'next-env.d.ts']),
+  /*
+   * Claude-økter legger git-worktrees med egne .next-bygg under .claude/.
+   * Uten denne linja linter eslint tusenvis av genererte filer fra dem.
+   */
+  globalIgnores(['.next/**', 'out/**', 'build/**', 'next-env.d.ts', '.claude/**']),
 ])
 
 export default eslintConfig
