@@ -222,20 +222,20 @@ function varsling(): Kilde {
   return {
     slug: 'varslingskontroll',
     navn: 'Varsling',
-    valg: { harAktiv: false, harAdresse: false },
+    valg: { harAdresse: false },
     async hent() {
-      const rader = await alleRader<{ id: string; nummer: string | null; navn: string; byggherre: string | null }>(
+      const rader = await alleRader<{ id: string; nummer: string | null; navn: string; byggherre: string | null; aktiv: boolean }>(
         'varslingsprosjekter',
-        (fra, til) => tabell().select('id, nummer, navn, byggherre').order('id').range(fra, til),
+        (fra, til) => tabell().select('id, nummer, navn, byggherre, aktiv').order('id').range(fra, til),
       )
-      return rader.map((r) => ({ id: r.id, nummer: r.nummer, navn: r.navn, kunde: r.byggherre, adresse: null, aktiv: null }))
+      return rader.map((r) => ({ id: r.id, nummer: r.nummer, navn: r.navn, kunde: r.byggherre, adresse: null, aktiv: r.aktiv }))
     },
     async leggTil(nye) {
-      await settInn(tabell(), 'varslingsprosjekter', nye.map((p) => ({ nummer: p.nummer, navn: p.navn, byggherre: p.kunde })))
+      await settInn(tabell(), 'varslingsprosjekter', nye.map((p) => ({ nummer: p.nummer, navn: p.navn, byggherre: p.kunde, aktiv: p.aktiv })))
     },
     async endre(id, e) {
       const { error } = await tabell()
-        .update({ nummer: e.nummer, navn: e.navn, byggherre: e.kunde })
+        .update({ nummer: e.nummer, navn: e.navn, byggherre: e.kunde, aktiv: e.aktiv })
         .eq('id', id)
       feilVed('Kunne ikke endre varslingsprosjekt', error)
     },
