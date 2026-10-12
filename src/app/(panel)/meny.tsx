@@ -19,6 +19,7 @@ const punkter = [
   { href: '/systemer', tekst: 'Systemer' },
   { href: '/appen', tekst: 'Appen' },
   { href: '/brukere', tekst: 'Brukere' },
+  { href: '/prosjekter', tekst: 'Prosjekter' },
   { href: '/logg', tekst: 'Logg' },
   { href: '/innstillinger', tekst: 'Innstillinger' },
 ] as const
@@ -82,7 +83,7 @@ export function Meny({ ventende }: { ventende: number }) {
 /* Telefonen: fire faner der tommelen når, resten bak «Mer». Rekkefølgen er
    etter hva man gjør fra telefonen – køen i Appen før registeret. */
 const iBunnen = ['/', '/appen', '/brukere', '/systemer'] as const
-const iMer = ['/logg', '/innstillinger'] as const
+const iMer = ['/prosjekter', '/logg', '/innstillinger'] as const
 
 const BUNNFANE =
   'hm-display flex h-full w-full items-center justify-center border-t-4 text-xs transition-colors'

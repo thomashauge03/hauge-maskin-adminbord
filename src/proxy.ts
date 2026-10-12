@@ -47,6 +47,6 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!logg-inn|api/status|_next/static|_next/image|manifest\\.webmanifest|\\.well-known|.*\\.png$).*)',
+    '/((?!logg-inn|api/status|api/prosjekter|_next/static|_next/image|manifest\\.webmanifest|\\.well-known|.*\\.png$).*)',
   ],
 }
