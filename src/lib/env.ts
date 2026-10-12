@@ -60,6 +60,12 @@ const skjema = z.object({
    * endepunkt som hvem som helst kunne trigge sju API-kall med.
    */
   CRON_SECRET: z.string().min(1).optional(),
+  /*
+   * Nøkkelen pg_cron i navet bruker mot /api/prosjekter/synk. Egen, ikke
+   * CRON_SECRET: den ligger i Vault i navet, og en lekkasje derfra skal bare
+   * kunne starte en prosjektsynk, ikke statusmålingen.
+   */
+  PROSJEKT_SYNK_NOKKEL: z.string().min(32).optional(),
 })
 
 const resultat = skjema.safeParse({
@@ -73,6 +79,7 @@ const resultat = skjema.safeParse({
   HM_VERCEL_TEAM_ID: process.env.HM_VERCEL_TEAM_ID,
   HM_GITHUB_TOKEN: process.env.HM_GITHUB_TOKEN,
   CRON_SECRET: process.env.CRON_SECRET,
+  PROSJEKT_SYNK_NOKKEL: process.env.PROSJEKT_SYNK_NOKKEL,
 })
 
 if (!resultat.success) {

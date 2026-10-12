@@ -13,9 +13,11 @@ import { synkProsjekter } from '@/lib/prosjekter/synk'
 export const maxDuration = 120
 
 async function kjør(request: Request) {
-  // Samme hemmelighet som statusmålingen. Mangler den, avvises alt.
+  // pg_cron bruker sin egen nøkkel, CRON_SECRET virker for hånd. Mangler
+  // begge, avvises alt.
   const oppgitt = request.headers.get('authorization')
-  if (!env.CRON_SECRET || oppgitt !== `Bearer ${env.CRON_SECRET}`) {
+  const godtatt = [env.PROSJEKT_SYNK_NOKKEL, env.CRON_SECRET].filter(Boolean).map((n) => `Bearer ${n}`)
+  if (!oppgitt || !godtatt.includes(oppgitt)) {
     return Response.json({ feil: 'Ikke autorisert' }, { status: 401 })
   }
 
