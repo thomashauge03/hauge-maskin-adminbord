@@ -94,8 +94,8 @@ export async function leggTilSide(
   })
   if (!felter.success) return { feil: felter.error.issues[0].message }
 
-  const { sider, sha, hylse } = await hentRaaSider()
-  if (!sha) return { feil: 'Adminbordet har ikke GitHub-token, og kan ikke endre sider.' }
+  const { sider, sha, hylse, tokenfeil } = await hentRaaSider()
+  if (!sha) return { feil: tokenfeil ?? 'Adminbordet har ikke GitHub-token, og kan ikke endre sider.' }
 
   const opptatt = new Set(sider.map((s) => String(s.id ?? s.name ?? '')))
   const id = lagId(felter.data.navn, opptatt)
@@ -150,8 +150,8 @@ export async function endreSide(
   })
   if (!felter.success) return { feil: felter.error.issues[0].message }
 
-  const { sider, sha, hylse } = await hentRaaSider()
-  if (!sha) return { feil: 'Adminbordet har ikke GitHub-token, og kan ikke endre sider.' }
+  const { sider, sha, hylse, tokenfeil } = await hentRaaSider()
+  if (!sha) return { feil: tokenfeil ?? 'Adminbordet har ikke GitHub-token, og kan ikke endre sider.' }
 
   const finnes = sider.some((s) => String(s.id ?? s.name) === binding.sideId)
   if (!finnes) return { feil: 'Siden finnes ikke lenger. Last siden på nytt.' }
@@ -213,8 +213,8 @@ export async function slettSide(
 ): Promise<Tilstand> {
   const meg = await krevEier()
 
-  const { sider, sha, hylse } = await hentRaaSider()
-  if (!sha) return { feil: 'Adminbordet har ikke GitHub-token, og kan ikke slette sider.' }
+  const { sider, sha, hylse, tokenfeil } = await hentRaaSider()
+  if (!sha) return { feil: tokenfeil ?? 'Adminbordet har ikke GitHub-token, og kan ikke slette sider.' }
 
   const utan = sider.filter((s) => String(s.id ?? s.name) !== binding.sideId)
   if (utan.length === sider.length) {

@@ -126,6 +126,7 @@ test('under 1 MB: sidene, _om og SHA-en til versjonen', async () => {
     sider: [side('Kjøretøy'), side('Lager på Ås')],
     hylse: { _om: OM },
     sha: blobSha(tekst),
+    tokenfeil: null,
   })
 })
 
@@ -176,4 +177,61 @@ test('409: lagret skrivebordsappen etter at vi leste, blir endringen dens ståen
   assert.equal(svar.ok, false)
   assert.equal(svar.konflikt, true)
   assert.equal(github.innhold(), fraPC)
+})
+
+const RAA = 'https://raw.githubusercontent.com/thomashauge03/hauge-maskin-app/main/sider.json'
+
+/** GitHub der API-et svarer med `status`, mens råfila – repoet er offentlig – kan leses. */
+function avvisendeGitHub(tekst, status, hode = {}) {
+  return async (url) =>
+    url.startsWith(RAA)
+      ? new Response(tekst)
+      : Response.json({ message: 'nei' }, { status, headers: hode })
+}
+
+test('401: lista leses fra råfila, men kan ikke lagres, og vi sier at tokenet er utløpt', async () => {
+  const tekst = fil([side('Kjøretøy')])
+  const { sider, sha, hylse, tokenfeil } = await hentSidefila({
+    token: 'utløpt',
+    hent: avvisendeGitHub(tekst, 401),
+  })
+  assert.deepEqual(sider, [side('Kjøretøy')])
+  assert.deepEqual(hylse, { _om: OM })
+  assert.equal(sha, null)
+  assert.match(tokenfeil, /utløpt/)
+})
+
+test('403: tokenet mangler tilgang – ikke at det er utløpt', async () => {
+  const { sha, tokenfeil } = await hentSidefila({
+    token: TOKEN,
+    hent: avvisendeGitHub(fil([side('Kjøretøy')]), 403),
+  })
+  assert.equal(sha, null)
+  assert.match(tokenfeil, /mangler tilgang/)
+  assert.doesNotMatch(tokenfeil, /utløpt/)
+})
+
+test('403 fordi grensa for kall er nådd: tokenet skal ikke byttes', async () => {
+  const { tokenfeil } = await hentSidefila({
+    token: TOKEN,
+    hent: avvisendeGitHub(fil([side('Kjøretøy')]), 403, { 'x-ratelimit-remaining': '0' }),
+  })
+  assert.match(tokenfeil, /grensa/)
+})
+
+test('avvist token og råfila nede: feilen handler om tokenet', async () => {
+  const hent = async () => Response.json({ message: 'nei' }, { status: 401 })
+  await assert.rejects(hentSidefila({ token: 'utløpt', hent }), /utløpt/)
+})
+
+test('lagring med token uten skrivetilgang sier hva som mangler', async () => {
+  const svar = await skrivSidefila(
+    { token: TOKEN, hent: async () => Response.json({ message: 'Resource not accessible' }, { status: 403 }) },
+    [side('Kjøretøy')],
+    'a'.repeat(40),
+    'Ny felles side: Kjøretøy',
+    { _om: OM },
+  )
+  assert.equal(svar.ok, false)
+  assert.match(svar.grunn, /Contents: Read and write/)
 })

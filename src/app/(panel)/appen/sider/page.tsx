@@ -33,11 +33,14 @@ export default async function SiderSide() {
   let sider: Side[] = []
   let alleIder = new Set<string>()
   let sidefeil: string | null = null
+  let tokenfeil: string | null = null
   try {
-    ;({ sider, alleIder } = await hentSidelista())
+    ;({ sider, alleIder, tokenfeil } = await hentSidelista())
   } catch (e) {
     sidefeil = e instanceof Error ? e.message : 'Ukjent feil'
   }
+  // Tokenet finnes, men GitHub avviste det: lista er lest uten, og kan ikke lagres.
+  const kanRedigere = erEier && kanRedigereSider() && !tokenfeil
 
   const gisAv = siderFraGrupper(
     grupper.map((g) => g.id),
@@ -67,7 +70,13 @@ export default async function SiderSide() {
               fra i stedet for å overskrive. En side ser ingen før en gruppe gir den.
             </p>
 
-            {erEier && kanRedigereSider() && <NySide grupper={overskrifter} />}
+            {tokenfeil && (
+              <p className="px-4 pt-3 text-sm text-hm-red-ink">
+                Sidene kan ikke endres herfra nå. {tokenfeil}
+              </p>
+            )}
+
+            {kanRedigere && <NySide grupper={overskrifter} />}
             {erEier && !kanRedigereSider() && (
               <div className="px-4 pt-3 text-sm text-[var(--blekk-svak)]">
                 <p>
@@ -135,7 +144,7 @@ export default async function SiderSide() {
                         </div>
                       </div>
                     </div>
-                    {erEier && kanRedigereSider() && (
+                    {kanRedigere && (
                       <SideRedigering
                         sideId={s.id}
                         navn={s.navn}

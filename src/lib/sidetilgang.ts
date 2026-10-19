@@ -76,9 +76,14 @@ function alleIderI(raa: RaaSide[]): Set<string> {
  * ville ellers sett foreldreløs ut, og «Rydd bort» ville slettet oppsettet
  * den skal ha tilbake når den vises igjen.
  */
-export async function hentSidelista(): Promise<{ sider: Side[]; alleIder: Set<string> }> {
-  const { sider } = await hentRaaSider()
-  return { sider: tilSider(sider), alleIder: alleIderI(sider) }
+export async function hentSidelista(): Promise<{
+  sider: Side[]
+  alleIder: Set<string>
+  /** Satt når tokenet ble avvist og lista er lest uten det – den kan ikke endres nå. */
+  tokenfeil: string | null
+}> {
+  const { sider, tokenfeil } = await hentRaaSider()
+  return { sider: tilSider(sider), alleIder: alleIderI(sider), tokenfeil }
 }
 
 export async function hentAlleSideIder(): Promise<Set<string>> {

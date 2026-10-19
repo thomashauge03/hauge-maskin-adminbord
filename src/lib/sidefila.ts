@@ -64,6 +64,14 @@ type Henta = {
    * Null betyr at fila FAKTISK var en bar array. Da skriver vi array tilbake.
    */
   hylse: Record<string, unknown> | null
+  /**
+   * Hvorfor GitHub avviste tokenet, når det gjorde det.
+   *
+   * Da har vi lest råfila i stedet – repoet er offentlig – så lista kan vises,
+   * men `sha` er null og ingenting kan lagres. Null når tokenet virket, eller
+   * når det ikke finnes noe token.
+   */
+  tokenfeil: string | null
 }
 
 function pakkUt(json: unknown): { sider: RaaSide[]; hylse: Record<string, unknown> | null } {
@@ -89,11 +97,7 @@ function pakkUt(json: unknown): { sider: RaaSide[]; hylse: Record<string, unknow
  * lagringen ikke virket.
  */
 export async function hentSidefila({ token, hent = fetch }: GitHub): Promise<Henta> {
-  if (!token) {
-    const res = await hent(`${RAA}?t=${Date.now()}`, { cache: 'no-store' })
-    if (!res.ok) throw new Error(`Kunne ikke hente sidelista: ${res.status}`)
-    return { ...pakkUt(await res.json()), sha: null }
-  }
+  if (!token) return { ...(await hentRaafila(hent)), tokenfeil: null }
 
   const res = await hent(API, {
     headers: {
@@ -102,14 +106,36 @@ export async function hentSidefila({ token, hent = fetch }: GitHub): Promise<Hen
     },
     cache: 'no-store',
   })
-  if (!res.ok) throw henteFeil(res.status)
+
+  /*
+   * Et avvist token skal ikke ta sidelista med seg. Repoet er offentlig, så vi
+   * leser råfila og sier fra om tokenet – ellers forsvinner lista fra Sider,
+   * Grupper og hver person bare fordi tokenet har gått ut, og ingen kan se
+   * eller velge sider før noen har laget et nytt.
+   */
+  if (res.status === 401 || res.status === 403) {
+    const feil = tokenFeil(res)
+    try {
+      return { ...(await hentRaafila(hent)), tokenfeil: feil }
+    } catch {
+      throw new Error(feil)
+    }
+  }
+  if (!res.ok) throw henteFeil(res)
 
   const data = (await res.json()) as { content: string; encoding: string; sha: string }
   const tekst =
     data.encoding === 'base64'
       ? Buffer.from(data.content, 'base64').toString('utf8')
       : await hentBlob(data.sha, token, hent)
-  return { ...pakkUt(JSON.parse(tekst)), sha: data.sha }
+  return { ...pakkUt(JSON.parse(tekst)), sha: data.sha, tokenfeil: null }
+}
+
+/** Råfila, uten token og uten SHA. Kan vises, ikke lagres. */
+async function hentRaafila(hent: typeof fetch) {
+  const res = await hent(`${RAA}?t=${Date.now()}`, { cache: 'no-store' })
+  if (!res.ok) throw new Error(`Kunne ikke hente sidelista: ${res.status}`)
+  return { ...pakkUt(await res.json()), sha: null }
 }
 
 /**
@@ -132,16 +158,34 @@ async function hentBlob(sha: string, token: string, hent: typeof fetch): Promise
     },
     cache: 'no-store',
   })
-  if (!res.ok) throw henteFeil(res.status)
+  if (!res.ok) throw henteFeil(res)
   return res.text()
 }
 
-function henteFeil(status: number): Error {
+function henteFeil(res: Response): Error {
   return new Error(
-    status === 401 || status === 403
-      ? 'GitHub-tokenet blir avvist. Sjekk at det har contents: write på hauge-maskin-app.'
-      : `Kunne ikke hente sidelista fra GitHub: ${status}`,
+    res.status === 401 || res.status === 403
+      ? tokenFeil(res)
+      : `Kunne ikke hente sidelista fra GitHub: ${res.status}`,
   )
+}
+
+/**
+ * Hva som er galt med tokenet, ut fra svaret GitHub ga.
+ *
+ * 401 og 403 betyr forskjellige ting, og rådet må følge: et utløpt token
+ * hjelper det ikke å gi flere rettigheter. 403 er også det GitHub svarer når
+ * grensa for antall kall er nådd – da er tokenet i orden, og det skal ikke
+ * byttes.
+ */
+function tokenFeil(res: Response): string {
+  if (res.status === 401) {
+    return 'GitHub-tokenet i HM_GITHUB_TOKEN er utløpt eller trukket tilbake. Lag et nytt, legg det inn på Vercel og deploy på nytt.'
+  }
+  if (res.headers.get('x-ratelimit-remaining') === '0') {
+    return 'GitHub har nådd grensa for antall kall fra adminbordet. Prøv igjen om litt.'
+  }
+  return 'GitHub-tokenet i HM_GITHUB_TOKEN mangler tilgang. Det trenger Contents: Read and write på hauge-maskin-app.'
 }
 
 export type SkriveSvar = { ok: true } | { ok: false; grunn: string; konflikt?: boolean }
@@ -201,6 +245,10 @@ export async function skrivSidefila(
       grunn:
         'Noen endret sidelista mens du holdt på – sannsynligvis fra skrivebordsappen. Last siden på nytt og gjør endringen om igjen.',
     }
+  }
+
+  if (res.status === 401 || res.status === 403) {
+    return { ok: false, grunn: `Kunne ikke lagre: ${tokenFeil(res)}` }
   }
 
   let detalj = `GitHub svarte ${res.status}`
