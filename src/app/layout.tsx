@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono, Barlow_Condensed } from 'next/font/google'
 import { Lukkar } from '@/components/lukkar'
 import { Nokkelknapp } from '@/components/nokkelknapp'
+import { Hjemlogo } from '@/components/hjemlogo'
 import './globals.css'
 
 const geistSans = Geist({
@@ -62,6 +63,8 @@ export default function RotLayout({
             nøkkelknappen lytter før Chrome sender porten fra appen. */}
         <Lukkar />
         <Nokkelknapp />
+        {/* Etter nøkkelknappen: HM-logoen tar deg tilbake til appen når appen åpnet sida. */}
+        <Hjemlogo />
         {children}
       </body>
     </html>
