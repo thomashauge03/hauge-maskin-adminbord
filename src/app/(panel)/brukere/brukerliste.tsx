@@ -102,14 +102,22 @@ export async function Brukerliste({
     for (const l of lest) {
       const rad = p.iSystem.get(l.system.slug)
       if (!rad) continue
+      /* Rollen og «har tilgang» i panelet gjelder veien adminbordet SKRIVER i.
+         En heimeside-admin har tilgang til lageret, men ikke som lagerrolle –
+         og skulle ikke stå med «admin (nå)» i en liste der admin ikke kan velges. */
+      const skrivVei = l.veier.find((v) => v.kanSkrive)?.etikett
+      const iSkrivVei = rad.veier.find((v) => v.etikett === skrivVei)
       celler[l.system.id] = {
         merke: tilgangsmerke(rad, {
           systemNavn: l.system.navn,
           harOppsett: l.veier.length > 0,
         }),
-        harTilgang: rad.harTilgang === true,
-        deaktivert: rad.tilgangAktiv === false,
-        rolle: rad.rolle,
+        harTilgang: iSkrivVei !== undefined,
+        andreVeier: rad.veier
+          .filter((v) => v.etikett !== skrivVei)
+          .map((v) => (v.rolle ? `${v.etikett} (${v.rolle})` : v.etikett)),
+        deaktivert: iSkrivVei?.aktiv === false,
+        rolle: iSkrivVei?.rolle ?? null,
         harKonto: rad.harKonto,
         authId: rad.authId,
         kontoSperret: rad.kontoAktiv === false,

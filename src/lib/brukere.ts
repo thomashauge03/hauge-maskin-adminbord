@@ -149,7 +149,7 @@ export async function hentBrukereISystem(
       rader: flettRader(kontoSvar.data, tilgangSvar?.data ?? [], veier),
       // Feiler rollene alene, vises systemet likevel. De er en hjelp til
       // nedtrekkslisten, ikke grunnlaget for hva matrisen påstår.
-      rollefunn: rolleSvar?.ok ? tolkRollefunn(rolleSvar.data) : null,
+      rollefunn: rolleSvar?.ok ? tolkRollefunn(rolleSvar.data, rollespørring!.gjelder) : null,
     }
   }
 
@@ -251,10 +251,10 @@ async function hentMedServiceRole(
    * som står i tabellen er likevel bedre enn ingenting: det er nettopp de
    * nedtrekkslisten må kjenne for å ikke starte på feil rolle.
    */
-  const skrivVei = veier.find((v) => v.kanSkrive)?.etikett
+  const skrivVei = veier.find((v) => v.kanSkrive)
   const iBruk = new Map<string, number>()
   for (const t of tilganger) {
-    if (t.vei !== skrivVei || t.slag !== 'tilgang' || !t.rolle) continue
+    if (t.vei !== skrivVei?.etikett || t.slag !== 'tilgang' || !t.rolle) continue
     iBruk.set(t.rolle, (iBruk.get(t.rolle) ?? 0) + 1)
   }
 
@@ -262,7 +262,7 @@ async function hentMedServiceRole(
     ...grunn,
     rader: flettRader(råKontoer, tilganger, veier),
     feil: null,
-    rollefunn: { lovlige: null, iBruk },
+    rollefunn: { lovlige: skrivVei?.gjelderRoller ?? null, iBruk },
   }
 }
 
@@ -301,8 +301,8 @@ async function lesTilgangMedPostgrest(
       }
       // Samme grunn som i byggTilgangsspørring: uten rollefilteret vises hver
       // rad som om den ga den makten veien beskriver.
-      if (v.rolleFilter && v.rolleKolonne) {
-        spørring = spørring.eq(v.rolleKolonne, v.rolleFilter)
+      if (v.gjelderRoller && v.rolleKolonne) {
+        spørring = spørring.in(v.rolleKolonne, v.gjelderRoller)
       }
 
       const { data, error } = await spørring.limit(GRENSE)

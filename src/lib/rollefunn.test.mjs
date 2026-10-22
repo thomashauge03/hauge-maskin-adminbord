@@ -71,6 +71,22 @@ test('enum og CHECK må begge holde', () => {
   assert.deepEqual(funn.lovlige, ['b'])
 })
 
+// Lagerets user_roles: enumen har også heimesidas admin og en ubrukt user.
+test('veiens rolleliste snevrer inn både lovlige og i bruk', () => {
+  const funn = tolkRollefunn(
+    ['admin', 'user', 'staff', 'viewer', 'lager']
+      .map((v) => ({ kilde: 'enum', verdi: v, antall: null }))
+      .concat([
+        { kilde: 'i_bruk', verdi: 'admin', antall: 3 },
+        { kilde: 'i_bruk', verdi: 'viewer', antall: 1 },
+      ]),
+    ['lager', 'staff', 'viewer'],
+  )
+  assert.deepEqual(funn.lovlige, ['staff', 'viewer', 'lager'])
+  assert.deepEqual([...funn.iBruk.keys()], ['viewer'])
+  assert.deepEqual(flettRoller([], funn).map((r) => r.verdi), ['staff', 'viewer', 'lager'])
+})
+
 // Feilen som gjorde en ansatt til admin med ett vanetrykk.
 test('listen starter på personens egen rolle, også en ukjent', () => {
   const roller = [rolle('admin', true)]

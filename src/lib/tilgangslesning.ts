@@ -144,9 +144,8 @@ export function byggTilgangsspørring(veier: Tilgangsoppsett[]): {
      * filteret ville hver `member` hos hver kunde blitt vist som plattform-
      * admin over Hauge Maskin.
      */
-    if (v.rolleFilter && rolleKol) {
-      parametre.push(v.rolleFilter)
-      vilkår.push(`${rolleKol}::text = $${parametre.length}`)
+    if (v.gjelderRoller && rolleKol) {
+      vilkår.push(rolleVilkår(rolleKol, v.gjelderRoller, parametre))
     }
 
     /*
@@ -189,6 +188,24 @@ export function byggTilgangsspørring(veier: Tilgangsoppsett[]): {
 }
 
 /**
+ * `kolonne in ($n, $n+1, …)` for en vei med gjelderRoller. Verdiene legges i
+ * `parametre`, én plassholder per rolle – ikke som én array-parameter, fordi
+ * Management-API-et sender parametrene som tekst og en array ikke kommer
+ * fram som array.
+ */
+export function rolleVilkår(
+  rolleKol: string,
+  roller: string[],
+  parametre: unknown[],
+): string {
+  const plasser = roller.map((r) => {
+    parametre.push(r)
+    return `$${parametre.length}`
+  })
+  return `${rolleKol}::text in (${plasser.join(', ')})`
+}
+
+/**
  * Rollene systemet tillater og bruker, for veien adminbordet skriver i.
  *
  * Tre kilder i én spørring: CHECK-regler på rollekolonnen, enum-verdier hvis
@@ -201,6 +218,8 @@ export function byggTilgangsspørring(veier: Tilgangsoppsett[]): {
 export function byggRollespørring(veier: Tilgangsoppsett[]): {
   sql: string
   parametre: unknown[]
+  /** Veiens gjelderRoller. Funnet må snevres inn til dem – se tolkRollefunn. */
+  gjelder: string[] | null
 } | null {
   const v = veier.find(
     (v) => v.kanSkrive && v.modell === 'rolletabell' && v.tabell && v.rolleKolonne,
@@ -226,6 +245,7 @@ export function byggRollespørring(veier: Tilgangsoppsett[]): {
            where ${rolleKol} is not null
            group by 2`,
     parametre: [tabell, rolleKol],
+    gjelder: v.gjelderRoller,
   }
 }
 

@@ -19,7 +19,11 @@ export type SystemVisning = {
 
 export type CelleVisning = {
   merke: Tilgangsmerke
+  /** Har en rad i veien adminbordet skriver i. Merket over sier om personen
+      har tilgang i det hele tatt. */
   harTilgang: boolean
+  /** Tilgang gjennom veier som ikke styres herfra, som lagerets admin. */
+  andreVeier: string[]
   /** Raden står, men aktiv-kolonnen er slått av (utleie). */
   deaktivert: boolean
   rolle: string | null

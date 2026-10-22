@@ -209,7 +209,16 @@ function SystemRad({
                   <p className="mt-1 whitespace-pre-line">{system.hvorforLaast}</p>
                 </details>
               )
-            ) : bekreft === 'fjern' ? (
+            ) : null}
+
+            {kanEndreTilgang && celle && celle.andreVeier.length > 0 && (
+              <p className="border-l-4 border-hm-amber pl-3 text-xs">
+                Har også tilgang som {celle.andreVeier.join(' og ')}. Det styres ikke
+                herfra, og endringene under rører det ikke.
+              </p>
+            )}
+
+            {!kanEndreTilgang ? null : bekreft === 'fjern' ? (
               <form action={fjern} className="flex flex-wrap items-center gap-2 border-2 border-hm-red p-2">
                 {felles}
                 <span className="text-sm">

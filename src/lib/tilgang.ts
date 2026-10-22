@@ -4,7 +4,7 @@ import { hentTokenKart, tokenFor } from '@/lib/kontoar'
 import { lesSpørring, skrivSpørring } from '@/lib/plattform/supabase-api'
 import { lagFremmedKlient } from '@/lib/supabase/fremmed'
 import { flettRoller, tolkRollefunn, type RåRollefunn, type SystemRolle } from '@/lib/rollefunn'
-import { byggRollespørring } from '@/lib/tilgangslesning'
+import { byggRollespørring, rolleVilkår } from '@/lib/tilgangslesning'
 import 'server-only'
 
 /* ═══════════════════════════════════════════════════════════
@@ -67,14 +67,19 @@ export type Tilgangsoppsett = {
   brukerNokkel: 'auth_id' | 'epost'
   rolleKolonne: string | null
   /**
-   * Bare rader der rollekolonnen har denne verdien teller som denne veien.
+   * Bare rader der rollekolonnen har en av disse verdiene teller som veien.
    *
    * Null = alle rader teller, som er riktig når det å ha raden ER tilgangen.
-   * Satt der én rolleverdi utløser noe eget: `admin` i tenant_users gir
-   * plattform-makt gjennom is_system_admin(), som ikke har tenant-filter,
-   * mens `member` i samme tabell ikke gir noe utenfor sin egen kunde.
+   * Satt der noen rolleverdier betyr noe eget: `admin` i tenant_users gir
+   * plattform-makt gjennom is_system_admin(), og i lagerets user_roles er
+   * `admin` også heimesidas, mens lager/staff/viewer er lagerets alene.
+   *
+   * På en vei vi SKRIVER i, er lista også grensen for skrivingen: et
+   * rollebytte bytter bare blant disse, og «ta bort» fjerner bare dem. Uten
+   * det ville et bytte i lageret lagt til en rad (tabellen har én rad per
+   * rolle), og «ta bort» slettet heimesidas admin med.
    */
-  rolleFilter: string | null
+  gjelderRoller: string[] | null
   aktivKolonne: string | null
   ekstraKolonner: Record<string, unknown>
   tenantKolonne: string | null
@@ -148,7 +153,7 @@ function tolkOppsett(data: Record<string, unknown>): Tilgangsoppsett {
     brukerKolonne: data.bruker_kolonne as string,
     brukerNokkel: data.bruker_nokkel as 'auth_id' | 'epost',
     rolleKolonne: data.rolle_kolonne as string | null,
-    rolleFilter: (data.rolle_filter as string | null) ?? null,
+    gjelderRoller: (data.gjelder_roller as string[] | null) ?? null,
     aktivKolonne: data.aktiv_kolonne as string | null,
     ekstraKolonner: (data.ekstra_kolonner ?? {}) as Record<string, unknown>,
     tenantKolonne: data.tenant_kolonne as string | null,
@@ -213,7 +218,7 @@ export async function hentGyldigeRoller({
   if (!spørring || !prosjektRef || !token) return registrerte
 
   const svar = await lesSpørring<RåRollefunn>(token, prosjektRef, spørring.sql, spørring.parametre)
-  return flettRoller(registrerte, svar.ok ? tolkRollefunn(svar.data) : null)
+  return flettRoller(registrerte, svar.ok ? tolkRollefunn(svar.data, spørring.gjelder) : null)
 }
 
 function tolkRolle(r: Record<string, unknown>): SystemRolle {
@@ -414,6 +419,14 @@ export async function giTilgang({
       feil: `${oppsett.etikett} krever en rolle. Uten den ville databasens standardverdi bestemt nivået – og den er «full admin» i noen av systemene.`,
     }
   }
+  // Siste vern for lagerets «admin», som også er heimesidas: den står utenfor
+  // veiens roller og skal aldri kunne skrives gjennom den.
+  if (oppsett.gjelderRoller && rolle && !oppsett.gjelderRoller.includes(rolle)) {
+    return {
+      ok: false,
+      feil: `${oppsett.etikett} gjelder bare ${oppsett.gjelderRoller.join(', ')}. «${rolle}» styres ikke herfra.`,
+    }
+  }
 
   const token = tokenFor(await hentTokenKart(), kontoId)
   if (!token) {
@@ -501,6 +514,20 @@ export async function giTilgang({
   const plassholdere = verdier.map((_, i) => `$${i + 1}`).join(', ')
   const skjema = trygtNavn(oppsett.skjema, 'skjema')
   const tabell = trygtNavn(oppsett.tabell, 'tabell')
+
+  if (oppsett.gjelderRoller && oppsett.rolleKolonne && rolle) {
+    const svar = await byttRolle({
+      token,
+      prosjektRef,
+      oppsett,
+      kolonner,
+      verdier,
+      rolle,
+    })
+    if (!svar.ok) return svar
+    await speilTilgang({ systemId, epost, navn, rolle, skrevet: true })
+    return { ok: true, melding: `${epost}: ${svar.melding}` }
+  }
 
   /*
    * `on conflict do nothing` med `returning`, og en UPDATE når ingenting ble
@@ -654,16 +681,104 @@ function lagPassord(): string {
 }
 
 /**
- * Vilkåret som finner personens rad, med verdien i $1.
+ * Rollebytte i en tabell med én rad per rolle, avgrenset til veiens roller.
+ *
+ * Fjerner personens ANDRE roller innenfor veien og setter inn den valgte, i
+ * én setning – slik lager.set_user_role() gjør i appen. Roller utenfor veien
+ * står: lagerets «admin» er også heimesidas, og et bytte fra Ansatt til Leser
+ * skal ikke ta heimesida med seg.
+ *
+ * Den vanlige veien – insert, og UPDATE ved konflikt – passer ikke her. Med
+ * UNIQUE (user_id, role) kommer insert-en av en ny rolle aldri i konflikt, så
+ * et «bytte» la til en rad, og en UPDATE på user_id ville skrevet om alle
+ * personens roller, admin inkludert.
+ *
+ * Tellingene skilles fordi de betyr ulike ting for den som trykket: ny
+ * tilgang, byttet rolle, eller ingenting å gjøre.
+ */
+async function byttRolle({
+  token,
+  prosjektRef,
+  oppsett,
+  kolonner,
+  verdier,
+  rolle,
+}: {
+  token: string
+  prosjektRef: string
+  oppsett: Tilgangsoppsett
+  kolonner: string[]
+  verdier: unknown[]
+  rolle: string
+}): Promise<TilgangResultat> {
+  const skjema = trygtNavn(oppsett.skjema, 'skjema')
+  const tabell = trygtNavn(oppsett.tabell!, 'tabell')
+  const brukerKol = trygtNavn(oppsett.brukerKolonne, 'brukerkolonne')
+  const rolleKol = trygtNavn(oppsett.rolleKolonne!, 'rollekolonne')
+
+  const parametre = [...verdier]
+  const plassholdere = verdier.map((_, i) => `$${i + 1}`).join(', ')
+  const andre = oppsett.gjelderRoller!.filter((r) => r !== rolle)
+
+  let rydd = 'select 1 where false'
+  if (andre.length > 0) {
+    // Egen parameter for brukerverdien, ikke $1 fra innsettingen: Postgres gir
+    // hver parameter én type, og $1 er uuid der og tekst her. Delt ga det
+    // «column user_id is of type uuid but expression is of type text».
+    parametre.push(verdier[0])
+    let vilkår = `${nøkkelVilkår(oppsett, brukerKol, `$${parametre.length}`)} and ${rolleVilkår(rolleKol, andre, parametre)}`
+    if (oppsett.tenantKolonne) {
+      parametre.push(oppsett.tenantVerdi)
+      vilkår += ` and ${trygtNavn(oppsett.tenantKolonne, 'tenant-kolonne')}::text = $${parametre.length}`
+    }
+    rydd = `delete from ${skjema}.${tabell} where ${vilkår} returning 1`
+  }
+
+  const svar = await skrivSpørring<{ satt: number; ryddet: number }>(
+    token,
+    prosjektRef,
+    `with ryddet as (${rydd}),
+          satt as (
+            insert into ${skjema}.${tabell} (${kolonner.join(', ')})
+            values (${plassholdere})
+            on conflict do nothing
+            returning 1
+          )
+     select (select count(*) from satt)::int as satt,
+            (select count(*) from ryddet)::int as ryddet`,
+    parametre,
+  )
+  if (!svar.ok) return { ok: false, feil: svar.feil.melding }
+
+  const { satt = 0, ryddet = 0 } = svar.data[0] ?? {}
+  return {
+    ok: true,
+    melding:
+      satt > 0 && ryddet > 0
+        ? `rollen er byttet til ${rolle}.`
+        : satt > 0
+          ? `har nå tilgang som ${rolle}.`
+          : ryddet > 0
+            ? `hadde ${rolle} fra før, og de andre ${oppsett.etikett.toLowerCase()}-rollene er fjernet.`
+            : `hadde ${rolle} fra før. Ingenting er endret.`,
+  }
+}
+
+/**
+ * Vilkåret som finner personens rad, med verdien i $1 (eller `plass`).
  *
  * E-post sammenlignes uten store og små bokstaver. Lesingen gjør det alt, så
  * en rad appen selv lagret som «Ola@…» vises i matrisen – og da må den også
  * kunne endres og fjernes herfra, ikke svare «ingen rad traff».
  */
-function nøkkelVilkår(oppsett: Tilgangsoppsett, brukerKol: string): string {
+function nøkkelVilkår(
+  oppsett: Tilgangsoppsett,
+  brukerKol: string,
+  plass = '$1',
+): string {
   return oppsett.brukerNokkel === 'epost'
-    ? `lower(${brukerKol}::text) = lower($1)`
-    : `${brukerKol}::text = $1`
+    ? `lower(${brukerKol}::text) = lower(${plass})`
+    : `${brukerKol}::text = ${plass}`
 }
 
 /**
@@ -806,14 +921,17 @@ export async function taBortTilgang({
     brukerVerdi = oppslag.id
   }
 
-  const vilkår = `${nøkkelVilkår(oppsett, brukerKol)}${
-    oppsett.tenantKolonne
-      ? ` and ${trygtNavn(oppsett.tenantKolonne, 'tenant-kolonne')}::text = $2`
-      : ''
-  }`
-  const parametre: unknown[] = oppsett.tenantKolonne
-    ? [brukerVerdi, oppsett.tenantVerdi]
-    : [brukerVerdi]
+  const parametre: unknown[] = [brukerVerdi]
+  let vilkår = nøkkelVilkår(oppsett, brukerKol)
+  if (oppsett.tenantKolonne) {
+    parametre.push(oppsett.tenantVerdi)
+    vilkår += ` and ${trygtNavn(oppsett.tenantKolonne, 'tenant-kolonne')}::text = $${parametre.length}`
+  }
+  // Bare veiens egne roller. Ellers ville «ta bort» i lageret også slettet
+  // heimesidas admin, som står i samme tabell.
+  if (oppsett.gjelderRoller && oppsett.rolleKolonne) {
+    vilkår += ` and ${rolleVilkår(trygtNavn(oppsett.rolleKolonne, 'rollekolonne'), oppsett.gjelderRoller, parametre)}`
+  }
 
   /*
    * `returning` er ikke pynt: uten den er «ingen rader traff» og «raden er

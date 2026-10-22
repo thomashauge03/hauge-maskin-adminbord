@@ -60,7 +60,15 @@ export function verdierFraSjekk(def: string): string[] | null {
   return verdier.length > 0 ? verdier : null
 }
 
-export function tolkRollefunn(rader: RåRollefunn[]): Rollefunn {
+/**
+ * `gjelder` er veiens gjelderRoller. Lagerets user_roles tillater også
+ * heimesidas «admin» og en ubrukt «user», men veien adminbordet skriver i
+ * gjelder bare lager, staff og viewer – og bare de skal kunne velges.
+ */
+export function tolkRollefunn(
+  rader: RåRollefunn[],
+  gjelder: string[] | null = null,
+): Rollefunn {
   let lovlige: string[] | null = null
   const iBruk = new Map<string, number>()
 
@@ -80,6 +88,13 @@ export function tolkRollefunn(rader: RåRollefunn[]): Rollefunn {
     }
   }
   if (enumverdier.length > 0) snitt(enumverdier)
+
+  if (gjelder) {
+    snitt(gjelder)
+    for (const verdi of [...iBruk.keys()]) {
+      if (!gjelder.includes(verdi)) iBruk.delete(verdi)
+    }
+  }
 
   return { lovlige, iBruk }
 }
