@@ -3,6 +3,7 @@ import { lesSpørring } from '@/lib/plattform/supabase-api'
 import { lagFremmedKlient } from '@/lib/supabase/fremmed'
 import { hentTokenKart, tokenFor } from '@/lib/kontoar'
 import {
+  byggRollespørring,
   byggTilgangsspørring,
   flettRader,
   GRENSE,
@@ -11,6 +12,13 @@ import {
   type RåTilgang,
 } from '@/lib/tilgangslesning'
 import type { Tilgangsoppsett } from '@/lib/tilgang'
+import {
+  flettRoller,
+  tolkRollefunn,
+  type RåRollefunn,
+  type Rollefunn,
+  type SystemRolle,
+} from '@/lib/rollefunn'
 import type { System, TilgangsRad, Tilgangsvei } from '@/lib/typer'
 import 'server-only'
 
@@ -56,6 +64,9 @@ export type Brukerliste = {
   /** Satt når spørringen traff grensen. Uten dette flagget ser en avkortet
       liste ut som en komplett liste. */
   avkortet: boolean
+  /** Rollene systemet selv tillater og bruker. Null når de ikke kunne leses –
+      da er registeret alt nedtrekkslisten har. Se src/lib/rollefunn.ts. */
+  rollefunn: Rollefunn | null
 }
 
 /**
@@ -82,6 +93,7 @@ export async function hentBrukereISystem(
     merknad: null,
     veier,
     avkortet: false,
+    rollefunn: null,
   }
 
   if (!system.supabaseProsjektRef) {
@@ -92,15 +104,16 @@ export async function hentBrukereISystem(
   const token = tokenFor(await hentTokenKart(), system.kontoId)
   const ref = system.supabaseProsjektRef
   const tilgangsspørring = byggTilgangsspørring(veier)
+  const rollespørring = byggRollespørring(veier)
 
   /*
-   * De to kallene går SAMTIDIG.
+   * Kallene går SAMTIDIG.
    *
    * Sekvensielt ville hvert system fått to rundturer etter hverandre, og med
    * sju systemer er det sju ekstra ventetider på rad. Slik er veggklokka den
    * samme som med ett kall – det er antallet som dobles, ikke tiden.
    */
-  const [kontoSvar, tilgangSvar] = await Promise.all([
+  const [kontoSvar, tilgangSvar, rolleSvar] = await Promise.all([
     lesSpørring<RåKonto>(token, ref, SPØRRING_KONTOER),
     tilgangsspørring
       ? lesSpørring<RåTilgang>(
@@ -109,6 +122,9 @@ export async function hentBrukereISystem(
           tilgangsspørring.sql,
           tilgangsspørring.parametre,
         )
+      : Promise.resolve(null),
+    rollespørring
+      ? lesSpørring<RåRollefunn>(token, ref, rollespørring.sql, rollespørring.parametre)
       : Promise.resolve(null),
   ])
 
@@ -131,6 +147,9 @@ export async function hentBrukereISystem(
       feil: null,
       avkortet: kontoSvar.data.length >= GRENSE,
       rader: flettRader(kontoSvar.data, tilgangSvar?.data ?? [], veier),
+      // Feiler rollene alene, vises systemet likevel. De er en hjelp til
+      // nedtrekkslisten, ikke grunnlaget for hva matrisen påstår.
+      rollefunn: rolleSvar?.ok ? tolkRollefunn(rolleSvar.data) : null,
     }
   }
 
@@ -178,7 +197,13 @@ async function hentMedServiceRole(
   const fremmed = await lagFremmedKlient(system.id)
   if (!fremmed.ok) return null
 
-  const grunn = { system, kilde: 'service_role' as const, veier, avkortet: false }
+  const grunn = {
+    system,
+    kilde: 'service_role' as const,
+    veier,
+    avkortet: false,
+    rollefunn: null,
+  }
 
   const [kontoer, tilganger] = await Promise.all([
     fremmed.klient.auth.admin.listUsers({ page: 1, perPage: GRENSE }),
@@ -221,7 +246,24 @@ async function hentMedServiceRole(
     }
   })
 
-  return { ...grunn, rader: flettRader(råKontoer, tilganger, veier), feil: null }
+  /*
+   * PostgREST når ikke pg_constraint, så CHECK-regelen er ukjent her. Rollene
+   * som står i tabellen er likevel bedre enn ingenting: det er nettopp de
+   * nedtrekkslisten må kjenne for å ikke starte på feil rolle.
+   */
+  const skrivVei = veier.find((v) => v.kanSkrive)?.etikett
+  const iBruk = new Map<string, number>()
+  for (const t of tilganger) {
+    if (t.vei !== skrivVei || t.slag !== 'tilgang' || !t.rolle) continue
+    iBruk.set(t.rolle, (iBruk.get(t.rolle) ?? 0) + 1)
+  }
+
+  return {
+    ...grunn,
+    rader: flettRader(råKontoer, tilganger, veier),
+    feil: null,
+    rollefunn: { lovlige: null, iBruk },
+  }
 }
 
 /**
@@ -300,13 +342,28 @@ export async function hentAlleBrukere(
   {
     brukReserve,
     oppsett,
-  }: { brukReserve: boolean; oppsett: Map<string, Tilgangsoppsett[]> },
-): Promise<{ lister: Brukerliste[]; hentetMs: number }> {
+    registrerteRoller,
+  }: {
+    brukReserve: boolean
+    oppsett: Map<string, Tilgangsoppsett[]>
+    registrerteRoller: Map<string, SystemRolle[]>
+  },
+): Promise<{
+  lister: (Brukerliste & { roller: SystemRolle[] })[]
+  hentetMs: number
+}> {
   const medDatabase = systemer.filter((s) => s.supabaseProsjektRef)
   const lister = await Promise.all(
-    medDatabase.map((s) =>
-      hentBrukereISystem(s, { brukReserve, veier: oppsett.get(s.id) ?? [] }),
-    ),
+    medDatabase.map(async (s) => {
+      const liste = await hentBrukereISystem(s, {
+        brukReserve,
+        veier: oppsett.get(s.id) ?? [],
+      })
+      return {
+        ...liste,
+        roller: flettRoller(registrerteRoller.get(s.id) ?? [], liste.rollefunn),
+      }
+    }),
   )
   return { lister, hentetMs: Date.now() }
 }

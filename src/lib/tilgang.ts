@@ -3,6 +3,8 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { hentTokenKart, tokenFor } from '@/lib/kontoar'
 import { lesSpørring, skrivSpørring } from '@/lib/plattform/supabase-api'
 import { lagFremmedKlient } from '@/lib/supabase/fremmed'
+import { flettRoller, tolkRollefunn, type RåRollefunn, type SystemRolle } from '@/lib/rollefunn'
+import { byggRollespørring } from '@/lib/tilgangslesning'
 import 'server-only'
 
 /* ═══════════════════════════════════════════════════════════
@@ -91,12 +93,7 @@ export type Tilgangsoppsett = {
   notat: string | null
 }
 
-export type SystemRolle = {
-  verdi: string
-  etikett: string
-  beskrivelse: string | null
-  erStandard: boolean
-}
+export type { SystemRolle }
 
 /**
  * Veien adminbordet får SKRIVE i for et system, om noen.
@@ -184,25 +181,54 @@ export async function hentAlleTilgangsoppsett(): Promise<
   return kart
 }
 
-/** Rollene som finnes i et system, til nedtrekkslisten. */
-export async function hentSystemRoller(
-  systemId: string,
-): Promise<SystemRolle[]> {
-  const { data } = await supabaseAdmin
-    .from('system_roller')
-    .select('verdi, etikett, beskrivelse, er_standard')
-    .eq('system_id', systemId)
-    .order('sortering')
+/**
+ * Rollene en server action skal godta for et system: registeret, rettet etter
+ * det systemet selv tillater og bruker. Samme fletting som matrisen viser, så
+ * en rolle man kan velge i listen også godtas når skjemaet sendes.
+ *
+ * Kunne ikke systemet leses, er registeret fasiten – som før.
+ */
+export async function hentGyldigeRoller({
+  systemId,
+  prosjektRef,
+  kontoId,
+}: {
+  systemId: string
+  prosjektRef: string | null
+  kontoId: string | null
+}): Promise<SystemRolle[]> {
+  const [{ data }, veier, tokens] = await Promise.all([
+    supabaseAdmin
+      .from('system_roller')
+      .select('verdi, etikett, beskrivelse, er_standard')
+      .eq('system_id', systemId)
+      .order('sortering'),
+    hentTilgangsveier(systemId),
+    hentTokenKart(),
+  ])
 
-  return (data ?? []).map((r) => ({
+  const registrerte = (data ?? []).map((r) => tolkRolle(r))
+  const spørring = byggRollespørring(veier)
+  const token = tokenFor(tokens, kontoId)
+  if (!spørring || !prosjektRef || !token) return registrerte
+
+  const svar = await lesSpørring<RåRollefunn>(token, prosjektRef, spørring.sql, spørring.parametre)
+  return flettRoller(registrerte, svar.ok ? tolkRollefunn(svar.data) : null)
+}
+
+function tolkRolle(r: Record<string, unknown>): SystemRolle {
+  return {
     verdi: r.verdi as string,
     etikett: r.etikett as string,
     beskrivelse: r.beskrivelse as string | null,
     erStandard: r.er_standard as boolean,
-  }))
+    ny: false,
+    iBruk: null,
+  }
 }
 
-/** Rollene for ALLE systemer på én gang, til matrisen. */
+/** Registerets roller for ALLE systemer på én gang. Flettes med det
+    systemene selv har i src/lib/brukere.ts. */
 export async function hentAlleRoller(): Promise<Map<string, SystemRolle[]>> {
   const { data } = await supabaseAdmin
     .from('system_roller')
@@ -213,17 +239,22 @@ export async function hentAlleRoller(): Promise<Map<string, SystemRolle[]>> {
   for (const r of data ?? []) {
     const id = r.system_id as string
     if (!kart.has(id)) kart.set(id, [])
-    kart.get(id)!.push({
-      verdi: r.verdi as string,
-      etikett: r.etikett as string,
-      beskrivelse: r.beskrivelse as string | null,
-      erStandard: r.er_standard as boolean,
-    })
+    kart.get(id)!.push(tolkRolle(r))
   }
   return kart
 }
 
-export type TilgangResultat = { ok: true; melding: string } | { ok: false; feil: string }
+/**
+ * `kode` skiller «det fantes ingenting å fjerne» fra en ekte feil.
+ *
+ * Slettingen leste før feilteksten for å finne ut av det, og kjente bare igjen
+ * to av formuleringene. «Ingen rad traff» – som er svaret for hver konto uten
+ * tilgangsrad – stoppet derfor slettingen, akkurat for de kontoene man helst
+ * vil rydde bort.
+ */
+export type TilgangResultat =
+  | { ok: true; melding: string }
+  | { ok: false; feil: string; kode?: 'ingen_vei' | 'ingen_rad' }
 
 /**
  * Slår opp auth-id-en til en e-post i et annet system, med SQL.
@@ -623,6 +654,19 @@ function lagPassord(): string {
 }
 
 /**
+ * Vilkåret som finner personens rad, med verdien i $1.
+ *
+ * E-post sammenlignes uten store og små bokstaver. Lesingen gjør det alt, så
+ * en rad appen selv lagret som «Ola@…» vises i matrisen – og da må den også
+ * kunne endres og fjernes herfra, ikke svare «ingen rad traff».
+ */
+function nøkkelVilkår(oppsett: Tilgangsoppsett, brukerKol: string): string {
+  return oppsett.brukerNokkel === 'epost'
+    ? `lower(${brukerKol}::text) = lower($1)`
+    : `${brukerKol}::text = $1`
+}
+
+/**
  * Oppdaterer rolle og aktiv på en rad som alt finnes.
  *
  * Egen funksjon fordi den bare kalles når insert-en traff en konflikt, og
@@ -667,7 +711,7 @@ async function oppdaterEksisterende({
     }
   }
 
-  let vilkår = `${brukerKol}::text = $1`
+  let vilkår = nøkkelVilkår(oppsett, brukerKol)
   if (oppsett.tenantKolonne) {
     verdier.push(oppsett.tenantVerdi)
     vilkår += ` and ${trygtNavn(oppsett.tenantKolonne, 'tenant-kolonne')}::text = $${verdier.length}`
@@ -719,12 +763,14 @@ export async function taBortTilgang({
   if (!oppsett) {
     return {
       ok: false,
+      kode: 'ingen_vei',
       feil: 'Systemet har ingen tilgangsvei adminbordet får skrive i, så det finnes ingen rad å fjerne.',
     }
   }
   if (oppsett.modell === 'kun_konto' || !oppsett.tabell) {
     return {
       ok: false,
+      kode: 'ingen_vei',
       feil: `${oppsett.etikett}: alle med konto har full tilgang i dette systemet. Det finnes ingen tilgangsrad å fjerne – kontoen må sperres eller slettes i stedet.`,
     }
   }
@@ -751,14 +797,20 @@ export async function taBortTilgang({
     const oppslag = await finnAuthId(token, prosjektRef, epost)
     if (!oppslag.ok) return { ok: false, feil: oppslag.feil }
     if (!oppslag.id) {
-      return { ok: false, feil: `Fant ingen bruker med ${epost} i systemet.` }
+      return {
+        ok: false,
+        kode: 'ingen_rad',
+        feil: `Fant ingen bruker med ${epost} i systemet.`,
+      }
     }
     brukerVerdi = oppslag.id
   }
 
-  const vilkår = oppsett.tenantKolonne
-    ? `${brukerKol} = $1 and ${trygtNavn(oppsett.tenantKolonne, 'tenant-kolonne')} = $2`
-    : `${brukerKol} = $1`
+  const vilkår = `${nøkkelVilkår(oppsett, brukerKol)}${
+    oppsett.tenantKolonne
+      ? ` and ${trygtNavn(oppsett.tenantKolonne, 'tenant-kolonne')}::text = $2`
+      : ''
+  }`
   const parametre: unknown[] = oppsett.tenantKolonne
     ? [brukerVerdi, oppsett.tenantVerdi]
     : [brukerVerdi]
@@ -783,6 +835,7 @@ export async function taBortTilgang({
   if (svar.data.length === 0) {
     return {
       ok: false,
+      kode: 'ingen_rad',
       feil: `Ingen rad i ${skjema}.${tabell} traff ${epost}. Tilgangen kan ligge under en annen nøkkel enn adminbordet leter etter${oppsett.tenantKolonne ? ', eller hos en annen kunde' : ''} – ingenting er endret.`,
     }
   }

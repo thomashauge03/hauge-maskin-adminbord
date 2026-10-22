@@ -3,7 +3,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { krevAdmin } from '@/lib/auth'
 import { hentSystemer } from '@/lib/data'
-import { Kort, KortTittel, Seksjonstittel, TomTilstand } from '@/components/ui'
+import { Seksjonstittel, TomTilstand } from '@/components/ui'
 import { Brukerliste, BrukerlisteSkjelett } from './brukerliste'
 import { NyBruker } from './ny-bruker'
 
@@ -41,11 +41,18 @@ export default async function BrukereSide() {
         </TomTilstand>
       ) : (
         <>
+          {/* Lukket til man ber om det: å legge inn en helt ny person er
+              sjeldent, og skjemaet sto før over det man kom for. Personer som
+              alt finnes et sted, får tilgang fra personpanelet. */}
           {meg.rolle === 'eier' && (
-            <Kort>
-              <KortTittel>Ny bruker i et system</KortTittel>
-              <NyBruker systemer={medDatabase} />
-            </Kort>
+            <details className="border-2 border-[var(--kant)] bg-[var(--flate-opp)]">
+              <summary className="flex min-h-11 cursor-pointer items-center px-4 py-2.5 text-sm font-semibold">
+                + Ny bruker i et system
+              </summary>
+              <div className="border-t-2 border-[var(--kant)]">
+                <NyBruker systemer={medDatabase} />
+              </div>
+            </details>
           )}
 
           <Suspense fallback={<BrukerlisteSkjelett />}>

@@ -1,49 +1,10 @@
-import {
-  hentAlleBrukere,
-  samlePåEpost,
-  type Brukerliste as Systemliste,
-  type SamletPerson,
-} from '@/lib/brukere'
+import { hentAlleBrukere, samlePåEpost } from '@/lib/brukere'
 import type { System } from '@/lib/typer'
-import { Feilstripe, Kort, KortTittel, Merke, Tallkort } from '@/components/ui'
-import { visSiden } from '@/lib/format'
-import { settSperret, slettBrukerISystem } from './actions'
-import { giTilgangTilSystem, taBortTilgangFraSystem } from './tilgang-actions'
-import { TilgangsCelle, TilgangsMerket } from './tilgangs-celle'
-import { Personsok } from './personsok'
+import { Feilstripe, Kort, KortTittel, Merke, Snurr, Tallkort } from '@/components/ui'
 import { hentAlleRoller, hentAlleTilgangsoppsett } from '@/lib/tilgang'
-import { tilgangsmerke, type Tilgangsmerke } from '@/lib/tilgangsmerke'
-import { BrukerHandlinger } from './bruker-handlinger'
-
-/** Det drift ser: merket, og på telefon forklaringen som tekst – der finnes
-    ingen hover-tekst. */
-function Tilgangsvisning({
-  merke,
-  systemNavn,
-  visning,
-}: {
-  merke: Tilgangsmerke
-  systemNavn: string
-  visning: 'celle' | 'rad'
-}) {
-  if (visning === 'celle') {
-    return (
-      <span title={merke.forklaring}>
-        <TilgangsMerket merke={merke} />
-      </span>
-    )
-  }
-
-  return (
-    <div className="px-4 py-3">
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-sm font-semibold">{systemNavn}</span>
-        <TilgangsMerket merke={merke} />
-      </div>
-      <p className="mt-1 text-xs text-[var(--blekk-svak)]">{merke.forklaring}</p>
-    </div>
-  )
-}
+import { tilgangsmerke } from '@/lib/tilgangsmerke'
+import { Tilgangsmatrise } from './tilgangsmatrise'
+import type { CelleVisning, PersonVisning, SystemVisning } from './visning'
 
 /**
  * Kontoer og tilgang i alle systemene. Egen komponent bak en Suspense-grense
@@ -57,14 +18,14 @@ export async function Brukerliste({
   erEier: boolean
 }) {
   /*
-   * Én bølge, tre kall mot navet, så én runde mot prosjektene.
+   * Én bølge, to kall mot navet, så én runde mot prosjektene.
    *
    * Oppsettet MÅ være hentet før prosjektene spørres, siden det er det som
    * bestemmer spørringen – men det er ett kall for alle systemene, ikke ett
-   * per system slik det var før. Rollene hentes samtidig fordi ingenting
-   * venter på dem.
+   * per system slik det var før. Rollene i hvert system hentes i den samme
+   * runden mot prosjektene, ikke i en egen etterpå.
    */
-  const [oppsett, rollerPerSystem] = await Promise.all([
+  const [oppsett, registrerteRoller] = await Promise.all([
     hentAlleTilgangsoppsett(),
     hentAlleRoller(),
   ])
@@ -74,6 +35,7 @@ export async function Brukerliste({
   const { lister, hentetMs: naa } = await hentAlleBrukere(systemer, {
     brukReserve: erEier,
     oppsett,
+    registrerteRoller,
   })
 
   const personer = samlePåEpost(lister)
@@ -84,10 +46,14 @@ export async function Brukerliste({
   const avkortede = lister.filter((l) => l.avkortet)
   const utenOppsett = lest.filter((l) => l.veier.length === 0)
   // Systemer der tilgang ikke KAN gis herfra. For leveringseddel og rørlager
-  // er det ikke en mangel: der gir enhver konto full tilgang, så det finnes
-  // ingen rad å skrive.
+  // var det ikke en mangel: der ga enhver konto full tilgang.
   const uteSkriving = lest.filter(
     (l) => l.veier.length > 0 && !l.veier.some((v) => v.kanSkrive),
+  )
+  // Roller systemene har som registeret ikke beskriver. Sagt høyt, fordi en
+  // ny rolle i en app er nettopp det adminbordet ikke fikk med seg før.
+  const nyeRoller = lest.flatMap((l) =>
+    l.roller.filter((r) => r.ny).map((r) => `${r.verdi} i ${l.system.navn}`),
   )
 
   const antallKontoer = lest.reduce(
@@ -95,8 +61,7 @@ export async function Brukerliste({
     0,
   )
   /*
-   * Kontoer som kan logge inn uten å se noe. Dette tallet er hele grunnen til
-   * at matrisen ble bygget om: det sto som «tilgang» før.
+   * Kontoer som kan logge inn uten å se noe.
    *
    * Andre kunders brukere holdes UTENFOR. Uten det ville kortet vært
    * markedsført som ryddearbeid mens det talte Techauge- og TT
@@ -115,51 +80,63 @@ export async function Brukerliste({
     0,
   )
 
-  /*
-   * Én celle, bygget ett sted: matrisen og lista per person viser den samme.
-   * To kopier av propsene til TilgangsCelle ville drevet fra hverandre første
-   * gang den ene ble endret.
-   */
-  function celle(p: SamletPerson, l: Systemliste, visning: 'celle' | 'rad') {
-    const rad = p.iSystem.get(l.system.slug)
-    const merke = tilgangsmerke(rad, {
-      systemNavn: l.system.navn,
-      harOppsett: l.veier.length > 0,
-    })
-
-    // Bare eier kan endre tilgang. For drift er cellen en ren visning – ingen
-    // knapp som later som.
-    if (!erEier) {
-      return <Tilgangsvisning merke={merke} systemNavn={l.system.navn} visning={visning} />
+  const systemvisning: SystemVisning[] = lest.map((l) => {
+    const skrivbar = l.veier.find((v) => v.kanSkrive)
+    return {
+      id: l.system.id,
+      navn: l.system.navn,
+      skrivbarVei: skrivbar?.etikett ?? null,
+      hvorforLaast:
+        l.veier.length === 0
+          ? `Adminbordet vet ikke hvilken tabell som avgjør tilgang i ${l.system.navn}. Legg inn tilgangsoppsett for systemet først.`
+          : (l.veier[0].notat ??
+            `Ingen av tilgangsveiene i ${l.system.navn} er merket som skrivbar.`),
+      roller: l.roller,
+      krevArPassord: skrivbar?.brukerNokkel === 'auth_id',
     }
+  })
 
-    return (
-      <TilgangsCelle
-        visning={visning}
-        epost={p.epost}
-        navn={p.epost.split('@')[0]}
-        systemNavn={l.system.navn}
-        merke={merke}
-        harTilgang={rad?.harTilgang === true}
-        naavaerendeRolle={rad?.rolle ?? null}
-        harKonto={rad?.harKonto ?? false}
-        skrivbarVei={l.veier.find((v) => v.kanSkrive)?.etikett ?? null}
-        hvorforLaast={
-          l.veier.length === 0
-            ? `Adminbordet vet ikke hvilken tabell som avgjør tilgang i ${l.system.navn}. Legg inn tilgangsoppsett for systemet først.`
-            : (l.veier[0].notat ??
-              `Ingen av tilgangsveiene i ${l.system.navn} er merket som skrivbar.`)
-        }
-        roller={rollerPerSystem.get(l.system.id) ?? []}
-        krevArPassord={l.veier.find((v) => v.kanSkrive)?.brukerNokkel === 'auth_id'}
-        gi={giTilgangTilSystem.bind(null, l.system.id)}
-        taBort={taBortTilgangFraSystem.bind(null, l.system.id, p.epost)}
-      />
-    )
-  }
+  // Ett sted bygger cellen, så matrisen og panelet viser det samme.
+  const personvisning: PersonVisning[] = personer.map((p) => {
+    const celler: Record<string, CelleVisning> = {}
+    for (const l of lest) {
+      const rad = p.iSystem.get(l.system.slug)
+      if (!rad) continue
+      celler[l.system.id] = {
+        merke: tilgangsmerke(rad, {
+          systemNavn: l.system.navn,
+          harOppsett: l.veier.length > 0,
+        }),
+        harTilgang: rad.harTilgang === true,
+        deaktivert: rad.tilgangAktiv === false,
+        rolle: rad.rolle,
+        harKonto: rad.harKonto,
+        authId: rad.authId,
+        kontoSperret: rad.kontoAktiv === false,
+        annenKundesKonto: rad.annenKunde > 0 && !rad.harTilgang,
+        sistInnlogget: rad.sistInnlogget,
+      }
+    }
+    return {
+      epost: p.epost,
+      antallMedTilgang: p.antallMedTilgang,
+      sistInnlogget: p.sistInnlogget,
+      celler,
+    }
+  })
+
+  // Rader uten e-post – telefoninnlogging, eller en tilgangsrad som peker på
+  // en slettet konto – samles ikke på person, så de ville ellers vært usynlige.
+  const utenEpost = lest.flatMap((l) =>
+    (l.rader ?? []).filter((r) => !r.epost).map((r) => ({ system: l.system.navn, rad: r })),
+  )
+
+  const merknader = medReserve.length + utenOppsett.length + uteSkriving.length
 
   return (
     <div className="space-y-6">
+      {/* Feil står åpent og først. En kolonne som mangler fordi systemet ikke
+          svarte, ser ellers ut som et system uten brukere. */}
       {feilende.length > 0 && (
         <Feilstripe tittel={`Kunne ikke lese ${feilende.length} system`}>
           <ul className="space-y-0.5">
@@ -183,64 +160,93 @@ export async function Brukerliste({
         </Feilstripe>
       )}
 
-      {/* Systemer som kom fram på reserveveien. Ikke en feil – listen er
-          riktig – men det forklarer hvorfor databasestatus mangler for
-          nettopp disse, og det er verdt å si framfor å la det se
-          tilfeldig ut. */}
-      {medReserve.length > 0 && (
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Tallkort merkelapp="Personer" verdi={personer.length} under="unike e-poster" />
+        <Tallkort
+          merkelapp="Med tilgang"
+          verdi={personer.filter((p) => p.antallMedTilgang > 0).length}
+          under={`av ${antallKontoer} kontoer`}
+        />
+        <Tallkort merkelapp="Kun konto" verdi={kunKonto} under="kan logge inn, ser ingenting" />
+        <Tallkort
+          merkelapp="I flere systemer"
+          verdi={personer.filter((p) => p.antallMedTilgang > 1).length}
+          under="har flere passord i dag"
+        />
+      </div>
+
+      {nyeRoller.length > 0 && (
+        <p className="border-l-4 border-hm-amber bg-hm-amber/10 px-3 py-2 text-sm">
+          <strong>Nye roller funnet:</strong> {nyeRoller.join(', ')}. De kan velges
+          allerede, men har ingen beskrivelse i adminbordet ennå.
+        </p>
+      )}
+
+      <Tilgangsmatrise
+        personer={personvisning}
+        systemer={systemvisning}
+        erEier={erEier}
+        naa={naa}
+        lest={`${lest.length}/${lister.length} system lest`}
+      />
+
+      {annenKunde > 0 && (
+        <p className="text-xs text-[var(--blekk-svak)]">
+          {annenKunde} konto{annenKunde > 1 ? 'er' : ''} hører til andre kunder i en
+          delt base og er ikke vårt ryddearbeid. De er merket «annen kunde», og
+          innloggingen deres kan ikke sperres eller slettes herfra.
+        </p>
+      )}
+
+      {utenEpost.length > 0 && (
         <Kort>
-          <KortTittel
-            handling={<Merke type="gul">{medReserve.length} system</Merke>}
-          >
-            Lest med systemets egen nøkkel
+          <KortTittel handling={<Merke type="gul">{utenEpost.length}</Merke>}>
+            Rader uten e-post
           </KortTittel>
           <ul className="divide-y divide-[var(--kant)]">
-            {medReserve.map((l) => (
-              <li key={l.system.id} className="px-4 py-2.5">
-                <p className="text-sm font-semibold">{l.system.navn}</p>
-                <p className="mt-0.5 text-xs text-[var(--blekk-svak)]">
-                  {l.merknad}
-                </p>
+            {utenEpost.map(({ system, rad }) => (
+              <li key={`${system}-${rad.authId}`} className="px-4 py-2.5 text-sm">
+                <strong>{system}:</strong>{' '}
+                <span className="hm-kode">{rad.authId ?? 'ukjent id'}</span>
+                <span className="block text-xs text-[var(--blekk-svak)]">
+                  {rad.harKonto
+                    ? 'Konto uten e-post, typisk telefoninnlogging.'
+                    : 'Tilgangsraden peker på en auth-bruker som ikke finnes. Sannsynligvis en slettet konto.'}
+                </span>
               </li>
             ))}
           </ul>
         </Kort>
       )}
 
-      {/* Systemer der tilgang ikke KAN leses. Uten denne stripa ser en
-          kolonne full av «konto» ut som et svar, og den er et spørsmål. */}
-      {utenOppsett.length > 0 && (
-        <Kort>
-          <KortTittel
-            handling={<Merke type="nøytral">{utenOppsett.length} system</Merke>}
-          >
-            Tilgangsmodell ukjent
-          </KortTittel>
-          <div className="px-4 py-2.5 text-sm text-[var(--blekk-svak)]">
-            <p>
-              {utenOppsett.map((l) => l.system.navn).join(', ')} mangler
-              tilgangsoppsett, så adminbordet vet ikke hvilken tabell som
-              avgjør tilgang der. Kolonnene viser bare om personen har en
-              konto – ikke om kontoen gir tilgang.
-            </p>
-          </div>
-        </Kort>
-      )}
-
-      {/* Systemer der tilgang ikke kan STYRES herfra. Egen stripe, fordi det
-          ikke er en mangel i adminbordet: i to av systemene gir enhver konto
-          full tilgang, og da finnes det ingen rad å skrive. */}
-      {uteSkriving.length > 0 && (
-        <Kort>
-          <KortTittel
-            handling={<Merke type="gul">{uteSkriving.length} system</Merke>}
-          >
-            Tilgang kan ikke gis herfra
-          </KortTittel>
-          <ul className="divide-y divide-[var(--kant)]">
+      {/* Bakgrunn, ikke beskjeder. Lå før som tre åpne kort over matrisen og
+          dyttet det man kom for under skjermkanten. */}
+      {merknader > 0 && (
+        <details className="border-2 border-[var(--kant)] bg-[var(--flate-opp)]">
+          <summary className="flex min-h-11 cursor-pointer items-center justify-between gap-3 px-4 py-2.5 text-sm font-semibold">
+            Om systemene
+            <Merke>{merknader} merknad{merknader > 1 ? 'er' : ''}</Merke>
+          </summary>
+          <ul className="divide-y divide-[var(--kant)] border-t-2 border-[var(--kant)] text-sm">
+            {medReserve.map((l) => (
+              <li key={`reserve-${l.system.id}`} className="px-4 py-2.5">
+                <p className="font-semibold">{l.system.navn}: lest med systemets egen nøkkel</p>
+                <p className="mt-0.5 text-xs text-[var(--blekk-svak)]">{l.merknad}</p>
+              </li>
+            ))}
+            {utenOppsett.map((l) => (
+              <li key={`ukjent-${l.system.id}`} className="px-4 py-2.5">
+                <p className="font-semibold">{l.system.navn}: tilgangsmodell ukjent</p>
+                <p className="mt-0.5 text-xs text-[var(--blekk-svak)]">
+                  Adminbordet vet ikke hvilken tabell som avgjør tilgang her.
+                  Kolonnen viser bare om personen har en konto – ikke om kontoen
+                  gir tilgang.
+                </p>
+              </li>
+            ))}
             {uteSkriving.map((l) => (
-              <li key={l.system.id} className="px-4 py-2.5">
-                <p className="text-sm font-semibold">{l.system.navn}</p>
+              <li key={`ute-${l.system.id}`} className="px-4 py-2.5">
+                <p className="font-semibold">{l.system.navn}: tilgang kan ikke gis herfra</p>
                 <ul className="mt-0.5 space-y-0.5 text-xs text-[var(--blekk-svak)]">
                   {l.veier.map((v) => (
                     <li key={v.id}>
@@ -251,279 +257,19 @@ export async function Brukerliste({
               </li>
             ))}
           </ul>
-        </Kort>
+        </details>
       )}
-
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Tallkort
-          merkelapp="Personer"
-          verdi={personer.length}
-          under="unike e-poster"
-        />
-        <Tallkort
-          merkelapp="Med tilgang"
-          verdi={personer.filter((p) => p.antallMedTilgang > 0).length}
-          under={`av ${antallKontoer} kontoer`}
-        />
-        <Tallkort
-          merkelapp="Kun konto"
-          verdi={kunKonto}
-          under="kan logge inn, ser ingenting"
-        />
-        <Tallkort
-          merkelapp="I flere systemer"
-          verdi={personer.filter((p) => p.antallMedTilgang > 1).length}
-          under="har flere passord i dag"
-        />
-      </div>
-
-      {/* ── Matrisen ──
-          Personer nedover, systemer bortover. Dette er visningen som
-          svarer på «hvem har tilgang til hva», og den som viser hvor
-          mange passord den felles innloggingen faktisk vil erstatte.
-          Den trenger rundt 150 px per system; under lg er lista per
-          person svaret. */}
-      <Kort>
-        <KortTittel
-          handling={
-            <span className="text-xs text-[var(--blekk-svak)]">
-              {lest.length}/{lister.length} system lest
-            </span>
-          }
-        >
-          Hvem har tilgang hvor
-        </KortTittel>
-        {annenKunde > 0 && (
-          <p className="border-b border-[var(--kant)] px-4 py-2 text-xs text-[var(--blekk-svak)]">
-            {annenKunde} konto{annenKunde > 1 ? 'er' : ''} hører til andre
-            kunder i en delt base og er ikke vårt ryddearbeid. De er merket
-            «annen kunde», og innloggingen deres kan ikke sperres eller slettes
-            herfra.
-          </p>
-        )}
-        <div className="hidden overflow-x-auto lg:block">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b-2 border-[var(--kant)]">
-                <th className="sticky left-0 z-10 bg-[var(--flate-opp)] px-4 py-2 text-left text-xs font-bold tracking-widest uppercase">
-                  E-post
-                </th>
-                {lest.map((l) => (
-                  <th
-                    key={l.system.id}
-                    scope="col"
-                    className="px-2 py-2 text-center text-xs font-bold tracking-widest uppercase"
-                  >
-                    {l.system.navn}
-                  </th>
-                ))}
-                <th className="px-4 py-2 text-right text-xs font-bold tracking-widest uppercase">
-                  Sist inne
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {personer.map((p) => (
-                <tr
-                  key={p.epost}
-                  className="border-b border-[var(--kant)] last:border-b-0"
-                >
-                  {/* Står fast ved sidelengs rulling – også på PC, når
-                      systemene blir flere enn skjermen rommer. */}
-                  <th
-                    scope="row"
-                    className="sticky left-0 z-10 bg-[var(--flate-opp)] px-4 py-2 text-left font-semibold"
-                  >
-                    {p.epost}
-                  </th>
-                  {lest.map((l) => (
-                    <td
-                      key={l.system.id}
-                      className={`px-2 py-2 text-center ${erEier ? 'align-top' : ''}`}
-                    >
-                      {celle(p, l, 'celle')}
-                    </td>
-                  ))}
-                  <td className="hm-tall px-4 py-2 text-right text-xs text-[var(--blekk-svak)]">
-                    {visSiden(p.sistInnlogget, naa)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="lg:hidden">
-          <Personsok
-            personer={personer.map((p) => ({
-              epost: p.epost,
-              innhold: (
-                <details className="group">
-                  <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
-                    <span className="min-w-0">
-                      <span className="block font-semibold break-all">{p.epost}</span>
-                      <span className="block text-xs text-[var(--blekk-svak)]">
-                        Tilgang i {p.antallMedTilgang} av {lest.length} systemer
-                        {p.sistInnlogget ? ` · sist inne ${visSiden(p.sistInnlogget, naa)}` : ''}
-                      </span>
-                    </span>
-                    <span
-                      aria-hidden="true"
-                      className="text-lg text-[var(--blekk-svak)] transition-transform group-open:rotate-90"
-                    >
-                      ›
-                    </span>
-                  </summary>
-                  <ul className="border-t border-[var(--kant)] bg-[var(--flate-2)]">
-                    {lest.map((l) => (
-                      <li
-                        key={l.system.id}
-                        className="border-b border-[var(--kant)] last:border-b-0"
-                      >
-                        {celle(p, l, 'rad')}
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              ),
-            }))}
-          />
-        </div>
-      </Kort>
-
-      {/* ── Per system, med handlinger ── */}
-      {erEier &&
-        lest.map((l) => {
-          const rader = l.rader ?? []
-          const kontoer = rader.filter((r) => r.harKonto)
-          // Tilgang uten konto: personen er lagt inn men har aldri registrert
-          // seg. Vanlig i de e-postnøklede appene, og usynlig før.
-          const utenKonto = rader.filter((r) => !r.harKonto && r.harTilgang)
-
-          return (
-            <Kort key={l.system.id}>
-              <KortTittel
-                handling={
-                  <span className="text-xs text-[var(--blekk-svak)]">
-                    {kontoer.length} kontoer
-                    {l.veier.length > 0 && (
-                      <>
-                        {' · '}
-                        {rader.filter((r) => r.harTilgang).length} med tilgang
-                      </>
-                    )}
-                  </span>
-                }
-              >
-                {l.system.navn}
-              </KortTittel>
-
-              {kontoer.length === 0 && utenKonto.length === 0 ? (
-                <p className="px-4 py-3 text-sm text-[var(--blekk-svak)]">
-                  Ingen kontoer og ingen tilgangsrader i dette systemet.
-                </p>
-              ) : (
-                <ul>
-                  {kontoer.map((r) => {
-                    const merke = tilgangsmerke(r, {
-                      systemNavn: l.system.navn,
-                      harOppsett: l.veier.length > 0,
-                    })
-                    return (
-                      <li
-                        key={r.authId ?? r.epost}
-                        className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--kant)] px-4 py-2 first:border-t-0"
-                      >
-                        <span className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-semibold">
-                            {r.epost ?? '(uten e-post)'}
-                          </span>
-                          <span title={merke.forklaring}>
-                            <Merke type={merke.merke}>{merke.tekst}</Merke>
-                          </span>
-                          {r.epostBekreftet === false && (
-                            <Merke type="gul">ubekreftet</Merke>
-                          )}
-                          <span className="text-xs text-[var(--blekk-svak)]">
-                            sist inne {visSiden(r.sistInnlogget, naa)}
-                          </span>
-                        </span>
-
-                        {/* ── Tenant-vakt ──
-                            auth.users er DELT mellom kundene i et
-                            flerkundesystem. Hører kontoen til en annen kunde og
-                            har ingen tilgang hos oss, er verken sperring eller
-                            sletting vår å gjøre – og «Slett» kaller
-                            deleteUser i en produksjonsbase. Knappene ble
-                            tilbudt for hver konto før. */}
-                        {r.authId && r.annenKunde > 0 && !r.harTilgang ? (
-                          <span className="max-w-md text-right text-xs text-[var(--blekk-svak)]">
-                            Tilhører en annen kunde i den delte basen. Sperring
-                            og sletting av innloggingen hører hos dem, ikke hos
-                            oss.
-                          </span>
-                        ) : null}
-
-                        {/* Måltilstanden for sperring bindes her, der vi vet
-                            hva kontoen står i nå – ikke som en veksling i
-                            nettleseren, som bommer hvis siden ble hentet før
-                            noen andre endret kontoen. */}
-                        {r.authId && !(r.annenKunde > 0 && !r.harTilgang) && (
-                          <BrukerHandlinger
-                            systemId={l.system.id}
-                            brukerId={r.authId}
-                            epost={r.epost ?? r.authId}
-                            sperret={r.kontoAktiv === false}
-                            settSperret={settSperret.bind(
-                              null,
-                              l.system.id,
-                              r.authId,
-                              r.kontoAktiv !== false,
-                            )}
-                            slett={slettBrukerISystem.bind(
-                              null,
-                              l.system.id,
-                              r.authId,
-                              r.epost ?? '',
-                            )}
-                          />
-                        )}
-                      </li>
-                    )
-                  })}
-
-                  {utenKonto.map((r) => (
-                    <li
-                      key={`utenkonto-${r.epost ?? r.authId}`}
-                      className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--kant)] px-4 py-2"
-                    >
-                      <span className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-semibold">
-                          {r.epost ?? `(foreldreløs rad: ${r.authId})`}
-                        </span>
-                        <Merke type="gul">
-                          {r.rolle ?? 'tilgang'} · ingen konto
-                        </Merke>
-                      </span>
-                      <span className="text-xs text-[var(--blekk-svak)]">
-                        {r.epost
-                          ? 'Tilgangen er lagt inn, men personen har ikke registrert seg. Den virker fra første innlogging.'
-                          : 'Tilgangsraden peker på en auth-bruker som ikke finnes. Sannsynligvis en slettet konto.'}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Kort>
-          )
-        })}
     </div>
   )
 }
 
 export function BrukerlisteSkjelett() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" aria-busy="true">
+      <p className="flex items-center gap-2 text-sm text-[var(--blekk-svak)]">
+        <Snurr />
+        Henter brukere fra alle systemene …
+      </p>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {Array.from({ length: 4 }, (_, i) => (
           <div

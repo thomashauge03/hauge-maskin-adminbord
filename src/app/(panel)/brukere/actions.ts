@@ -82,6 +82,18 @@ export async function opprettBrukerISystem(
   }
 }
 
+const sperrSkjema = z.object({
+  systemId: z.uuid(),
+  brukerId: z.uuid(),
+  sperret: z.enum(['ja', 'nei']),
+})
+
+const slettSkjema = z.object({
+  systemId: z.uuid(),
+  brukerId: z.uuid(),
+  epost: z.string().trim(),
+})
+
 const passordSkjema = z.object({
   systemId: z.string().uuid(),
   brukerId: z.string().uuid(),
@@ -119,7 +131,8 @@ export async function settPassordISystem(
     detaljer: { brukerId: felter.data.brukerId },
   })
 
-  revalidatePath('/brukere')
+  // Ingen revalidatePath: et nytt passord endrer ingenting lista viser, og en
+  // ny runde mot alle systemene ville bare holdt knappen på «Setter …».
   return { ok: 'Passordet er endret. Formidle det til brukeren selv.' }
 }
 
@@ -135,18 +148,24 @@ export async function settPassordISystem(
  * bruker som finnes. Sletting finnes også – se slettBrukerISystem – men
  * den etterlater referanser ingen kan tyde, og bør være unntaket.
  *
- * `sperret` er MÅLtilstanden, ikke en veksling. Den regnes ut på serveren,
- * der vi vet hva kontoen står i nå – en veksling utregnet i nettleseren
- * bommer hvis siden ble hentet før noen andre endret kontoen.
+ * `sperret` er MÅLtilstanden, ikke en veksling. Skjemaet sier «sperr» eller
+ * «åpne» ut fra det siden viste – en veksling utregnet her ville snudd
+ * tilstanden tilbake hvis noen andre rakk å endre kontoen i mellomtiden.
  */
 export async function settSperret(
-  systemId: string,
-  brukerId: string,
-  sperret: boolean,
   _forrige: BrukerTilstand,
-  _formData: FormData,
+  formData: FormData,
 ): Promise<BrukerTilstand> {
   const meg = await krevEier()
+
+  const felter = sperrSkjema.safeParse({
+    systemId: formData.get('systemId'),
+    brukerId: formData.get('brukerId'),
+    sperret: formData.get('sperret'),
+  })
+  if (!felter.success) return { feil: felter.error.issues[0].message }
+  const { systemId, brukerId } = felter.data
+  const sperret = felter.data.sperret === 'ja'
 
   const fremmed = await lagFremmedKlient(systemId)
   if (!fremmed.ok) {
@@ -201,13 +220,18 @@ export async function settSperret(
  * bruker.
  */
 export async function slettBrukerISystem(
-  systemId: string,
-  brukerId: string,
-  epost: string,
   _forrige: BrukerTilstand,
-  _formData: FormData,
+  formData: FormData,
 ): Promise<BrukerTilstand> {
   const meg = await krevEier()
+
+  const felter = slettSkjema.safeParse({
+    systemId: formData.get('systemId'),
+    brukerId: formData.get('brukerId'),
+    epost: formData.get('epost') ?? '',
+  })
+  if (!felter.success) return { feil: felter.error.issues[0].message }
+  const { systemId, brukerId, epost } = felter.data
 
   const { data: system } = await supabaseAdmin
     .from('systemer')
@@ -232,14 +256,12 @@ export async function slettBrukerISystem(
    * grunnen til at rolleraden fjernes FØRST er at «tilgang uten bruker» ikke
    * skal kunne oppstå – og det var nøyaktig den tilstanden man endte i.
    *
-   * Unntaket er systemer der det ikke FINNES en rad å fjerne. Der er «ingen
-   * tilgangsvei å skrive i» det forventede svaret, ikke en feil, og kontoen
-   * ER tilgangen.
+   * Unntaket er når det ikke FINNES en rad å fjerne: systemet har ingen
+   * tilgangsvei, eller personen har bare en konto. Det siste ble lest som en
+   * feil før, og stoppet slettingen av nettopp «kun konto»-brukerne – de man
+   * oftest vil rydde bort.
    */
-  const ingenRadÅFjerne =
-    !fjernet.ok &&
-    (fjernet.feil.includes('alle med konto har full tilgang') ||
-      fjernet.feil.includes('ingen tilgangsvei'))
+  const ingenRadÅFjerne = !fjernet.ok && fjernet.kode !== undefined
 
   if (!fjernet.ok && !ingenRadÅFjerne) {
     await logg('bruker.slett_feilet', {
@@ -256,7 +278,7 @@ export async function slettBrukerISystem(
   // Hva som faktisk skjedde i steg 1, så meldingene under ikke påstår noe
   // annet. «Tilgangen er fjernet» sto her uansett utfall.
   const steg1 = ingenRadÅFjerne
-    ? 'Systemet har ingen tilgangsrad å fjerne – kontoen ER tilgangen'
+    ? 'Det fantes ingen tilgangsrad å fjerne'
     : 'Tilgangen er fjernet'
 
   // 2. Selve auth-brukeren.

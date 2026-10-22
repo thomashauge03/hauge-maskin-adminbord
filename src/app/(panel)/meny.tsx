@@ -1,6 +1,6 @@
 'use client'
 
-import Link from 'next/link'
+import Link, { useLinkStatus } from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useRef } from 'react'
 import { loggUt } from '@/app/logg-inn/actions'
@@ -51,6 +51,24 @@ function Køtall({ ventende }: { ventende: number }) {
   )
 }
 
+/**
+ * En rød strek som løper langs fanen mens siden den peker på hentes.
+ *
+ * loading.tsx dekker det meste, men ikke tiden før den vises – og på en treg
+ * forbindelse var det flere hundre millisekunder der ingenting skjedde etter
+ * trykket. Absolutt plassert, så fanen ikke endrer bredde når den slår inn.
+ */
+function Lenkeventer({ side }: { side: 'topp' | 'bunn' }) {
+  const { pending } = useLinkStatus()
+  if (!pending) return null
+  return (
+    <span
+      aria-hidden="true"
+      className={`hm-fremdrift absolute inset-x-0 ${side === 'bunn' ? '-bottom-1' : '-top-1'}`}
+    />
+  )
+}
+
 export function Meny({ ventende }: { ventende: number }) {
   const sti = usePathname()
 
@@ -65,7 +83,7 @@ export function Meny({ ventende }: { ventende: number }) {
             key={href}
             href={kø ? '/appen?status=venter' : href}
             aria-current={aktiv ? 'page' : undefined}
-            className={`hm-display border-b-4 px-4 py-3 text-sm whitespace-nowrap transition-colors ${
+            className={`hm-display relative border-b-4 px-4 py-3 text-sm whitespace-nowrap transition-colors ${
               aktiv
                 ? 'border-hm-red text-[var(--blekk)]'
                 : 'border-transparent text-[var(--blekk-svak)] hover:border-[var(--kant)] hover:text-[var(--blekk)]'
@@ -73,6 +91,7 @@ export function Meny({ ventende }: { ventende: number }) {
           >
             {tekst}
             {kø && <Køtall ventende={ventende} />}
+            <Lenkeventer side="bunn" />
           </Link>
         )
       })}
@@ -86,7 +105,7 @@ const iBunnen = ['/', '/appen', '/brukere', '/systemer'] as const
 const iMer = ['/prosjekter', '/logg', '/innstillinger'] as const
 
 const BUNNFANE =
-  'hm-display flex h-full w-full items-center justify-center border-t-4 text-xs transition-colors'
+  'hm-display relative flex h-full w-full items-center justify-center border-t-4 text-xs transition-colors'
 
 function bunnfarge(aktiv: boolean) {
   return aktiv ? 'border-hm-red text-[var(--blekk)]' : 'border-transparent text-[var(--blekk-svak)]'
@@ -141,6 +160,7 @@ export function Bunnmeny({
                 >
                   {tekstFor(href)}
                   {kø && <Køtall ventende={ventende} />}
+                  <Lenkeventer side="topp" />
                 </Link>
               </li>
             )
@@ -179,11 +199,12 @@ export function Bunnmeny({
                   href={href}
                   onClick={() => lukkPanel(mer.current)}
                   aria-current={aktiv ? 'page' : undefined}
-                  className={`hm-display flex min-h-14 items-center border-l-4 px-4 text-base ${
+                  className={`hm-display relative flex min-h-14 items-center border-l-4 px-4 text-base ${
                     aktiv ? 'border-hm-red' : 'border-transparent'
                   }`}
                 >
                   {tekstFor(href)}
+                  <Lenkeventer side="bunn" />
                 </Link>
               </li>
             )

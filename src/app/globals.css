@@ -171,6 +171,53 @@ body {
   animation: hm-sveip 1.4s linear infinite;
 }
 
+/* ── Arbeider: noe er sendt, og svaret er på vei ─────────────
+   Skjelettet sier «siden hentes». Dette sier «det du trykket på
+   jobber» – en knapp som bare ble grå, så ut som den hadde hengt seg.
+   Teksten ved siden av («Lagrer …») bærer meningen; reduced motion
+   stopper bevegelsen, ikke beskjeden. */
+@keyframes hm-snurr {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.hm-snurr {
+  display: inline-block;
+  width: 0.875em;
+  height: 0.875em;
+  flex: none;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 9999px;
+  animation: hm-snurr 0.7s linear infinite;
+}
+
+@keyframes hm-fremdrift {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+.hm-fremdrift {
+  position: relative;
+  overflow: hidden;
+  height: 3px;
+}
+.hm-fremdrift::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: var(--color-hm-red);
+  animation: hm-fremdrift 1.1s ease-in-out infinite;
+}
+
+dialog.hm-panel::backdrop {
+  background: rgb(0 0 0 / 0.45);
+}
+
 /* ── Fokus: alltid synlig, aldri fjernet ──────────────────── */
 :where(a, button, input, textarea, select, [tabindex]):focus-visible {
   outline: 3px solid var(--color-hm-red);

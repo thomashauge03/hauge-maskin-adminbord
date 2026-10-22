@@ -214,6 +214,12 @@ export function Tallkort({
   )
 }
 
+/** Snurrer i knapper og rader som venter på svar. Står alltid ved siden
+    av en tekst som sier hva som skjer; alene er den bare en prikk. */
+export function Snurr() {
+  return <span className="hm-snurr" aria-hidden="true" />
+}
+
 /** Verdi som skal kunne kopieres ut, typisk en prosjekt-ID eller URL. */
 export function Kodebit({ children }: { children: React.ReactNode }) {
   return (

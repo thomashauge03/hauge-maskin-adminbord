@@ -189,6 +189,47 @@ export function byggTilgangsspørring(veier: Tilgangsoppsett[]): {
 }
 
 /**
+ * Rollene systemet tillater og bruker, for veien adminbordet skriver i.
+ *
+ * Tre kilder i én spørring: CHECK-regler på rollekolonnen, enum-verdier hvis
+ * kolonnen er en enum, og verdiene som faktisk står i tabellen. Tolkes i
+ * src/lib/rollefunn.ts.
+ *
+ * «I bruk» telles på tvers av alle kunder i en delt base. Det er rollenavn,
+ * ikke tilgang, og en rolle TT Anlegg bruker finnes like mye hos oss.
+ */
+export function byggRollespørring(veier: Tilgangsoppsett[]): {
+  sql: string
+  parametre: unknown[]
+} | null {
+  const v = veier.find(
+    (v) => v.kanSkrive && v.modell === 'rolletabell' && v.tabell && v.rolleKolonne,
+  )
+  if (!v) return null
+
+  const tabell = `${trygtNavn(v.skjema, 'skjema')}.${trygtNavn(v.tabell!, 'tabell')}`
+  const rolleKol = trygtNavn(v.rolleKolonne!, 'rollekolonne')
+
+  return {
+    sql: `select 'sjekk'::text as kilde, pg_get_constraintdef(c.oid) as verdi, null::int as antall
+            from pg_constraint c
+            join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any(c.conkey)
+           where c.conrelid = $1::regclass and c.contype = 'c' and a.attname = $2
+          union all
+          select 'enum', e.enumlabel::text, null
+            from pg_attribute a
+            join pg_enum e on e.enumtypid = a.atttypid
+           where a.attrelid = $1::regclass and a.attname = $2
+          union all
+          select 'i_bruk', ${rolleKol}::text, count(*)::int
+            from ${tabell}
+           where ${rolleKol} is not null
+           group by 2`,
+    parametre: [tabell, rolleKol],
+  }
+}
+
+/**
  * Fletter kontoene og tilgangsradene til én rad per person.
  *
  * Gjøres her framfor i SQL fordi veiene nøkles ulikt innenfor samme system, og
