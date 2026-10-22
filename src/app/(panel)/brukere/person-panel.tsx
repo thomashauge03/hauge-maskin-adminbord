@@ -194,11 +194,21 @@ function SystemRad({
           <>
             {/* ── Tilgang og rolle ── */}
             {!kanEndreTilgang ? (
-              <p className="border-l-4 border-[var(--kant)] pl-3 text-xs text-[var(--blekk-svak)]">
-                {celle?.annenKundesKonto
-                  ? 'Kontoen hører til en annen kunde i den delte basen. Tilgang, sperring og sletting er deres å gjøre.'
-                  : `Tilgang kan ikke endres herfra. ${system.hvorforLaast}`}
-              </p>
+              celle?.annenKundesKonto ? (
+                <p className="border-l-4 border-[var(--kant)] pl-3 text-xs text-[var(--blekk-svak)]">
+                  Kontoen hører til en annen kunde i den delte basen. Tilgang, sperring
+                  og sletting er deres å gjøre.
+                </p>
+              ) : (
+                // Begrunnelsen er notatet fra tilgangsoppsettet, ofte et helt
+                // avsnitt. Åpent sto det som en tekstvegg i hver person.
+                <details className="border-l-4 border-[var(--kant)] pl-3 text-xs text-[var(--blekk-svak)]">
+                  <summary className="cursor-pointer pointer-coarse:min-h-11">
+                    Tilgang kan ikke endres herfra. Hvorfor?
+                  </summary>
+                  <p className="mt-1 whitespace-pre-line">{system.hvorforLaast}</p>
+                </details>
+              )
             ) : bekreft === 'fjern' ? (
               <form action={fjern} className="flex flex-wrap items-center gap-2 border-2 border-hm-red p-2">
                 {felles}
