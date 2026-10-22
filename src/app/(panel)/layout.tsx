@@ -4,6 +4,7 @@ import { krevAdmin } from '@/lib/auth'
 import { tellVentende } from '@/lib/appbrukarar'
 import { loggUt } from '@/app/logg-inn/actions'
 import { KNAPP_LITEN, Merke } from '@/components/ui'
+import { Hurtighjelp } from '@/components/hurtighjelp'
 import { Bunnmeny, Meny } from './meny'
 
 /**
@@ -30,6 +31,7 @@ export default async function PanelLayout({
           </Link>
 
           <div className="flex items-center gap-3">
+            <Hurtighjelp />
             <span className="hidden text-sm text-[var(--blekk-svak)] sm:inline">
               {bruker.navn}
             </span>
