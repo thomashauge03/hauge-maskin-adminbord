@@ -31,6 +31,11 @@ export function visDatoTid(iso: string | null): string {
   return datoTid.format(new Date(iso))
 }
 
+/** ÅÅÅÅ-MM-DD i norsk tid. `toISOString` er UTC, og gir gårsdagen den første timen etter midnatt. */
+export function isoDato(naa: number): string {
+  return new Date(naa).toLocaleDateString('sv-SE', { timeZone: 'Europe/Oslo' })
+}
+
 /**
  * «for 3 minutter siden». Det man vil vite om en utrulling er hvor
  * gammel den er, ikke hvilken dato den har – en dato krever at man

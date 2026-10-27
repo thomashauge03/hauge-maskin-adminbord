@@ -2,11 +2,14 @@
 
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
-import { krevAdmin } from '@/lib/auth'
+import { krevAdmin, krevEier } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { logg } from '@/lib/data'
-import { medHøyst } from '@/lib/samtidig'
+import { forkort, krypter } from '@/lib/krypto'
+import { isoDato } from '@/lib/format'
 import { normaliserNummer } from '@/lib/prosjekter/plan'
+import { lesInn } from '@/lib/prosjekter/innlesing'
+import { hentProsjekterFraSmartdok } from '@/lib/prosjekter/smartdok'
 import { hentNavet, synkProsjekter, type Synkresultat } from '@/lib/prosjekter/synk'
 
 export type Svar = { feil?: string; ok?: string; synk?: Synkresultat }
@@ -31,18 +34,18 @@ const prosjekt = z.object({
 function synkTekst(s: Synkresultat) {
   if (s.opptatt) return 'En synk pågikk allerede. Endringen tas med i den, eller i neste kjøring om et kvarter.'
   const feilet = s.apper.filter((a) => !a.ok)
-  return feilet.length === 0
-    ? 'Synket ut til alle appene.'
-    : `Synket, men ${feilet.map((a) => a.navn).join(', ')} feilet. Se synkkortet.`
+  const smartdok = s.smartdok && !s.smartdok.ok ? ` Henting fra SmartDok feilet: ${s.smartdok.feil}` : ''
+  return (
+    (feilet.length === 0
+      ? 'Synket ut til alle appene.'
+      : `Synket, men ${feilet.map((a) => a.navn).join(', ')} feilet. Se synkkortet.`) + smartdok
+  )
 }
 
 /**
  * Leser inn SmartDok-eksporten. Fila tolkes i nettleseren, så det som kommer
  * hit er ferdige prosjekter, validert på nytt fordi en server action kan
  * treffes med hva som helst.
- *
- * Kunde og adresse overskrives bare med en verdi, aldri med tomt: en eksport
- * uten kundekolonnen skal ikke viske ut kundene som står der fra før.
  */
 export async function importerProsjekter(liste: unknown): Promise<Svar> {
   const meg = await krevAdmin()
@@ -50,41 +53,18 @@ export async function importerProsjekter(liste: unknown): Promise<Svar> {
   const tolket = z.array(prosjekt).min(1, 'Ingen prosjekter i fila').max(20000).safeParse(liste)
   if (!tolket.success) return { feil: tolket.error.issues[0].message }
 
-  const navet = new Map((await hentNavet()).map((p) => [p.nummer, p]))
-  const nye: z.infer<typeof prosjekt>[] = []
-  const endringer: { id: string; endring: Record<string, unknown> }[] = []
-
-  for (const p of tolket.data) {
-    const finnes = navet.get(p.nummer)
-    if (!finnes) {
-      nye.push(p)
-      continue
-    }
-    const endring: Record<string, unknown> = {}
-    if (finnes.navn !== p.navn) endring.navn = p.navn
-    if (finnes.aktiv !== p.aktiv) endring.aktiv = p.aktiv
-    if (p.kunde && finnes.kunde !== p.kunde) endring.kunde = p.kunde
-    if (p.adresse && finnes.adresse !== p.adresse) endring.adresse = p.adresse
-    if (Object.keys(endring).length > 0) endringer.push({ id: finnes.id, endring })
+  let innlest
+  try {
+    innlest = await lesInn(await hentNavet(), tolket.data)
+  } catch (e) {
+    return { feil: e instanceof Error ? e.message : String(e) }
   }
-
-  if (nye.length > 0) {
-    const { error } = await supabaseAdmin
-      .from('prosjekter')
-      .upsert(nye.map((p) => ({ ...p, kilde: 'smartdok' })), { onConflict: 'nummer' })
-    if (error) return { feil: `Kunne ikke lagre: ${error.message}` }
-  }
-
-  const feil: string[] = []
-  await medHøyst(5, endringer, async ({ id, endring }) => {
-    const { error } = await supabaseAdmin.from('prosjekter').update(endring).eq('id', id)
-    if (error) feil.push(error.message)
-  })
+  const { nye, endret, feil } = innlest
 
   await logg('prosjekter.importert', {
     utfortAv: meg.id,
     utfortAvEpost: meg.epost,
-    detaljer: { iFila: tolket.data.length, nye: nye.length, endret: endringer.length, feil: feil.length },
+    detaljer: { iFila: tolket.data.length, nye, endret, feil: feil.length },
   })
 
   const synk = await synkProsjekter()
@@ -95,10 +75,82 @@ export async function importerProsjekter(liste: unknown): Promise<Svar> {
   }
   return {
     ok:
-      `${tolket.data.length} prosjekter i fila: ${nye.length} nye, ${endringer.length} endret, ` +
-      `${tolket.data.length - nye.length - endringer.length} var like. ${synkTekst(synk)}`,
+      `${tolket.data.length} prosjekter i fila: ${nye} nye, ${endret} endret, ` +
+      `${tolket.data.length - nye - endret} var like. ${synkTekst(synk)}`,
     synk,
   }
+}
+
+export type Nøkkelsvar = { feil?: string; ok?: string }
+
+const smartdokSkjema = z.object({
+  nøkkel: z.string().trim().min(16, 'Nøkkelen ser for kort ut').max(4000),
+  opprettet: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Datoen må være på formen ÅÅÅÅ-MM-DD'),
+})
+
+/**
+ * Legger inn eller bytter SmartDok-nøkkelen. Bare eieren, som for de andre
+ * nøklene: den gir lesetilgang til det modulene i SmartDok er krysset av for.
+ *
+ * Nøkkelen prøves mot /Projects før den lagres. En nøkkel som er gyldig, men
+ * mangler tilgang til Prosjekter, skal avvises her og ikke bli en feil i
+ * synken et kvarter senere.
+ */
+export async function lagreSmartdokNøkkel(_forrige: Nøkkelsvar, formData: FormData): Promise<Nøkkelsvar> {
+  const meg = await krevEier()
+
+  const felter = smartdokSkjema.safeParse({
+    nøkkel: formData.get('nokkel') ?? '',
+    opprettet: formData.get('opprettet') ?? '',
+  })
+  if (!felter.success) return { feil: felter.error.issues[0].message }
+
+  const { nøkkel, opprettet } = felter.data
+  const iDag = isoDato(Date.now())
+  // Begge feiler i den farlige retningen: fornyingen ville kommet for sent.
+  if (opprettet > iDag) return { feil: 'Datoen ligger fram i tid. Oppgi dagen nøkkelen ble laget i SmartDok.' }
+  if (opprettet <= isoDato(Date.now() - 365 * 86_400_000)) {
+    return { feil: 'En nøkkel laget for over et år siden er utløpt. Lag en ny i SmartDok.' }
+  }
+
+  let antall: number
+  try {
+    antall = (await hentProsjekterFraSmartdok(nøkkel)).prosjekter.length
+  } catch (e) {
+    return { feil: `Ikke lagret. ${e instanceof Error ? e.message : String(e)}` }
+  }
+
+  const { error } = await supabaseAdmin
+    .from('smartdok_tilkobling')
+    .update({ nokkel_kryptert: krypter(nøkkel), hint: forkort(nøkkel), nokkel_opprettet: opprettet })
+    .eq('id', 1)
+  if (error) return { feil: `Kunne ikke lagre: ${error.message}` }
+
+  await logg('smartdok.nokkel_lagt_inn', {
+    utfortAv: meg.id,
+    utfortAvEpost: meg.epost,
+    detaljer: { hint: forkort(nøkkel), opprettet, serProsjekter: antall },
+  })
+
+  const synk = await synkProsjekter()
+  revalidatePath('/prosjekter')
+  return { ok: `Nøkkelen virker og ser ${antall} prosjekter. ${synkTekst(synk)}` }
+}
+
+export async function fjernSmartdokNøkkel(): Promise<void> {
+  const meg = await krevEier()
+  const { error } = await supabaseAdmin
+    .from('smartdok_tilkobling')
+    .update({ nokkel_kryptert: null, hint: null, nokkel_opprettet: null })
+    .eq('id', 1)
+  await logg(error ? 'smartdok.nokkel_fjern_feilet' : 'smartdok.nokkel_fjernet', {
+    utfortAv: meg.id,
+    utfortAvEpost: meg.epost,
+    detaljer: error ? { feil: error.message } : {},
+  })
+  // Kastes, ikke svelges: å tro at nøkkelen er borte når den står igjen, gir to levende nøkler.
+  if (error) throw new Error(`Kunne ikke fjerne nøkkelen: ${error.message} Den ligger fortsatt lagret.`)
+  revalidatePath('/prosjekter')
 }
 
 /** Nytt prosjekt, eller endring av et. Nummeret kan ikke endres: det er nøkkelen i alle appene. */

@@ -1,17 +1,20 @@
 import type { Metadata } from 'next'
 import { krevAdmin } from '@/lib/auth'
 import { hentNavet, hentSisteSynk } from '@/lib/prosjekter/synk'
-import { visDatoTid } from '@/lib/format'
+import { hentTilkobling } from '@/lib/prosjekter/smartdok'
+import { visDato, visDatoTid } from '@/lib/format'
 import { Feilstripe, Kort, KortTittel, Merke, Seksjonstittel, TomTilstand } from '@/components/ui'
 import { ImportSkjema } from './import-skjema'
 import { Prosjektliste, ProsjektSkjema, SynkKnapp } from './prosjektliste'
+import { SmartdokSkjema } from './smartdok-skjema'
 
 export const metadata: Metadata = { title: 'Prosjekter' }
 
 export default async function ProsjekterSide() {
-  await krevAdmin()
-  const [rader, synk] = await Promise.all([hentNavet(), hentSisteSynk()])
+  const meg = await krevAdmin()
+  const [rader, synk, { iDag, nøkkel }] = await Promise.all([hentNavet(), hentSisteSynk(), hentTilkobling()])
   const resultat = synk?.sist_resultat && !synk.sist_resultat.opptatt ? synk.sist_resultat : null
+  const smartdok = resultat?.smartdok ?? null
 
   return (
     <div className="space-y-7">
@@ -64,6 +67,53 @@ export default async function ProsjekterSide() {
 
       <Kort>
         <KortTittel>Hent fra SmartDok</KortTittel>
+        <div className="space-y-3 p-4 text-sm">
+          {nøkkel ? (
+            <>
+              <p className="text-[var(--blekk-svak)]">
+                Hentes automatisk fra SmartDok-API-et i hver synk, hvert kvarter. Nøkkel{' '}
+                <span className="hm-kode">{nøkkel.hint}</span>, laget {visDato(nøkkel.opprettet)}, utløper{' '}
+                {visDato(nøkkel.utloper)}. Den fornyes automatisk fra {visDato(nøkkel.fornyesFra)}.
+              </p>
+              {nøkkel.dagerIgjen !== null && nøkkel.dagerIgjen <= 60 && (
+                <p>
+                  <Merke type={nøkkel.dagerIgjen <= 14 ? 'rød' : 'gul'}>
+                    {nøkkel.dagerIgjen <= 0 ? 'Utløpt' : `${nøkkel.dagerIgjen} dager igjen`}
+                  </Merke>{' '}
+                  Fornyingen har ikke gått gjennom. Se feilen under, eller lag en ny nøkkel i SmartDok.
+                </p>
+              )}
+              {smartdok?.ok === true && (
+                <p>
+                  Sist hentet {smartdok.hentet} prosjekter: {smartdok.nye} nye, {smartdok.endret} endret
+                  {smartdok.fravær > 0 && `, ${smartdok.fravær} fraværsprosjekter utelatt`}.
+                </p>
+              )}
+              {smartdok?.ok === true &&
+                smartdok.merknader.map((m) => (
+                  <p key={m} className="text-hm-red-ink">
+                    {m}
+                  </p>
+                ))}
+              {smartdok?.ok === false && <p className="font-semibold text-hm-red-ink">{smartdok.feil}</p>}
+            </>
+          ) : (
+            <ol className="list-decimal space-y-1 pl-5 text-[var(--blekk-svak)]">
+              <li>Be SmartDok om å aktivere API-tilgang (smartdok.no/kontakt-oss eller 90 40 33 33).</li>
+              <li>Lag en nøkkel under Firmainnstillinger → API-administrasjon. Kryss bare av for Prosjekter.</li>
+              <li>Legg den inn her. Fram til da er opplastingen under veien inn.</li>
+            </ol>
+          )}
+          {meg.rolle === 'eier' ? (
+            <SmartdokSkjema harNøkkel={nøkkel !== null} iDag={iDag} />
+          ) : (
+            !nøkkel && <p className="text-[var(--blekk-svak)]">Bare eieren kan legge inn nøkkelen.</p>
+          )}
+        </div>
+      </Kort>
+
+      <Kort>
+        <KortTittel>{nøkkel ? 'Last opp eksport (reserve)' : 'Last opp eksport fra SmartDok'}</KortTittel>
         <ImportSkjema />
       </Kort>
 
@@ -82,8 +132,8 @@ export default async function ProsjekterSide() {
 
       {rader.length === 0 ? (
         <TomTilstand tittel="Ingen prosjekter ennå">
-          Last opp eksporten fra SmartDok over, så fylles lista og alle appene. Før det rører
-          synken ingenting i appene.
+          Legg inn SmartDok-nøkkelen eller last opp eksporten over, så fylles lista og alle appene.
+          Før det rører synken ingenting i appene.
         </TomTilstand>
       ) : (
         <Kort>

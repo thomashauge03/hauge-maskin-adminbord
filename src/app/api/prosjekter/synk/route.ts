@@ -9,7 +9,8 @@ import { synkProsjekter } from '@/lib/prosjekter/synk'
    døgn på å nå lageret. pg_cron og pg_net er alt installert i navet.
    ═══════════════════════════════════════════════════════════ */
 
-// Fem apper, hver med henting, innsetting og endringer. Godt under låsen.
+// SmartDok (høyst tre kall à 20 s) og fem apper, hver med henting, innsetting
+// og endringer. Godt under låsen.
 export const maxDuration = 120
 
 async function kjør(request: Request) {

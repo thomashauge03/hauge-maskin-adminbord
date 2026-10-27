@@ -3,13 +3,14 @@ import { alleRader } from '@/lib/supabase/alle-rader'
 import { medHøyst } from '@/lib/samtidig'
 import { alleKilder, utførEndringer, type Kilde } from './kilder'
 import { planleggUtskriving, type AppRad, type Prosjekt } from './plan'
+import { hentFraSmartdok, type Smartdokresultat } from './smartdok'
 import 'server-only'
 
 /* ═══════════════════════════════════════════════════════════
    Synken: den felles lista ut til appene.
 
-   Bare én vei. Prosjektene opprettes i SmartDok og leses inn i navet, og
-   appene skal ikke ha egne. Et prosjekt en app har som ikke står i lista,
+   Bare én vei. Prosjektene opprettes i SmartDok og hentes inn i navet først
+   i hver kjøring, og appene skal ikke ha egne. Et prosjekt en app har som ikke står i lista,
    settes inaktivt der, men slettes ikke: bestillinger, utleier og tilbud
    henger på det.
 
@@ -32,7 +33,14 @@ export type AppResultat = {
 
 export type Synkresultat =
   | { opptatt: true }
-  | { opptatt: false; ferdig: string; prosjekter: number; apper: AppResultat[] }
+  | {
+      opptatt: false
+      ferdig: string
+      prosjekter: number
+      /** Null når SmartDok ikke er satt opp. Mangler i resultater fra før API-hentingen. */
+      smartdok?: Smartdokresultat | null
+      apper: AppResultat[]
+    }
 
 /** Lengre enn en kjøring tar, kortere enn intervallet i pg_cron. */
 const LÅS_SEKUNDER = 240
@@ -57,6 +65,11 @@ export async function synkProsjekter(): Promise<Synkresultat> {
 
   try {
     const kilder = alleKilder()
+    // Innenfor låsen, så to kjøringer ikke legger inn de samme nye prosjektene.
+    // Feiler SmartDok, går lista ut slik den står: appene skal ikke vente på det.
+    const smartdok = await hentFraSmartdok(await hentNavet()).catch(
+      (e): Smartdokresultat => ({ ok: false, feil: melding(e) }),
+    )
     const navet: Prosjekt[] = await hentNavet()
 
     const hentet = await medHøyst(5, kilder, async (kilde) => {
@@ -77,6 +90,7 @@ export async function synkProsjekter(): Promise<Synkresultat> {
       opptatt: false,
       ferdig: new Date().toISOString(),
       prosjekter: navet.length,
+      smartdok,
       apper,
     }
 
