@@ -15,10 +15,6 @@ export type Smartdoktolkning = {
   fravær: number
   /** Uten nummer eller navn. */
   hoppetOver: number
-  /** Rader i svaret, før noe er tatt bort. */
-  mottatt: number
-  /** Hvor mange SmartDok sier det finnes. Større enn `mottatt` betyr at lista ble kuttet. */
-  totalt: number | null
 }
 
 function tekst(verdi: unknown): string | null {
@@ -27,17 +23,25 @@ function tekst(verdi: unknown): string | null {
   return t.length > 0 ? t.slice(0, 300) : null
 }
 
-export function tolkSmartdok(svar: unknown): Smartdoktolkning {
-  const samling = (svar ?? {}) as { Items?: unknown; TotalCount?: unknown }
+/*
+ * Bare `Items`. SmartDok har bekreftet at /Projects aldri deler opp svaret:
+ * `Count` og `TotalCount` er alltid like, og `Offset` er alltid 0.
+ */
+function elementer(svar: unknown): unknown[] {
+  const samling = (svar ?? {}) as { Items?: unknown }
   if (!Array.isArray(samling.Items)) {
     throw new Error('SmartDok svarte uten prosjektliste (Items mangler)')
   }
+  return samling.Items
+}
 
+/** Flere svar blir én liste. Står et prosjekt i flere, vinner det siste. */
+export function tolkSmartdok(...svar: unknown[]): Smartdoktolkning {
   const perNummer = new Map<string, Prosjekt>()
   let fravær = 0
   let hoppetOver = 0
 
-  for (const element of samling.Items) {
+  for (const element of svar.flatMap(elementer)) {
     const p = (element ?? {}) as Record<string, unknown>
     if (p.IsAbsenceProject === true) {
       fravær++
@@ -64,7 +68,5 @@ export function tolkSmartdok(svar: unknown): Smartdoktolkning {
     prosjekter: [...perNummer.values()],
     fravær,
     hoppetOver,
-    mottatt: samling.Items.length,
-    totalt: typeof samling.TotalCount === 'number' ? samling.TotalCount : null,
   }
 }

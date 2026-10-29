@@ -19,8 +19,17 @@ test('gjør SmartDok-prosjekter om til navets felt', () => {
   assert.deepEqual(t.prosjekter, [
     { nummer: '2026118', navn: 'Skardheie Hyttefelt', kunde: 'Skardheie AS', adresse: 'Skardheievegen 4', aktiv: true },
   ])
-  assert.equal(t.totalt, 1)
-  assert.equal(t.mottatt, 1)
+})
+
+test('to svar blir én liste, og samme prosjekt i begge står én gang', () => {
+  const t = tolkSmartdok(
+    { Items: [p({ ProjectNumber: '1', ProjectName: 'Ny' })] },
+    { Items: [p({ ProjectNumber: '1', ProjectName: 'Ny' }), p({ ProjectNumber: '2' })] },
+  )
+  assert.deepEqual(
+    t.prosjekter.map((x) => x.nummer),
+    ['1', '2'],
+  )
 })
 
 test('ferdigmeldt eller inaktivt blir inaktivt', () => {
@@ -60,4 +69,5 @@ test('samme nummer to ganger: den siste vinner', () => {
 test('et svar uten Items er en feil, ikke en tom liste', () => {
   assert.throws(() => tolkSmartdok({ Message: 'Unauthorized' }), /Items mangler/)
   assert.throws(() => tolkSmartdok(null), /Items mangler/)
+  assert.throws(() => tolkSmartdok({ Items: [] }, { Message: 'Feil' }), /Items mangler/)
 })

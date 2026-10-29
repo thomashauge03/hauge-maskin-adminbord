@@ -71,7 +71,8 @@ export default async function ProsjekterSide() {
           {nøkkel ? (
             <>
               <p className="text-[var(--blekk-svak)]">
-                Hentes automatisk fra SmartDok-API-et i hver synk, hvert kvarter. Nøkkel{' '}
+                Hentes automatisk fra SmartDok-API-et: endringene i hver synk, hvert kvarter, og hele
+                lista én gang i døgnet. Nøkkel{' '}
                 <span className="hm-kode">{nøkkel.hint}</span>, laget {visDato(nøkkel.opprettet)}, utløper{' '}
                 {visDato(nøkkel.utloper)}. Den fornyes automatisk fra {visDato(nøkkel.fornyesFra)}.
               </p>
@@ -85,7 +86,8 @@ export default async function ProsjekterSide() {
               )}
               {smartdok?.ok === true && (
                 <p>
-                  Sist hentet {smartdok.hentet} prosjekter: {smartdok.nye} nye, {smartdok.endret} endret
+                  Sist hentet {smartdok.hentet} {smartdok.hele === false ? 'endrede prosjekter' : 'prosjekter, hele lista'}:{' '}
+                  {smartdok.nye} nye, {smartdok.endret} endret
                   {smartdok.fravær > 0 && `, ${smartdok.fravær} fraværsprosjekter utelatt`}.
                 </p>
               )}

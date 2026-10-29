@@ -17,6 +17,11 @@ import 'server-only'
    - Nøkkelen varer i tolv måneder. Etter seks kan den fornyes med POST
      /Authorize/ApiToken/Renew, og da slutter den gamle å virke straks.
 
+   Og slik SmartDok ba om i e-post (oktober 2026): ingen fast grense for
+   antall kall, men jevnlig synk skal bruke `updatedSince` framfor å hente
+   hele lista ofte, kallene skal ikke gå samtidig, og integrasjonen skal tåle
+   429 og prøve igjen etter en pause. De kan innføre grenser senere.
+
    Bare lesing. Prosjektene opprettes i SmartDok, og adminbordet skal aldri
    skrive tilbake dit.
    ═══════════════════════════════════════════════════════════ */
@@ -24,7 +29,21 @@ import 'server-only'
 const ADRESSE = 'https://api.smartdok.no'
 
 /** Hele synken skal holde seg under låsen, også om SmartDok henger. */
-const TIDSAVBRUDD_MS = 20_000
+const TIDSAVBRUDD_MS = 15_000
+
+/** Pausen før nytt forsøk etter 429. Lengre ventetid enn dette tas neste kvarter. */
+const MAKS_PAUSE_MS = 10_000
+
+/*
+ * Endringskallene spør fra forrige henting minus dette. Det dekker klokker som
+ * går ulikt, og at vi ikke vet om SmartDok leser tidspunktet som UTC eller
+ * norsk tid (en til to timer fram). Å få de samme prosjektene to ganger koster
+ * ingenting: like verdier gir ingen skriving.
+ */
+const OVERLAPP_MS = 3 * 60 * 60 * 1000
+
+/** Hele lista som sikkerhetsnett, for det endringskallene ikke fanger. */
+const HELE_LISTA_HVER_MS = 24 * 60 * 60 * 1000
 
 /**
  * SmartDok avviser fornying før seks måneder (182 dager). Sju gir litt
@@ -40,6 +59,8 @@ export type Smartdokresultat =
       nye: number
       endret: number
       fravær: number
+      /** Hele lista, eller bare endringer siden forrige henting. */
+      hele: boolean
       /** Advarsler som ikke stoppet hentingen. */
       merknader: string[]
     }
@@ -86,16 +107,34 @@ export async function hentTilkobling(): Promise<Smartdoktilkobling> {
   }
 }
 
-async function kall(sti: string, init: RequestInit): Promise<unknown> {
-  let svar: Response
+function pause(svar: Response) {
+  const sekunder = Number(svar.headers.get('retry-after'))
+  // Retry-After kan også være en dato. Da, og når den mangler, holder fem sekunder.
+  return Number.isFinite(sekunder) && sekunder > 0 ? sekunder * 1000 : 5000
+}
+
+async function send(sti: string, init: RequestInit) {
   try {
-    svar = await fetch(`${ADRESSE}${sti}`, {
+    return await fetch(`${ADRESSE}${sti}`, {
       ...init,
       cache: 'no-store',
       signal: AbortSignal.timeout(TIDSAVBRUDD_MS),
     })
   } catch (e) {
     throw new Error(`Fikk ikke kontakt med SmartDok: ${e instanceof Error ? e.message : String(e)}`)
+  }
+}
+
+async function kall(sti: string, init: RequestInit): Promise<unknown> {
+  let svar = await send(sti, init)
+  if (svar.status === 429) {
+    const vent = pause(svar)
+    if (vent > MAKS_PAUSE_MS) {
+      throw new Error(`SmartDok ber oss vente ${Math.round(vent / 1000)} sekunder (429). Prøves igjen neste kvarter.`)
+    }
+    await new Promise((ferdig) => setTimeout(ferdig, vent))
+    svar = await send(sti, init)
+    if (svar.status === 429) throw new Error('SmartDok ber oss vente (429). Prøves igjen neste kvarter.')
   }
 
   const tekst = await svar.text()
@@ -137,19 +176,28 @@ async function økttoken(nøkkel: string): Promise<string> {
   return somToken(svar, 'økttoken')
 }
 
-/** Logger inn og henter alle prosjekter, også avsluttede. Brukes også til å prøve en ny nøkkel. */
-export async function hentProsjekterFraSmartdok(nøkkel: string): Promise<Smartdoktolkning> {
+/**
+ * Logger inn og henter prosjekter, også avsluttede. Uten `siden` kommer hele
+ * lista, som også brukes til å prøve en ny nøkkel.
+ */
+export async function hentProsjekterFraSmartdok(nøkkel: string, siden?: Date): Promise<Smartdoktolkning> {
   const økt = await økttoken(nøkkel)
+  const hent = (filter: string) =>
+    kall(`/Projects?all=true${filter}`, {
+      headers: { Authorization: `Bearer ${økt}`, Accept: 'application/json' },
+    })
+
+  if (!siden) return tolkSmartdok(await hent(''))
+
   /*
-   * Hele lista hver gang, ikke `updatedSince`. `Updated` kan være null i
-   * SmartDoks skjema, og et prosjekt som aldri er endret etter at det ble
-   * laget, kunne da blitt borte for godt. Ett kall i kvarteret er uansett
-   * lite.
+   * Både opprettet og endret. `Updated` kan være null i SmartDoks skjema, og
+   * et prosjekt som aldri er rørt etter at det ble laget, ville da ikke kommet
+   * med i `updatedSince`. Etter hverandre, ikke samtidig, som SmartDok ba om.
    */
-  const svar = await kall('/Projects?all=true', {
-    headers: { Authorization: `Bearer ${økt}`, Accept: 'application/json' },
-  })
-  return tolkSmartdok(svar)
+  const tidspunkt = encodeURIComponent(siden.toISOString())
+  const opprettet = await hent(`&createdSince=${tidspunkt}`)
+  const endret = await hent(`&updatedSince=${tidspunkt}`)
+  return tolkSmartdok(opprettet, endret)
 }
 
 /** Fornyet hos SmartDok, men ikke lagret. Den eneste feilen her som ikke går over av seg selv. */
@@ -201,7 +249,7 @@ export async function hentFraSmartdok(
 ): Promise<Smartdokresultat | null> {
   const { data } = await supabaseAdmin
     .from('smartdok_tilkobling')
-    .select('nokkel_kryptert, nokkel_opprettet')
+    .select('nokkel_kryptert, nokkel_opprettet, hentet_til, sist_hele')
     .eq('id', 1)
     .maybeSingle()
   if (!data?.nokkel_kryptert) return null
@@ -227,18 +275,28 @@ export async function hentFraSmartdok(
     }
   }
 
+  const hentetTil = data.hentet_til ? new Date(data.hentet_til as string).getTime() : null
+  const sistHele = data.sist_hele ? new Date(data.sist_hele as string).getTime() : null
+  const hele = hentetTil === null || sistHele === null || naa - sistHele >= HELE_LISTA_HVER_MS
+
   try {
-    const tolkning = await hentProsjekterFraSmartdok(nøkkel)
-    // Ingen side-parametre på /Projects. Kuttes lista likevel, er det som kom trygt
-    // å lese inn, siden ingenting settes inaktivt for å mangle. Men det skal synes.
-    if (tolkning.totalt !== null && tolkning.totalt > tolkning.mottatt) {
-      merknader.push(`SmartDok sier ${tolkning.totalt} prosjekter, men sendte bare ${tolkning.mottatt}.`)
-    }
+    const tolkning = await hentProsjekterFraSmartdok(
+      nøkkel,
+      hele ? undefined : new Date((hentetTil as number) - OVERLAPP_MS),
+    )
     if (tolkning.hoppetOver > 0) merknader.push(`${tolkning.hoppetOver} uten nummer eller navn ble hoppet over.`)
 
     const innlest = await lesInn(navet, tolkning.prosjekter)
     if (innlest.feil.length > 0) {
       merknader.push(`${innlest.feil.length} prosjekter kunne ikke oppdateres: ${innlest.feil[0]}`)
+    } else {
+      // Bare når alt kom inn. Ellers spør neste kjøring fra samme sted, og får dem igjen.
+      const start = new Date(naa).toISOString()
+      const { error } = await supabaseAdmin
+        .from('smartdok_tilkobling')
+        .update(hele ? { hentet_til: start, sist_hele: start } : { hentet_til: start })
+        .eq('id', 1)
+      if (error) merknader.push(`Kunne ikke huske hentetidspunktet, så neste kjøring henter mer enn nødvendig: ${error.message}`)
     }
     return {
       ok: true,
@@ -246,6 +304,7 @@ export async function hentFraSmartdok(
       nye: innlest.nye,
       endret: innlest.endret,
       fravær: tolkning.fravær,
+      hele,
       merknader,
     }
   } catch (e) {
