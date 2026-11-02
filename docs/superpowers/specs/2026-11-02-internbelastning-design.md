@@ -103,6 +103,36 @@ felles prosjektlista og SmartDok-nøkkelen, og ikke bli et sjuende system.
   derfra står i `hauge-maskin-grus/docs/superpowers/TRIPLETEX-OVERLEVERING.md`
   og gjelder her også.
 
+### Tall fra SmartDok, juli til oktober 2026
+
+Hentet 2. november med den nye nøkkelen. Ikke-attesterte timer er med, så
+tallene er et anslag og ikke det som ville blitt ført.
+
+| Måned | Maskintimer | Belastning etter internkostnad | Herav «Håndarbeid» |
+|---|---|---|---|
+| Juli | 1 738 | 483 653 kr | 29 400 kr |
+| August | 3 317 | 1 017 934 kr | 58 537 kr |
+| September | 3 153 | 916 857 kr | 57 300 kr |
+| Oktober | 2 661 | 783 807 kr | 49 067 kr |
+
+- 129 maskiner i registeret, 88 aktive. **49 av de aktive har internkostnad.**
+- August til oktober: 9 130 maskintimer på 76 prosjekter. **1 238 av dem er
+  på maskiner uten internkostnad** og ville gitt 0 kr. Mest gjelder det
+  lastebilene: Scania R770 (563 timer, sats 0) og Volvo FH16/700 (530 timer,
+  ingen sats). Resten er firmabiler (Hilux, Sprinter, Partner, Transit) med
+  sats 0, Cat 906 og NorSlep tippsemi.
+- **«100604 Håndarbeid» er registrert som en maskin** med 50 kr i timen, og
+  har flest timer av alle (3 298 timer på tre måneder). Nesten hver
+  timeføring har en maskinlinje.
+- **Innleide maskiner har internkostnad** (Innleid 8, 15 og 25 tonner,
+  Innleid dumper: 140 til 224 kr). Leiekostnaden kommer trolig også på
+  prosjektet via leverandørfakturaen.
+- Interne prosjekter har maskintimer: 2011600 Adm. (684 timer, 75 279 kr),
+  2013100 Service (534 timer, 117 463 kr), Eikås massetak (269 timer,
+  41 206 kr) og Massetak Urdalen (92 timer, 7 707 kr).
+- Utstyr belastes ved siden av maskinen det sitter på (for eksempel
+  «Rotortilt R8 - Volvo 235», 87 kr i timen).
+
 ## Hvordan det henger sammen
 
 ```
@@ -219,10 +249,18 @@ Kristian».
    kjøring per måned, datert siste dag i måneden, riktig? Timer som attesteres
    sent, kommer med i neste kjøring og får den måneds dato. Er det greit, og
    låses perioder i Tripletex slik at et bilag på en lukket måned blir avvist?
-4. **Internkostnad på alle maskiner.** Er `InternalCost` i SmartDok fylt inn og
-   oppdatert for alle maskiner og alt utstyr som skal belastes? Er alle
-   satsene per time? Utstyr som er satt opp med pris per dag eller per enhet,
-   blir feil med timer × sats.
+4. **Internkostnad på alle maskiner.** 39 av 88 aktive maskiner mangler
+   internkostnad, og lastebilene Scania R770 og Volvo FH16 (til sammen rundt
+   1 100 timer på tre måneder) står uten. Skal de ha sats før vi starter? Er
+   sats 0 på firmabilene et valg (ikke belast) eller bare ikke fylt inn? Er
+   alle satsene per time? Utstyr som er satt opp med pris per dag eller per
+   enhet, blir feil med timer × sats.
+4b. **Håndarbeid.** «Håndarbeid» er lagt inn som maskin med 50 kr i timen og
+   står for over en tredjedel av maskintimene. Skal den belastes som
+   maskinkostnad, og skal den godskrives 2011700?
+4c. **Innleide maskiner.** De innleide maskinene har internkostnad i SmartDok.
+   Hvis leien også kommer på prosjektet via leverandørfakturaen, blir
+   prosjektet belastet to ganger. Skal de holdes utenfor?
 5. **Timer på interne prosjekter.** Skal maskintimer ført på 2011600 eller
    2013100 (for eksempel en maskin brukt til service) også belastes, eller
    bare timer på eksterne prosjekter?
@@ -237,10 +275,10 @@ Kristian».
 
 ## Venter på Thomas
 
-1. **SmartDok-nøkkelen** i adminbordet må få lesetilgang til maskiner og timer
-   (`MachinesRead`, `WorkHoursRead`) og skrivetilgang til eksportmerket på
-   timeføringer. Det gjøres under Firmainnstillinger → API-administrasjon i
-   SmartDok.
+1. ~~SmartDok-nøkkelen~~ **Gjort 2. november:** ny nøkkel med Les prosjekter,
+   Les maskiner, Les timer og Skriv timer. «Skriv timer» trengs for
+   eksportmerket, men gir også lov til å registrere og endre timer. Koden
+   skal bare bruke den til `SetExportedExternal`.
 2. **En Tripletex-nøkkel til adminbordet** med rett til å føre bilag og lese
    hovedboka. Thomas bestemte 02.11.2026 at alt skal ligge i adminbordets
    database (navet), der de andre nøklene allerede er. SmartDok-nøkkelen og
