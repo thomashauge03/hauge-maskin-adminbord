@@ -1,10 +1,11 @@
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { dekrypter } from '@/lib/krypto'
-import { OBJEKTPROSJEKT } from '@/lib/internbelastning/beregning'
 import 'server-only'
 
 /* ═══════════════════════════════════════════════════════════
-   Tripletex-nøkkelen til internbelastningen.
+   Tripletex-nøkkelen til internbelastningen. Selve internbelastningen er
+   en egen app (C:\Users\thoma\internbelastning, repo
+   thomashauge03/hauge-maskin-internbelastning), som leser nøkkelen herfra
+   gjennom navet. Her legges den bare inn og prøves.
 
    Samme nøkkeltype som grusappen bruker: en API-nøkkel fra Tripletex som
    byttes mot et kortlevd sesjonstoken med /token/session/:createFromRefreshToken,
@@ -23,8 +24,8 @@ const TTL_SEKUNDER = 300
 
 const TIDSAVBRUDD_MS = 20_000
 
-/** Prosjektet maskintimene godskrives. Står i beregningen, så det finnes ett sted. */
-export { OBJEKTPROSJEKT }
+/** Prosjektet maskintimene godskrives, fra e-posten til Karl Kristian. */
+export const OBJEKTPROSJEKT = '2011700'
 
 export type Tripletextilkobling = { hint: string | null; firma: string | null; endret: string | null } | null
 
@@ -72,32 +73,6 @@ export async function sesjonstoken(nøkkel: string): Promise<string> {
   const token = felt(json, 'value', 'token')
   if (typeof token !== 'string' || !token) throw new Error('Tripletex ga ikke noe sesjonstoken.')
   return token
-}
-
-/**
- * Alle prosjektnumrene i Tripletex, også avsluttede. Bare lesing.
- * Sidevis, for Tripletex gir høyst det `count` ber om.
- */
-export async function hentTripletexProsjektnumre(): Promise<Set<string>> {
-  const { data } = await supabaseAdmin.from('tripletex_tilkobling').select('nokkel_kryptert').eq('id', 1).maybeSingle()
-  if (!data?.nokkel_kryptert) throw new Error('Tripletex er ikke satt opp. Legg inn nøkkelen under Innstillinger.')
-  const token = await sesjonstoken(dekrypter(data.nokkel_kryptert as string))
-  const hode = { Authorization: `Basic ${Buffer.from(`0:${token}`).toString('base64')}`, Accept: 'application/json' }
-
-  const numre = new Set<string>()
-  const SIDE = 1000
-  for (let fra = 0; fra < 50 * SIDE; fra += SIDE) {
-    const { status, json } = await kall(`/project?fields=number&count=${SIDE}&from=${fra}`, { headers: hode })
-    if (status !== 200) throw new Error(`Tripletex svarte ${status} på prosjektlista.`)
-    const verdier = felt(json, 'values')
-    if (!Array.isArray(verdier)) throw new Error('Tripletex svarte uten prosjektliste.')
-    for (const p of verdier) {
-      const nummer = felt(p, 'number')
-      if (typeof nummer === 'string' && nummer.trim()) numre.add(nummer.trim())
-    }
-    if (verdier.length < SIDE) return numre
-  }
-  throw new Error('Prosjektlista i Tripletex sluttet aldri. Ingenting er stoppet på grunn av den.')
 }
 
 export type Nøkkelprøve = {
