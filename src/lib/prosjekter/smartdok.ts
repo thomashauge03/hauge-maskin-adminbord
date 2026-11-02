@@ -31,7 +31,7 @@ const ADRESSE = 'https://api.smartdok.no'
 /** Hele synken skal holde seg under låsen, også om SmartDok henger. */
 const TIDSAVBRUDD_MS = 15_000
 
-/** Pausen før nytt forsøk etter 429. Lengre ventetid enn dette tas neste kvarter. */
+/** Pausen før nytt forsøk etter 429. Lengre ventetid enn dette tas i neste kjøring. */
 const MAKS_PAUSE_MS = 10_000
 
 /*
@@ -42,13 +42,17 @@ const MAKS_PAUSE_MS = 10_000
  */
 const OVERLAPP_MS = 3 * 60 * 60 * 1000
 
-/** Hele lista som sikkerhetsnett, for det endringskallene ikke fanger. */
-const HELE_LISTA_HVER_MS = 24 * 60 * 60 * 1000
+/*
+ * Hele lista som sikkerhetsnett, for det endringskallene ikke fanger. Under et
+ * døgn med vilje: nattkjøringen kommer ikke på sekundet, og med 24 timer ville
+ * den hentet hele lista bare annenhver natt.
+ */
+const HELE_LISTA_HVER_MS = 20 * 60 * 60 * 1000
 
 /**
  * SmartDok avviser fornying før seks måneder (182 dager). Sju gir litt
- * slakk for ulik regning av måneder, og fem måneder med nye forsøk hvert
- * kvarter før nøkkelen dør.
+ * slakk for ulik regning av måneder, og fem måneder med nye forsøk hver
+ * natt før nøkkelen dør.
  */
 export const FORNY_ETTER_DAGER = 212
 
@@ -130,11 +134,11 @@ async function kall(sti: string, init: RequestInit): Promise<unknown> {
   if (svar.status === 429) {
     const vent = pause(svar)
     if (vent > MAKS_PAUSE_MS) {
-      throw new Error(`SmartDok ber oss vente ${Math.round(vent / 1000)} sekunder (429). Prøves igjen neste kvarter.`)
+      throw new Error(`SmartDok ber oss vente ${Math.round(vent / 1000)} sekunder (429). Prøves igjen i neste kjøring.`)
     }
     await new Promise((ferdig) => setTimeout(ferdig, vent))
     svar = await send(sti, init)
-    if (svar.status === 429) throw new Error('SmartDok ber oss vente (429). Prøves igjen neste kvarter.')
+    if (svar.status === 429) throw new Error('SmartDok ber oss vente (429). Prøves igjen i neste kjøring.')
   }
 
   const tekst = await svar.text()
@@ -246,6 +250,7 @@ async function forny(nøkkel: string, naa: number): Promise<string> {
  */
 export async function hentFraSmartdok(
   navet: (Prosjekt & { id: string })[],
+  tvingHele = false,
 ): Promise<Smartdokresultat | null> {
   const { data } = await supabaseAdmin
     .from('smartdok_tilkobling')
@@ -270,14 +275,14 @@ export async function hentFraSmartdok(
       nøkkel = await forny(nøkkel, naa)
     } catch (e) {
       if (e instanceof TaptNøkkel) return { ok: false, feil: e.message }
-      // Den gamle virker fortsatt, så hentingen går videre. Nytt forsøk neste kvarter.
+      // Den gamle virker fortsatt, så hentingen går videre. Nytt forsøk i neste kjøring.
       merknader.push(`Fornying av nøkkelen feilet, prøves igjen: ${e instanceof Error ? e.message : String(e)}`)
     }
   }
 
   const hentetTil = data.hentet_til ? new Date(data.hentet_til as string).getTime() : null
   const sistHele = data.sist_hele ? new Date(data.sist_hele as string).getTime() : null
-  const hele = hentetTil === null || sistHele === null || naa - sistHele >= HELE_LISTA_HVER_MS
+  const hele = tvingHele || hentetTil === null || sistHele === null || naa - sistHele >= HELE_LISTA_HVER_MS
 
   try {
     const tolkning = await hentProsjekterFraSmartdok(

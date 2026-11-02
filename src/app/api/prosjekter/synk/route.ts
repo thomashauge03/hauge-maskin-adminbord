@@ -2,11 +2,11 @@ import { env } from '@/lib/env'
 import { synkProsjekter } from '@/lib/prosjekter/synk'
 
 /* ═══════════════════════════════════════════════════════════
-   Prosjektsynken, kalt av pg_cron i navet hvert kvarter.
+   Prosjektsynken, kalt av pg_cron i navet hver natt.
 
    Ikke en Vercel-cron: Hobby-planen tillater én i døgnet, og den brukes av
-   statusmålingen. Et prosjekt som opprettes i utleie skal ikke bruke et
-   døgn på å nå lageret. pg_cron og pg_net er alt installert i navet.
+   statusmålingen. pg_cron og pg_net er alt installert i navet. Hvert kvarter
+   var mer enn prosjektlista trenger. Det som haster, tas med Synk nå.
    ═══════════════════════════════════════════════════════════ */
 
 // SmartDok (høyst fire kall à 15 s, pluss en pause ved 429) og fem apper, hver med henting, innsetting

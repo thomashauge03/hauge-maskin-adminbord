@@ -32,7 +32,7 @@ const prosjekt = z.object({
 })
 
 function synkTekst(s: Synkresultat) {
-  if (s.opptatt) return 'En synk pågikk allerede. Endringen tas med i den, eller i neste kjøring om et kvarter.'
+  if (s.opptatt) return 'En synk pågikk allerede. Endringen tas med i den, ellers trykk Synk nå om et par minutter.'
   const feilet = s.apper.filter((a) => !a.ok)
   const smartdok = s.smartdok && !s.smartdok.ok ? ` Henting fra SmartDok feilet: ${s.smartdok.feil}` : ''
   return (
@@ -94,7 +94,7 @@ const smartdokSkjema = z.object({
  *
  * Nøkkelen prøves mot /Projects før den lagres. En nøkkel som er gyldig, men
  * mangler tilgang til Prosjekter, skal avvises her og ikke bli en feil i
- * synken et kvarter senere.
+ * neste synk.
  */
 export async function lagreSmartdokNøkkel(_forrige: Nøkkelsvar, formData: FormData): Promise<Nøkkelsvar> {
   const meg = await krevEier()
@@ -198,4 +198,23 @@ export async function synkNå(): Promise<Svar> {
   const synk = await synkProsjekter()
   revalidatePath('/prosjekter')
   return { ok: synkTekst(synk), synk }
+}
+
+/** For når noe ser feil ut: hele lista fra SmartDok nå, ikke bare endringene. */
+export async function hentAltFraSmartdok(): Promise<Svar> {
+  const meg = await krevAdmin()
+  const synk = await synkProsjekter({ heleSmartdok: true })
+  revalidatePath('/prosjekter')
+  // Den andre kjøringen hentet trolig bare endringer, så «tas med i den» ville ikke stemt.
+  if (synk.opptatt) return { feil: 'En synk pågikk allerede. Prøv igjen om et par minutter.' }
+
+  await logg('smartdok.hentet_alt', {
+    utfortAv: meg.id,
+    utfortAvEpost: meg.epost,
+    detaljer: synk.smartdok ?? { ok: false, feil: 'ikke satt opp' },
+  })
+  if (!synk.smartdok) return { feil: 'SmartDok er ikke satt opp. Legg inn nøkkelen først.' }
+  if (!synk.smartdok.ok) return { feil: `Henting fra SmartDok feilet: ${synk.smartdok.feil}`, synk }
+  const { hentet, nye, endret } = synk.smartdok
+  return { ok: `Hentet ${hentet} prosjekter fra SmartDok: ${nye} nye, ${endret} endret. ${synkTekst(synk)}`, synk }
 }

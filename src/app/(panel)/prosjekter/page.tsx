@@ -23,8 +23,8 @@ export default async function ProsjekterSide() {
           <>
             Den felles prosjektlista for lager, rørlager, utleie, tilbud og varsling. Prosjekter
             opprettes i SmartDok og hentes inn her, eller legges inn her med SmartDok-nummeret. Appene
-            har ingen egne: lista sendes ut til alle innen et kvarter, og det appene har som ikke står
-            her, blir satt inaktivt.
+            har ingen egne: lista sendes ut til alle hver natt og straks noe endres her, og det appene
+            har som ikke står her, blir satt inaktivt.
           </>
         }
       >
@@ -71,8 +71,8 @@ export default async function ProsjekterSide() {
           {nøkkel ? (
             <>
               <p className="text-[var(--blekk-svak)]">
-                Hentes automatisk fra SmartDok-API-et: endringene i hver synk, hvert kvarter, og hele
-                lista én gang i døgnet. Nøkkel{' '}
+                Hele lista hentes automatisk fra SmartDok-API-et hver natt. Synk nå henter det som er
+                endret siden sist, og knappen under henter alt på nytt. Nøkkel{' '}
                 <span className="hm-kode">{nøkkel.hint}</span>, laget {visDato(nøkkel.opprettet)}, utløper{' '}
                 {visDato(nøkkel.utloper)}. Den fornyes automatisk fra {visDato(nøkkel.fornyesFra)}.
               </p>
@@ -98,6 +98,7 @@ export default async function ProsjekterSide() {
                   </p>
                 ))}
               {smartdok?.ok === false && <p className="font-semibold text-hm-red-ink">{smartdok.feil}</p>}
+              <SynkKnapp heleSmartdok />
             </>
           ) : (
             <ol className="list-decimal space-y-1 pl-5 text-[var(--blekk-svak)]">

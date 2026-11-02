@@ -2,7 +2,7 @@
 
 import { useActionState, useDeferredValue, useState, useTransition } from 'react'
 import { ETIKETT, FELT, FELT_KODE, KNAPP_LITEN, KNAPP_PRIMÆR, Merke } from '@/components/ui'
-import { lagreProsjekt, synkNå, type Svar } from './actions'
+import { hentAltFraSmartdok, lagreProsjekt, synkNå, type Svar } from './actions'
 
 export type Rad = {
   id: string
@@ -99,7 +99,7 @@ export function ProsjektSkjema({ prosjekt, ferdig }: { prosjekt?: Rad; ferdig?: 
   )
 }
 
-export function SynkKnapp() {
+export function SynkKnapp({ heleSmartdok = false }: { heleSmartdok?: boolean }) {
   const [svar, settSvar] = useState<Svar>({})
   const [venter, start] = useTransition()
   return (
@@ -107,10 +107,10 @@ export function SynkKnapp() {
       <button
         type="button"
         disabled={venter}
-        onClick={() => start(async () => settSvar(await synkNå()))}
+        onClick={() => start(async () => settSvar(await (heleSmartdok ? hentAltFraSmartdok() : synkNå())))}
         className={KNAPP_LITEN}
       >
-        {venter ? 'Synker …' : 'Synk nå'}
+        {venter ? (heleSmartdok ? 'Henter alt …' : 'Synker …') : heleSmartdok ? 'Hent alt fra SmartDok' : 'Synk nå'}
       </button>
       <Melding svar={svar} />
     </div>

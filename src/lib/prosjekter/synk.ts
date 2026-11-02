@@ -59,7 +59,8 @@ function melding(feil: unknown) {
   return feil instanceof Error ? feil.message : String(feil)
 }
 
-export async function synkProsjekter(): Promise<Synkresultat> {
+/** `heleSmartdok` henter hele lista fra SmartDok selv om det ikke har gått et døgn. */
+export async function synkProsjekter({ heleSmartdok = false } = {}): Promise<Synkresultat> {
   const { data: fikkLås } = await supabaseAdmin.rpc('ta_prosjekt_synk_las', { sekunder: LÅS_SEKUNDER })
   if (fikkLås !== true) return { opptatt: true }
 
@@ -67,7 +68,7 @@ export async function synkProsjekter(): Promise<Synkresultat> {
     const kilder = alleKilder()
     // Innenfor låsen, så to kjøringer ikke legger inn de samme nye prosjektene.
     // Feiler SmartDok, går lista ut slik den står: appene skal ikke vente på det.
-    const smartdok = await hentFraSmartdok(await hentNavet()).catch(
+    const smartdok = await hentFraSmartdok(await hentNavet(), heleSmartdok).catch(
       (e): Smartdokresultat => ({ ok: false, feil: melding(e) }),
     )
     const navet: Prosjekt[] = await hentNavet()
