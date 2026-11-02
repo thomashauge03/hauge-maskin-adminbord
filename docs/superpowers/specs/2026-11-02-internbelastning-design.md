@@ -191,6 +191,8 @@ Det som trengs:
 
 - at et internt uttak kan knyttes til et prosjekt fra den felles prosjektlista,
 - at det ikke går til fakturagrunnlaget,
+- at adminbordet leser uttakene rett fra grusappens database med
+  service role-nøkkelen som allerede ligger kryptert i navet,
 - at kjøringen i adminbordet tar det med som egne linjer: debet prosjektet,
   kredit massetakets prosjekt (Eikås 2010103, Urdal 2010106, Skaret 2020144),
   til en pris Karl Kristian bestemmer.
@@ -240,9 +242,13 @@ Kristian».
    timeføringer. Det gjøres under Firmainnstillinger → API-administrasjon i
    SmartDok.
 2. **En Tripletex-nøkkel til adminbordet** med rett til å føre bilag og lese
-   hovedboka. Det bør være en egen nøkkel, ikke den grusappen bruker, så den
-   ene kan trekkes tilbake uten å stoppe den andre. Den lagres kryptert i
-   navet som de andre nøklene.
+   hovedboka. Thomas bestemte 02.11.2026 at alt skal ligge i adminbordets
+   database (navet), der de andre nøklene allerede er. SmartDok-nøkkelen og
+   grusappens service role-nøkkel ligger der kryptert. Tripletex-nøkkelen gjør
+   ikke det: grusappens nøkkel er en hemmelighet i grusappens edge-funksjon og
+   kan ikke leses ut. En nøkkel må derfor legges inn i navet, kryptert som de
+   andre. Det bør være en egen nøkkel, ikke den grusappen bruker, så den ene
+   kan trekkes tilbake uten å stoppe den andre.
 3. **Er merket «eksportert eksternt» i SmartDok i bruk allerede**, for
    eksempel av lønnseksporten eller en annen kobling? Det avgjør om vi kan
    skrive det. Vernet mot dobbel belastning hviler uansett på navet.
