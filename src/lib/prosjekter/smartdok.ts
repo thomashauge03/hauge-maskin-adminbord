@@ -152,7 +152,7 @@ async function kall(sti: string, init: RequestInit): Promise<unknown> {
   if (svar.status === 401 || svar.status === 403) {
     throw new Error(
       `SmartDok avviste nøkkelen (${svar.status}). Den kan være utløpt eller slettet, ` +
-        'eller mangle tilgang til Prosjekter under API-administrasjon.',
+        'eller mangle tilgang under API-administrasjon (Prosjekter, Maskiner og Timer trengs).',
     )
   }
   if (!svar.ok) {
@@ -202,6 +202,29 @@ export async function hentProsjekterFraSmartdok(nøkkel: string, siden?: Date): 
   const opprettet = await hent(`&createdSince=${tidspunkt}`)
   const endret = await hent(`&updatedSince=${tidspunkt}`)
   return tolkSmartdok(opprettet, endret)
+}
+
+/**
+ * Leser fra SmartDok med den lagrede nøkkelen, for andre enn prosjektsynken.
+ * Fornyer ikke: det gjør prosjektsynken hver natt, og to steder som fornyer
+ * kunne gjort hverandres nøkkel ugyldig. Kallene går etter hverandre, som
+ * SmartDok ba om.
+ */
+export async function lesFraSmartdok(stier: string[]): Promise<unknown[]> {
+  const { data } = await supabaseAdmin.from('smartdok_tilkobling').select('nokkel_kryptert').eq('id', 1).maybeSingle()
+  if (!data?.nokkel_kryptert) throw new Error('SmartDok er ikke satt opp. Legg inn nøkkelen under Prosjekter.')
+  let nøkkel: string
+  try {
+    nøkkel = dekrypter(data.nokkel_kryptert as string)
+  } catch {
+    throw new Error('Den lagrede SmartDok-nøkkelen kan ikke leses. Er KRYPTONOKKEL byttet?')
+  }
+  const økt = await økttoken(nøkkel)
+  const svar: unknown[] = []
+  for (const sti of stier) {
+    svar.push(await kall(sti, { headers: { Authorization: `Bearer ${økt}`, Accept: 'application/json' } }))
+  }
+  return svar
 }
 
 /** Fornyet hos SmartDok, men ikke lagret. Den eneste feilen her som ikke går over av seg selv. */
