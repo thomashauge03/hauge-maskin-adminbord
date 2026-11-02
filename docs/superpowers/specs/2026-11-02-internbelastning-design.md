@@ -5,8 +5,12 @@ Skrevet 2. november 2026. Utgangspunktet er e-posten fra Karl Kristian Vårdal
 Punktene der om Tripletex-status, signeringslenke og skilt er utenfor denne
 saken, fordi Thomas allerede har dem i arbeid.
 
-Status: **utkast**. Det som står under «Venter på Karl Kristian» og
-«Venter på Thomas», må avklares før byggingen starter.
+Status: **valgene er tatt** (2. november 2026). Thomas ville ikke vente på
+svarene fra Karl Kristian: «vi driter i svarene nå, bare forklar valgene
+dine så ser vi». Valgene står under «Valgene», med begrunnelse og hva som
+skal til for å snu dem. Alt som påvirker tallene, er en innstilling eller en
+liste i adminbordet og ikke kode, så et annet svar fra Karl Kristian krever
+ingen ny bygging.
 
 ---
 
@@ -162,8 +166,7 @@ Tripletex hovedbok ─────────▶ Rapport: adminpott, avvik 2011
    kjøring i stedet for å bli glemt. Hvilke timer som er belastet, lagres i
    navet (timeførings-id per kjøring) og er det som avgjør. Merket «eksportert
    eksternt» i SmartDok er en speiling for dem som ser i SmartDok, ikke vernet
-   mot dobbel belastning, fordi noe annet kan bruke det samme merket
-   (*byggerens valg, se spørsmål 2 til Thomas*). SmartDoks regler fra oktober 2026 gjelder: kallene går etter
+   mot dobbel belastning (valg 10). SmartDoks regler fra oktober 2026 gjelder: kallene går etter
    hverandre, ikke samtidig, og 429 gir pause og nytt forsøk (se
    `src/lib/prosjekter/smartdok.ts`).
 2. **Regn.** Timer × internkostnaden slik den står i SmartDok i det øyeblikket
@@ -171,16 +174,18 @@ Tripletex hovedbok ─────────▶ Rapport: adminpott, avvik 2011
    senere selv om satsen endres.
 3. **Stopp det som ikke kan føres.** Disse stopper kjøringen fra å godkjennes,
    med et eget statusord og ikke bare en tekst:
-   - maskin uten internkostnad (`mangler_sats`)
+   - maskin med internkostnad 0 eller tom som ikke står på listen «belastes
+     ikke» (`mangler_sats`, valg 4)
    - prosjekt som ikke finnes i Tripletex (`mangler_prosjekt`)
    - timer ført på maskin som ikke finnes i registeret (`ukjent_maskin`)
 
-   Kontoret retter i SmartDok og henter på nytt. Det skal ikke gå an å
-   godkjenne med null kroner på en linje.
+   Kontoret retter i SmartDok, eller setter maskinen på listen, og henter på
+   nytt. Det skal ikke gå an å godkjenne med null kroner på en linje uten at
+   noen har bestemt det.
 4. **Vis.** En side i adminbordet med sum per prosjekt, sum per maskin, totalen
-   som godskrives 2011700, og alle stopp. Prosjekter med timer på interne
-   prosjekter vises for seg (se spørsmål 5 til Karl Kristian).
-5. **Godkjenn.** En innlogget bruker med rett til det trykker godkjenn. Da
+   som godskrives 2011700, maskinene som ikke belastes, og alle stopp.
+   Interne prosjekter vises for seg, men belastes som de andre (valg 6).
+5. **Godkjenn.** Eieren av adminbordet trykker godkjenn (valg 11). Da
    lages ett bilag i Tripletex datert siste dag i måneden: én debetlinje per
    prosjekt og én kreditlinje på 2011700.
 6. **Merk.** Først når bilaget finnes i Tripletex, merkes timeføringene i
@@ -225,14 +230,104 @@ Det som trengs:
   service role-nøkkelen som allerede ligger kryptert i navet,
 - at kjøringen i adminbordet tar det med som egne linjer: debet prosjektet,
   kredit massetakets prosjekt (Eikås 2010103, Urdal 2010106, Skaret 2020144),
-  til en pris Karl Kristian bestemmer.
-
-Prisspørsmålet og hvilket prosjekt som godskrives, står under «Venter på Karl
-Kristian».
+  til kostprisen i grusappen (valg 9).
 
 ---
 
-## Venter på Karl Kristian
+## Valgene
+
+Tatt 2. november 2026 uten svar fra Karl Kristian, etter Thomas' ønske. Hvert
+valg sier hvorfor, og hvor det snus hvis han svarer noe annet.
+
+1. **2011700 tas som Karl Kristian beskrev det.** Vi går ut fra at de
+   virkelige maskinkostnadene (drivstoff, avskrivninger, leasing, forsikring,
+   reparasjoner) føres på 2011700. Byggingen avhenger ikke av det: bilaget og
+   rapporten er de samme uansett. Men avviket i rapporten er bare riktig hvis
+   det stemmer, så rapporten viser ved siden av avviket hvor mye som er ført
+   på 2011700 utenom bilagene våre. Står det nesten ingenting der, ser man at
+   avviket er meningsløst før noen justerer satser etter det.
+2. **Samme kostnadskonto på begge sider.** Debet på hvert prosjekt, kredit på
+   2011700, samme konto. Internbelastningen går da i null for firmaet og
+   flytter bare kostnaden mellom prosjekter, så årsresultatet blir aldri
+   påvirket av en feil sats. Kontonummeret er en innstilling i adminbordet.
+   Bilag kan ikke sendes før den er satt. *Snus ved:* to ulike kontoer i
+   innstillingen.
+3. **Start 1. november 2026, én kjøring per måned, datert siste dag i
+   måneden.** November er første hele måned etter at nøklene kom på plass.
+   Juli til oktober kan regnes og vises, men aldri sendes. Timer som
+   attesteres sent, kommer med i neste kjøring og får den månedens dato, i
+   stedet for å skrive i en måned som kan være lukket. *Snus ved:* startdatoen
+   er en innstilling.
+4. **Sats 0 eller tom stopper kjøringen, med mindre maskinen står på listen
+   «belastes ikke».** I SmartDok kan vi ikke se forskjell på en 0 noen har
+   skrevet med vilje og en sats ingen har fylt inn. Scania R770 med 0 er
+   nesten sikkert glemt; firmabilene kan være et valg. Derfor bestemmer et
+   menneske det én gang per maskin, i adminbordet, og det huskes. Listen
+   startes med firmabilene (Hilux, Sprinter, Partner, Transit). Lastebilene
+   Scania R770 og Volvo FH16 settes **ikke** på listen: de må få sats i
+   SmartDok før første kjøring.
+5. **Håndarbeid belastes.** Den står i SmartDok som maskin med 50 kr i timen.
+   Noen har satt den satsen med vilje, og regelen fra Karl Kristian er timer
+   på maskin × sats. Den vises som egen linje, så det synes hva den utgjør
+   (rundt 55 000 kr i måneden). *Snus ved:* sett den på listen «belastes
+   ikke».
+6. **Innleide maskiner belastes ikke.** Leien kommer på prosjektet via
+   leverandørfakturaen, og leiekostnaden står ikke på 2011700. Belastet vi
+   dem, ville prosjektet betalt to ganger og 2011700 blitt godskrevet for noe
+   den aldri har kostet. Listen «belastes ikke» startes med de åtte
+   «Innleid/Innleie»-maskinene. *Snus ved:* ta dem av listen.
+7. **Alle prosjekter belastes, også de interne.** Maskintimer på 2011600 Adm.,
+   2013100 Service og massetakene belastes som alle andre. 2011700 skal
+   godskrives for all maskinbruk, ellers ser avviket større ut enn det er. At
+   2011600 og 2013100 da får maskinkostnad, er riktig: de går inn i
+   administrasjonspotten likevel, og massetakene får vite hva grusen koster å
+   ta ut. Bare 2011700 selv belastes aldri.
+8. **Bare attesterte timer.** 93 % av timene august til oktober er attestert
+   av admin. Uattesterte timer kan endres, og da ville bilaget sagt noe annet
+   enn SmartDok. De tas med når de er attestert, i neste kjøring.
+9. **Internt masseuttak til kostpris, godskrevet massetaket.** Kostprisen
+   (innkjøpsprisen) finnes alt i grusappen. Utsalgsprisen ville gitt
+   massetaket en fortjeneste på eget firma. Bygges i trinn 2, etter
+   maskintimene.
+10. **Navet er vernet mot dobbel belastning, og merket i SmartDok brukes
+    også.** Sjekket 2. november: ingen av 4 121 timeføringer august til
+    oktober har «eksportert eksternt», og ingen er eksportert til lønn. Merket
+    er altså ledig, og vi bruker det med bilagsnummeret som id, så det synes i
+    SmartDok hva som er belastet. Det som avgjør, er likevel listen over
+    timeførings-id-er i navet.
+11. **Bare Thomas godkjenner, og Karl Kristian får ikke tilgang til
+    adminbordet.** Adminbordet holder nøklene til alle systemene, og en egen
+    rolle for én ekstern bruker er mye å bygge for lite. Rapporten kan lastes
+    ned og sendes til ham. *Snus ved:* en egen rolle senere, hvis han vil inn.
+12. **Fordelingen av administrasjonskostnaden er en rapport, ikke et bilag.**
+    Den viser både måneden og hittil i år. Eksterne prosjekter er alle
+    prosjekter utenom 2011600, 2011601, 2011700, 2011800 og 2013100, og
+    massetakene regnes som eksterne fordi de har salg. Omsetning er kontoene
+    3000 til 3999. *Snus ved:* listen over interne prosjekter og
+    kontointervallet er innstillinger.
+
+## Rekkefølgen
+
+1. **Beregning uten Tripletex.** Hent, regn og vis en måned i adminbordet,
+   med stopp og listen «belastes ikke». Ingenting sendes noe sted. Her kan
+   tallene for juli til oktober sjekkes før noe føres.
+2. **Bilaget.** Konto og startdato i innstillingene, av-bryteren, ett bilag
+   per måned, merking i SmartDok. Første bilag føres sammen med Thomas og
+   kontrolleres i Tripletex.
+3. **Rapporten** om administrasjonskostnaden.
+4. **Internt masseuttak** fra grusappen.
+
+## Gjenstår før første bilag
+
+- Kontonummeret (valg 2).
+- Sats på Scania R770 og Volvo FH16 i SmartDok (valg 4).
+- Prøve at Tripletex-nøkkelen får føre bilag. Det kan bare prøves med et ekte
+  bilag.
+
+## Spørsmålene som ble lagt til side
+
+Står her i tilfelle Karl Kristian svarer likevel. Hvert svar snus i valget
+med samme tema over.
 
 1. **De virkelige maskinkostnadene på 2011700.** Føres drivstoff,
    avskrivninger, leasing, forsikring og reparasjoner på prosjekt 2011700 i
@@ -273,32 +368,28 @@ Kristian».
 8. **Bilag eller rapport.** Holder det med en rapport for fordelingen av
    administrasjonskostnaden i første omgang, slik dette utkastet foreslår?
 
-## Venter på Thomas
+## Nøklene (gjort 2. november)
 
-1. ~~SmartDok-nøkkelen~~ **Gjort 2. november:** ny nøkkel med Les prosjekter,
+1. **SmartDok:** ny nøkkel med Les prosjekter,
    Les maskiner, Les timer og Skriv timer. «Skriv timer» trengs for
    eksportmerket, men gir også lov til å registrere og endre timer. Koden
    skal bare bruke den til `SetExportedExternal`.
-2. **En Tripletex-nøkkel til adminbordet** med rett til å føre bilag og lese
-   hovedboka. Thomas bestemte 02.11.2026 at alt skal ligge i adminbordets
+2. **Tripletex:** lagt inn under Innstillinger → Tripletex (cfa785c,
+   9044d63). Prøven fant Hauge Maskin AS, prosjekt 2011700 og lesetilgang til
+   kontoplanen. Thomas bestemte 02.11.2026 at alt skal ligge i adminbordets
    database (navet), der de andre nøklene allerede er. SmartDok-nøkkelen og
    grusappens service role-nøkkel ligger der kryptert. Tripletex-nøkkelen gjør
    ikke det: grusappens nøkkel er en hemmelighet i grusappens edge-funksjon og
    kan ikke leses ut. En nøkkel må derfor legges inn i navet, kryptert som de
    andre. Det bør være en egen nøkkel, ikke den grusappen bruker, så den ene
    kan trekkes tilbake uten å stoppe den andre.
-3. **Er merket «eksportert eksternt» i SmartDok i bruk allerede**, for
-   eksempel av lønnseksporten eller en annen kobling? Det avgjør om vi kan
-   skrive det. Vernet mot dobbel belastning hviler uansett på navet.
-4. **Hvem som godkjenner, og skal Karl Kristian inn i adminbordet?**
-   Adminbordet holder nøklene til alle systemene. Skal han godkjenne
-   kjøringer eller lese rapporten, trengs en egen rolle som bare ser denne
-   siden, eller så sendes rapporten til ham i stedet.
 
 ## Overlatt til den som bygger
 
-- Om `GET /WorkHours` (med `includeMachineHours`, maks 93 dager) eller
-  `/WorkHours/v2` (sidevis) brukes. Begge kan filtrere på periode.
+- `GET /WorkHours` (v1, maks 93 dager per kall) ser ut som det beste valget:
+  med `includeMachineHours=true` kommer maskintimene som egne rader med
+  `MachineHourId`, `EquipmentId`, `ProjectNumber` og `AdminAttested`, og
+  feltet `ExportedExternal` finnes bare der. Lengre perioder hentes i biter.
 - Tabellene i navet for kjøringer og linjer, og hvordan siden i adminbordet
   ser ut, innenfor adminbordets egne regler i `AGENTS.md`.
 - Hvordan bilaget bygges mot Tripletex' `/ledger/voucher` (postering med
