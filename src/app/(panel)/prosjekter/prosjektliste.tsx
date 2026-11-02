@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import { useActionState, useDeferredValue, useState, useTransition } from 'react'
 import { ETIKETT, FELT, FELT_KODE, KNAPP_LITEN, KNAPP_PRIMÆR, Merke } from '@/components/ui'
 import { hentAltFraSmartdok, lagreProsjekt, synkNå, type Svar } from './actions'
@@ -99,6 +100,11 @@ export function ProsjektSkjema({ prosjekt, ferdig }: { prosjekt?: Rad; ferdig?: 
   )
 }
 
+/* SmartDoks egen gulfarge, den samme som bakgrunnen i ikonet, så ikonet går i
+   ett med knappen. Mørk tekst i begge temaer: hvit på gult er uleselig. */
+const KNAPP_SMARTDOK =
+  'hm-trykk inline-flex min-h-[2.25rem] items-center justify-center gap-1.5 border-2 border-[#d9b63c] bg-[#ffdc59] px-3 text-xs font-semibold text-[#2b2826] hover:border-[#2b2826] disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:min-w-11'
+
 export function SynkKnapp({ heleSmartdok = false }: { heleSmartdok?: boolean }) {
   const [svar, settSvar] = useState<Svar>({})
   const [venter, start] = useTransition()
@@ -108,8 +114,9 @@ export function SynkKnapp({ heleSmartdok = false }: { heleSmartdok?: boolean }) 
         type="button"
         disabled={venter}
         onClick={() => start(async () => settSvar(await (heleSmartdok ? hentAltFraSmartdok() : synkNå())))}
-        className={KNAPP_LITEN}
+        className={heleSmartdok ? KNAPP_SMARTDOK : KNAPP_LITEN}
       >
+        {heleSmartdok && <Image src="/smartdok-ikon.png" alt="" width={20} height={20} className="size-5" />}
         {venter ? (heleSmartdok ? 'Henter alt …' : 'Synker …') : heleSmartdok ? 'Hent alt fra SmartDok' : 'Synk nå'}
       </button>
       <Melding svar={svar} />
