@@ -17,6 +17,8 @@ import { visDato, visDatoTid } from '@/lib/format'
 import { rotasjonsord, tokenstatus } from '@/lib/rotasjon'
 import { byttKontoToken, fjernKontoToken } from './actions'
 import { TokenSkjema } from './token-skjema'
+import { TripletexSkjema } from './tripletex-skjema'
+import { hentTripletexTilkobling } from '@/lib/tripletex/tilkobling'
 import { Feildetalj } from '@/components/tilstand'
 
 export const metadata: Metadata = { title: 'Innstillinger' }
@@ -73,9 +75,10 @@ export default async function InnstillingerSide() {
    */
   await krevEier()
 
-  const [{ kontoar, hentetMs: naa }, systemer] = await Promise.all([
+  const [{ kontoar, hentetMs: naa }, systemer, tripletex] = await Promise.all([
     hentKontoar(),
     hentSystemer(true),
+    hentTripletexTilkobling(),
   ])
   const vercel = vercelKlar()
 
@@ -210,6 +213,33 @@ export default async function InnstillingerSide() {
               . Navnene må ha <Kodebit>HM_</Kodebit>-prefiks – Vercel avviser
               egne variabler som begynner med <Kodebit>VERCEL_</Kodebit>.
             </p>
+          </div>
+        </Kort>
+      </section>
+
+      {/* ── Tripletex ── */}
+      <section className="space-y-3">
+        <h2 className="hm-display text-xl">Tripletex</h2>
+        <Kort>
+          <KortTittel
+            handling={
+              <Merke type={tripletex ? 'grønn' : 'nøytral'}>{tripletex ? 'satt' : 'mangler'}</Merke>
+            }
+          >
+            Internbelastning
+          </KortTittel>
+          <div className="space-y-3 px-4 py-4 text-sm">
+            <p>
+              Fører maskintimer fra SmartDok som bilag på prosjektene, og leser hovedboka til rapporten om
+              administrasjonskostnaden.
+            </p>
+            {tripletex && (
+              <p className="text-[var(--blekk-svak)]">
+                {tripletex.firma ?? 'Ukjent firma'} · <Kodebit>{tripletex.hint ?? '••••'}</Kodebit>
+                {tripletex.endret && ` · lagt inn ${visDato(tripletex.endret)}`}
+              </p>
+            )}
+            <TripletexSkjema harNøkkel={tripletex !== null} />
           </div>
         </Kort>
       </section>
