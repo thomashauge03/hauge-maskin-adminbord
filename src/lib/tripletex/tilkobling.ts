@@ -88,9 +88,14 @@ export async function prøvTripletexNøkkel(nøkkel: string): Promise<Nøkkelpr�
   const token = await sesjonstoken(nøkkel)
   const hode = { Authorization: `Basic ${Buffer.from(`0:${token}`).toString('base64')}`, Accept: 'application/json' }
 
-  const meg = await kall('/token/session/%3EwhoAmI?fields=company(name)', { headers: hode })
+  const meg = await kall('/token/session/%3EwhoAmI', { headers: hode })
   if (meg.status !== 200) throw new Error(`Tripletex svarte ${meg.status} på hvem nøkkelen tilhører.`)
-  const firma = felt(meg.json, 'value', 'company', 'name')
+  // whoAmI gir company som null med API-nøkkel, så navnet hentes fra firmaet selv.
+  const firmaId = felt(meg.json, 'value', 'companyId')
+  const selskap = Number.isSafeInteger(firmaId)
+    ? await kall(`/company/${firmaId}?fields=name`, { headers: hode })
+    : null
+  const firma = felt(selskap?.json, 'value', 'name')
 
   /*
    * Filtrert hos oss også: grusappen fant at Tripletex overser noen filtre
