@@ -286,6 +286,12 @@ dialog.hm-panel::backdrop {
     box-shadow 150ms cubic-bezier(0.2, 0, 0, 1),
     opacity 200ms;
 }
+/* Flisa begynner å sette seg allerede mens ruta holdes nede, så avhukingen
+   kjennes som ett trykk og ikke som et trykk og så en reaksjon. */
+.hm-flis:has([role='checkbox']:active:not([aria-checked='true'])) {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 0 var(--kant-sterk);
+}
 .hm-flis[data-gjort] {
   transform: translate(4px, 4px);
   box-shadow: 0 0 0 0 var(--kant-sterk);
@@ -296,6 +302,24 @@ dialog.hm-panel::backdrop {
     opacity: 0;
     transform: translate(4px, 10px);
   }
+}
+
+/* Samme sperrebånd som de forfalte bitene i stolpen og streken under
+   «Forfalt», så øyet kobler dem uten å lese. Ligger oppå toppkanten i
+   stedet for å farge hele flisa rød: rødt er ellers forbeholdt viktig. */
+.hm-flis[data-forfalt] {
+  position: relative;
+}
+.hm-flis[data-forfalt]::before {
+  content: '';
+  position: absolute;
+  inset: -2px -2px auto -2px;
+  height: 4px;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--color-hm-black) 0 6px,
+    var(--color-hm-red) 6px 12px
+  );
 }
 
 /* Bevegelse er aldri nødvendig for å forstå grensesnittet. */

@@ -3,20 +3,43 @@
 import { useEffect, useRef, useState } from 'react'
 import { KNAPP_PRIMÆR, Snurr } from '@/components/ui'
 import type { Gjøremålsfelter, Systemvalg } from '@/lib/gjoremal'
-import { Valglinje, type Valg } from './valg'
+import { KONTROLL, SATT, USATT, Valglinje, type Valg } from './valg'
 
 // Bitene er tellbare, en prosent er det ikke: hver avhuking fyller én konkret
 // bit. Over 24 blir bitene hårtynne på telefon, og da er en hel stolpe ærligere.
 const MAKS_BITER = 24
 
-export function Fremdrift({ gjort, av, ventende }: { gjort: number; av: number; ventende: boolean }) {
+/**
+ * `forfalt` er de åpne med frist før i dag. De får sperrebåndet fra
+ * feilkortene i stolpen, rett etter de gjorte, så det som haster står der
+ * øyet allerede er.
+ *
+ * `systemNavn` er filteret tallet gjelder. Uten det hopper «2 av 8» til
+ * «1 av 2» ved et trykk på et filter, og det ser ut som noe forsvant.
+ */
+export function Fremdrift({
+  gjort,
+  av,
+  ventende,
+  forfalt = 0,
+  systemNavn = null,
+}: {
+  gjort: number
+  av: number
+  ventende: boolean
+  forfalt?: number
+  systemNavn?: string | null
+}) {
   const alt = av > 0 && gjort === av
-  const tekst = `${gjort} av ${av} gjort denne uka`
+  const tekst = `${gjort} av ${av} gjort denne uka${forfalt > 0 ? `, ${forfalt} forfalt` : ''}`
+  const navn = systemNavn ? `Fremdrift denne uka for ${systemNavn}` : 'Fremdrift denne uka'
 
   return (
-    <section aria-label="Fremdrift denne uka">
+    // Ikke section med eget navn: da leste skjermleseren navnet to ganger, først
+    // for seksjonen og så for stolpen. Stolpen bærer både navn og verdi.
+    <div>
       <div className="flex items-end justify-between gap-4">
-        <div>
+        <div className="min-w-0">
           {av === 0 ? (
             <p className="hm-display hm-tall text-6xl leading-none text-[var(--blekk-svak)] sm:text-7xl">0</p>
           ) : (
@@ -25,8 +48,17 @@ export function Fremdrift({ gjort, av, ventende }: { gjort: number; av: number; 
               <span className="text-[var(--blekk-svak)]"> av {av}</span>
             </p>
           )}
-          <p className="mt-2 text-xs font-bold tracking-widest text-[var(--blekk-svak)] uppercase">
-            {av === 0 ? 'Ingenting på lista denne uka' : alt ? 'Alt gjort denne uka' : 'Gjort denne uka'}
+          {/* Hver del i sitt eget spann med skilletegnet foran: på smal
+              skjerm brytes «·» da sammen med ordet sitt, i stedet for å bli
+              hengende alene på slutten av en linje. */}
+          <p className="mt-2 flex flex-wrap gap-x-2 text-xs font-bold tracking-widest text-[var(--blekk-svak)] uppercase">
+            <span>{av === 0 ? 'Ingenting denne uka' : alt ? 'Alt gjort denne uka' : 'Gjort denne uka'}</span>
+            {systemNavn && <span className="text-[var(--blekk)] before:mr-2 before:text-[var(--blekk-svak)] before:content-['·']">{systemNavn}</span>}
+            {av > 0 && forfalt > 0 && (
+              <span className="text-hm-red before:mr-2 before:text-[var(--blekk-svak)] before:content-['·']">
+                {forfalt} forfalt
+              </span>
+            )}
           </p>
         </div>
         {/* Fast plass, så etiketten aldri byttes ut og tallet ikke hopper. De
@@ -50,7 +82,7 @@ export function Fremdrift({ gjort, av, ventende }: { gjort: number; av: number; 
       ) : av <= MAKS_BITER ? (
         <div
           role="progressbar"
-          aria-label="Fremdrift denne uka"
+          aria-label={navn}
           aria-valuemin={0}
           aria-valuemax={av}
           aria-valuenow={gjort}
@@ -60,27 +92,35 @@ export function Fremdrift({ gjort, av, ventende }: { gjort: number; av: number; 
           {Array.from({ length: av }, (_, i) => (
             <span
               key={i}
-              className={`flex-1 transition-colors duration-200 ${i < gjort ? 'bg-hm-red' : 'bg-[var(--kant)]'}`}
+              className={`flex-1 transition-colors duration-200 ${
+                i < gjort ? 'bg-hm-red' : i < gjort + forfalt ? 'hm-varselstriper' : 'bg-[var(--kant)]'
+              }`}
             />
           ))}
         </div>
       ) : (
         <div
           role="progressbar"
-          aria-label="Fremdrift denne uka"
+          aria-label={navn}
           aria-valuemin={0}
           aria-valuemax={av}
           aria-valuenow={gjort}
           aria-valuetext={tekst}
-          className="mt-4 h-3 bg-[var(--kant)]"
+          className="mt-4 flex h-3 bg-[var(--kant)]"
         >
           <div
             className="h-full bg-hm-red transition-[width] duration-500 ease-out"
-            style={{ width: `${Math.round((gjort / av) * 100)}%` }}
+            style={{ width: `${(gjort / av) * 100}%` }}
           />
+          {forfalt > 0 && (
+            <div
+              className="hm-varselstriper h-full transition-[width] duration-500 ease-out"
+              style={{ width: `${(forfalt / av) * 100}%` }}
+            />
+          )}
         </div>
       )}
-    </section>
+    </div>
   )
 }
 
@@ -101,9 +141,11 @@ const INGEN_VALG: Valg = { systemId: null, frist: null, viktig: false }
 export function NyLinje({
   systemer,
   onLeggTil,
+  idag,
 }: {
   systemer: Systemvalg[]
   onLeggTil: (felter: Gjøremålsfelter) => void
+  idag?: string
 }) {
   const [tittel, settTittel] = useState('')
   const [notat, settNotat] = useState('')
@@ -131,17 +173,20 @@ export function NyLinje({
     felt.current?.focus()
   }
 
-  const notatKnappTekst = visNotat ? 'Uten notat' : 'Med notat'
-
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault()
         send()
       }}
-      className="border-2 border-[var(--kant)] bg-[var(--flate-opp)] transition-colors focus-within:border-hm-red"
+      // Samme røde venstrekant som flisa får, så man ser resultatet før man
+      // trykker Legg til. Polstringen krymper like mye som kanten vokser, ellers
+      // hopper «+» og teksten til siden.
+      className={`border-2 border-[var(--kant)] bg-[var(--flate-opp)] transition-colors focus-within:border-hm-red ${
+        valg.viktig ? 'border-l-[6px] border-l-hm-red' : ''
+      }`}
     >
-      <div className="flex items-center gap-3 pr-2 pl-4">
+      <div className={`flex items-center gap-3 pr-2 ${valg.viktig ? 'pl-3' : 'pl-4'}`}>
         <span aria-hidden="true" className="hm-display text-2xl leading-none text-hm-red">
           +
         </span>
@@ -164,19 +209,46 @@ export function NyLinje({
       {/* Telefon: først når det er noe å legge til. Linja koster ca. 60 px og
           ville ellers dyttet første flis under bretten. */}
       <div
-        className={`flex-wrap items-center justify-between gap-2 border-t-2 border-[var(--kant)] px-3 py-2 sm:flex ${
+        // pl-2 når Viktig er på: den røde 6 px-kanten tar 4 px mer enn den
+        // vanlige, og uten dette hopper knappen man nettopp trykket under pekeren.
+        className={`border-t-2 border-[var(--kant)] py-2.5 pr-3 ${valg.viktig ? 'pl-2' : 'pl-3'} sm:flex ${
           !tom || visNotat || harValg ? 'flex' : 'hidden'
         }`}
       >
-        <Valglinje systemer={systemer} valg={valg} onEndre={settValg} />
-        <button
-          type="button"
-          onClick={() => settVisNotat((v) => !v)}
-          aria-expanded={visNotat}
-          className="flex items-center text-sm text-[var(--blekk-svak)] underline-offset-4 hover:text-[var(--blekk)] hover:underline pointer-coarse:min-h-11"
-        >
-          {notatKnappTekst}
-        </button>
+        <Valglinje
+          systemer={systemer}
+          valg={valg}
+          onEndre={settValg}
+          idag={idag}
+          // Inni Valglinje og ikke ved siden av: på telefon står Notat da i
+          // samme rad som Frist og Viktig i stedet for alene på en egen linje.
+          ekstra={
+            // Navnet er bare «Notat»: aria-expanded sier om det er åpent, og
+            // «pluss notat» opplest er støy.
+            <button
+              type="button"
+              onClick={() => settVisNotat((v) => !v)}
+              aria-expanded={visNotat}
+              aria-label="Notat"
+              className={`${KONTROLL} ${visNotat ? SATT : USATT} flex items-center justify-center gap-1 pointer-coarse:min-w-11`}
+            >
+              <span aria-hidden="true" className="max-sm:hidden">
+                {visNotat ? '−' : '+'}
+              </span>
+              <span className="max-sm:sr-only">Notat</span>
+              <svg
+                viewBox="0 0 16 16"
+                aria-hidden="true"
+                className="size-4 sm:hidden"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+              >
+                <path d="M3 4h10M3 8h10M3 12h6" />
+              </svg>
+            </button>
+          }
+        />
       </div>
 
       {visNotat && (
@@ -193,7 +265,7 @@ export function NyLinje({
           maxLength={4000}
           aria-label="Notat"
           placeholder="Notat (Ctrl + Enter legger til)"
-          className={`${FELT_INNI} block w-full resize-y border-t-2 border-[var(--kant)] bg-transparent px-4 py-3 text-sm text-[var(--blekk)] outline-none placeholder:text-[var(--blekk-svak)]`}
+          className={`${FELT_INNI} block w-full resize-y border-t-2 border-[var(--kant)] bg-transparent pr-4 ${valg.viktig ? 'pl-3' : 'pl-4'} py-3 text-sm text-[var(--blekk)] outline-none placeholder:text-[var(--blekk-svak)]`}
         />
       )}
     </form>

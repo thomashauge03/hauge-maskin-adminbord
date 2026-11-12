@@ -3,9 +3,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Feilstripe, KNAPP_LITEN } from '@/components/ui'
-import { isoDato, leggTilDager } from '@/lib/format'
+import { isoDato } from '@/lib/format'
 import type { Gjøremål, Gjøremålsfelter, Systemvalg } from '@/lib/gjoremal'
-import { Rad } from './rad'
+import { Rad, søndagI } from './rad'
 import { Fremdrift, NyLinje } from './topp'
 import {
   endreGjøremål,
@@ -31,7 +31,7 @@ type Gruppe = { nøkkel: string; tittel: string; varsel?: boolean; gjøremål: G
  * over to gjøremål ville vært mer struktur enn innhold.
  */
 function grupperEtterFrist(åpne: Gjøremål[], idag: string): Gruppe[] {
-  const søndag = leggTilDager(idag, 6 - ((new Date(`${idag}T00:00:00Z`).getUTCDay() + 6) % 7))
+  const søndag = søndagI(idag)
   const grupper: Gruppe[] = [
     { nøkkel: 'forfalt', tittel: 'Forfalt', varsel: true, gjøremål: [] },
     { nøkkel: 'idag', tittel: 'I dag', gjøremål: [] },
@@ -165,12 +165,61 @@ export function Gjøremålsliste({
     lagre(() => leggTilGjøremål({ id: g.id, ...felter }))
   }
 
-  function hukAv(g: Gjøremål) {
+  // Hvem som skal ha fokus etter at en rad er tegnet på nytt. Her og ikke i
+  // raden: ny frist eller avhuking flytter raden til en annen liste, og da
+  // monteres den på nytt og glemmer alt. Hentes av refene i raden og ikke av
+  // en effekt her, fordi Avbryt og Esc bare tegner raden på nytt, ikke lista.
+  const fokusEtter = useRef<{ id: string; mål: 'hak' | 'blyant' } | null>(null)
+  const radLukket = (id: string) => {
+    fokusEtter.current = { id, mål: 'blyant' }
+  }
+  const skalFåFokus = (id: string, mål: 'hak' | 'blyant') => {
+    if (fokusEtter.current?.id !== id || fokusEtter.current.mål !== mål) return false
+    fokusEtter.current = null
+    return true
+  }
+
+  const åpneSeksjon = useRef<HTMLElement>(null)
+  const flyttTimere = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+  useEffect(() => {
+    const timere = flyttTimere.current
+    return () => timere.forEach(clearTimeout)
+  }, [])
+
+  function hukAv(g: Gjøremål, tastatur = false) {
+    // Flisa som glir opp under en mus som står stille, skal ikke arve
+    // forhåndsvisningen fra den som nettopp ble trykket.
+    document.querySelectorAll('[data-mus]').forEach((el) => delete (el as HTMLElement).dataset.mus)
     const gjort = g.gjort === null
+    // Raden hopper opp til flisene og monteres på nytt der. Bare med
+    // tastatur: med mus ville focus() rullet siden etter den.
+    if (!gjort && tastatur) fokusEtter.current = { id: g.id, mål: 'hak' }
     settListe((l) => l.map((x) => (x.id === g.id ? { ...x, gjort: gjort ? new Date().toISOString() : null } : x)))
+    // Huk av, fjern og huk av igjen innen fristen: uten dette kjørte den første
+    // timeren og flyttet flisa ned midt i animasjonen fra det andre trykket.
+    clearTimeout(flyttTimere.current.get(g.id))
+    flyttTimere.current.delete(g.id)
     if (gjort) {
       settNyligGjort((s) => new Set(s).add(g.id))
-      setTimeout(() => flyttNed(g.id), BLI_STÅENDE_MS)
+      flyttTimere.current.set(g.id, setTimeout(() => {
+        flyttTimere.current.delete(g.id)
+        // Neste flis og ikke den gjorte raden: den som rydder lista med
+        // mellomrom vil videre nedover, ikke ned i historikken. Velges før
+        // flisa forsvinner, ellers faller fokus til toppen av siden. Bare
+        // hvis ruta fortsatt har fokus og fortsatt er huket av, så fokus
+        // ikke kapres fra en som har tabbet videre eller angret i mellomtida.
+        const her = document.querySelector(`[data-hak="${g.id}"]`)
+        if (tastatur && her && document.activeElement === her && her.getAttribute('aria-checked') === 'true') {
+          const ruter = [
+            ...(åpneSeksjon.current?.querySelectorAll<HTMLElement>('[data-hak]:not([aria-checked="true"])') ?? []),
+          ]
+          const neste =
+            ruter.find((r) => her.compareDocumentPosition(r) & Node.DOCUMENT_POSITION_FOLLOWING) ?? ruter.at(-1)
+          if (neste) neste.focus()
+          else nyLinje.current?.querySelector('input')?.focus()
+        }
+        flyttNed(g.id)
+      }, BLI_STÅENDE_MS))
     } else {
       utenNylig(g.id)
     }
@@ -205,19 +254,45 @@ export function Gjøremålsliste({
     lagre(() => gjenopprettGjøremål(g))
   }
 
-  // Filterknapper bare for systemer som faktisk har gjøremål, i registerets
+  // Filterknapper bare for systemer som har noe åpent, i registerets
   // rekkefølge. En knapp per system i registeret ville vært tolv knapper
-  // over en liste med tre ting.
-  const iBruk = new Set(liste.map((g) => g.systemId ?? ''))
+  // over en liste med tre ting, og en knapp for bare gjorte viste «0».
+  // Det aktive filteret blir stående, ellers forsvant fanen under fingeren
+  // når det siste i den ble huket av.
+  const venter = (g: Gjøremål) => g.gjort === null || nyligGjort.has(g.id)
+  const iBruk = new Set([
+    ...liste.filter(venter).map((g) => g.systemId ?? ''),
+    ...(filter !== null ? [filter] : []),
+  ])
   const filterValg = [
     ...systemer.filter((s) => iBruk.has(s.id)),
     ...(iBruk.has('') ? [{ id: '', navn: 'Uten system' }] : []),
   ]
   const visFilter = filterValg.some((s) => s.id !== '')
-  const aktivtFilter = filter !== null && iBruk.has(filter) ? filter : null
+  const aktivtFilter = filter !== null && filterValg.some((s) => s.id === filter) ? filter : null
   const synlig = aktivtFilter === null ? liste : liste.filter((g) => (g.systemId ?? '') === aktivtFilter)
+  // Nylig avhukede telles med til de flytter seg, så tallet stemmer med
+  // flisene som faktisk står der.
   const antallÅpneFor = (systemId: string | null) =>
-    liste.filter((g) => g.gjort === null && (systemId === null || (g.systemId ?? '') === systemId)).length
+    liste.filter((g) => venter(g) && (systemId === null || (g.systemId ?? '') === systemId)).length
+
+  // Masken viser at det er mer å sveipe til, men bare når det er det: ellers
+  // ville siste fane alltid sett halvt borte ut.
+  const fanerad = useRef<HTMLDivElement>(null)
+  const [flyterOver, settFlyterOver] = useState(false)
+  const fanenøkkel = filterValg.map((s) => s.id).join('|')
+  useEffect(() => {
+    const rad = fanerad.current
+    if (!rad) return
+    const mål = () => settFlyterOver(rad.scrollWidth > rad.clientWidth + 1)
+    mål()
+    // Raden selv endrer ikke bredde når en fane kommer til, så fanene
+    // observeres også.
+    const observatør = new ResizeObserver(mål)
+    observatør.observe(rad)
+    for (const barn of rad.children) observatør.observe(barn)
+    return () => observatør.disconnect()
+  }, [visFilter, fanenøkkel])
 
   const åpne = synlig.filter((g) => g.gjort === null || nyligGjort.has(g.id))
   const grupper = grupperEtterFrist(åpne, idag)
@@ -227,25 +302,50 @@ export function Gjøremålsliste({
   const gjortUka = gjort.filter((g) => isoDato(Date.parse(g.gjort!)) >= mandag)
   const gjortEldre = gjort.slice(gjortUka.length)
 
+  const filterNavn = aktivtFilter === null ? null : (filterValg.find((s) => s.id === aktivtFilter)?.navn ?? null)
+
   const antallÅpne = synlig.filter((g) => g.gjort === null).length
   const antallGjortUka = synlig.filter((g) => g.gjort !== null && isoDato(Date.parse(g.gjort)) >= mandag).length
-  const radProps = { idag, systemer, onHukAv: hukAv, onEndre: endre, onSlett: slett }
+  const antallForfalt = synlig.filter((g) => g.gjort === null && g.frist !== null && g.frist < idag).length
+  const radProps = {
+    idag,
+    systemer,
+    visSystem: aktivtFilter === null,
+    onHukAv: hukAv,
+    onEndre: endre,
+    onSlett: slett,
+    onLukk: radLukket,
+    skalFåFokus,
+  }
 
   return (
     <div className="space-y-6">
-      <Fremdrift gjort={antallGjortUka} av={antallÅpne + antallGjortUka} ventende={ventende > 0} />
+      <Fremdrift
+        gjort={antallGjortUka}
+        av={antallÅpne + antallGjortUka}
+        ventende={ventende > 0}
+        forfalt={antallForfalt}
+        systemNavn={filterNavn}
+      />
 
       <div ref={nyLinje}>
-        <NyLinje systemer={systemer} onLeggTil={leggTil} />
+        <NyLinje systemer={systemer} onLeggTil={leggTil} idag={idag} />
       </div>
 
       {visFilter && (
-        // Telefon: én rad som sveipes sidelengs. Brutt over flere linjer tok
-        // knappene halve skjermhøyden før første gjøremål.
+        // Én rad som sveipes sidelengs, også på PC. Brutt over flere linjer
+        // tok knappene halve skjermhøyden på telefon, og på PC svevde den
+        // røde understreken på en andrelinje i stedet for på grunnlinja.
+        // Grunnlinja er en innvendig skygge og ikke border-b: overflow-x-auto
+        // klipper ved kanten av polstringen, og ville kuttet den røde
+        // understreken der den skal ligge oppå linja.
         <div
+          ref={fanerad}
           role="group"
           aria-label="Vis gjøremål for"
-          className="flex gap-2 max-sm:-mx-4 max-sm:overflow-x-auto max-sm:px-4 max-sm:[scrollbar-width:none] sm:flex-wrap [&>*]:shrink-0"
+          className={`flex gap-0 overflow-x-auto shadow-[inset_0_-2px_0_var(--kant)] [scrollbar-width:none] max-sm:-mx-4 max-sm:px-4 [&>*]:shrink-0 ${
+            flyterOver ? '[mask-image:linear-gradient(to_right,#000_calc(100%-2rem),transparent)]' : ''
+          }`}
         >
           <Filterknapp aktiv={aktivtFilter === null} antall={antallÅpneFor(null)} onClick={() => settFilter(null)}>
             Alle
@@ -274,11 +374,25 @@ export function Gjøremålsliste({
         </div>
       )}
 
-      <section aria-label="Åpne gjøremål">
-        {åpne.length === 0 && gjort.length > 0 ? (
+      <section ref={åpneSeksjon} aria-label="Åpne gjøremål">
+        {aktivtFilter !== null && åpne.length === 0 && gjort.length === 0 ? (
+          // Fanen står igjen etter at det siste i den er slettet. «Skriv det
+          // første gjøremålet» ville sagt at lista er tom, mens «Alle» viser
+          // at den ikke er det.
+          <div className="border-2 border-dashed border-[var(--kant)] px-4 py-8 text-center">
+            <p className="text-sm text-[var(--blekk-svak)]">
+              Ingenting åpent for <span className="font-semibold text-[var(--blekk)]">{filterNavn}</span>.
+            </p>
+            <button type="button" onClick={() => settFilter(null)} className={`${KNAPP_LITEN} mt-3`}>
+              Vis alle
+            </button>
+          </div>
+        ) : åpne.length === 0 && gjort.length > 0 ? (
           <div className="py-4">
             <span aria-hidden="true" className="hm-skrastrek" />
-            <p className="hm-display mt-3 text-2xl">Alt gjort</p>
+            <p className="hm-display mt-3 text-2xl">
+              Alt gjort{filterNavn !== null && <> for {filterNavn}</>}
+            </p>
             <p className="mt-1 text-sm text-[var(--blekk-svak)]">Skriv det neste i feltet over.</p>
           </div>
         ) : åpne.length === 0 ? (
@@ -286,19 +400,27 @@ export function Gjøremålsliste({
             Skriv det første gjøremålet i feltet over og trykk Enter.
           </p>
         ) : (
-          <div className="space-y-6">
+          <div className="space-y-7">
             {grupper.map((gr) => (
               <div key={gr.nøkkel} className="space-y-3">
                 {/* Overskrift bare når det er noe å skille: med alt i «Uten
                     frist» er den bare en ekstra linje. */}
                 {(grupper.length > 1 || gr.nøkkel !== 'uten') && (
-                  <h2
-                    className={`hm-display flex items-baseline gap-2 text-base ${gr.varsel ? 'text-hm-red' : ''}`}
-                  >
-                    {gr.tittel}
+                  <h2 className="hm-display flex items-center gap-3 text-[13px] tracking-[0.12em]">
+                    <span className={gr.varsel ? 'text-hm-red' : undefined}>{gr.tittel}</span>
+                    {/* Avstanden er bare gap, og en skjermleser leste «I dag1». */}
+                    <span className="sr-only">, </span>
+                    {/* Teller flisene som står der, også de som nettopp er
+                        huket av, ellers sto det «0» over en synlig flis. */}
                     <span className="hm-tall font-sans text-xs font-semibold text-[var(--blekk-svak)]">
-                      {gr.gjøremål.filter((g) => g.gjort === null).length}
+                      {gr.gjøremål.length}
                     </span>
+                    {/* Forfalt får sperrebåndet fra stolpen og flisene, så de
+                        tre ses som samme ting. */}
+                    <span
+                      aria-hidden="true"
+                      className={`flex-1 ${gr.varsel ? 'hm-varselstriper h-1' : 'h-0.5 bg-[var(--kant)]'}`}
+                    />
                   </h2>
                 )}
                 <ul className="space-y-3">
@@ -313,10 +435,13 @@ export function Gjøremålsliste({
       </section>
 
       {gjort.length > 0 && (
-        <section aria-labelledby="gjort-tittel" className="space-y-2 pt-2">
-          <h2 id="gjort-tittel" className="hm-display flex items-baseline gap-2 text-base">
-            Gjort denne uka
+        <section aria-labelledby="gjort-tittel" className="space-y-3 pt-2">
+          <h2 id="gjort-tittel" className="hm-display flex items-center gap-3 text-sm tracking-wider">
+            <span>Gjort denne uka</span>
+            <span className="sr-only">, </span>
             <span className="hm-tall font-sans text-xs font-semibold text-[var(--blekk-svak)]">{gjortUka.length}</span>
+            {/* Stiplet som radene under: historikk, ikke noe som venter. */}
+            <span aria-hidden="true" className="h-0 flex-1 border-t-2 border-dashed border-[var(--kant)]" />
           </h2>
 
           {gjortUka.length === 0 && (
@@ -378,14 +503,24 @@ function Filterknapp({
       type="button"
       aria-pressed={aktiv}
       onClick={onClick}
-      className={`flex min-h-9 items-center gap-2 border-2 px-3 text-sm font-semibold transition-colors pointer-coarse:min-h-11 ${
+      // Fane og ikke fylt boks: den fylte «Alle» var det sterkeste på siden,
+      // sterkere enn flisene. Understreken er en form, så aktiv fane ses
+      // også uten å skille rødt fra grått.
+      // Fokusringen innenfor kanten: fanene står i en rad som ruller, og den
+      // klipper alt som stikker ut, så en ring utenpå ville ikke synes.
+      className={`relative flex min-h-10 items-center gap-1.5 px-3 text-xs font-bold tracking-wider whitespace-nowrap uppercase transition-colors focus-visible:outline-offset-[-3px] pointer-coarse:min-h-11 ${
         aktiv
-          ? 'border-[var(--blekk)] bg-[var(--blekk)] text-[var(--flate)]'
-          : 'border-[var(--kant)] text-[var(--blekk-svak)] hover:border-[var(--kant-sterk)] hover:text-[var(--blekk)]'
+          ? "text-[var(--blekk)] after:absolute after:inset-x-3 after:bottom-0 after:h-[3px] after:bg-hm-red after:content-['']"
+          : 'text-[var(--blekk-svak)] hover:text-[var(--blekk)]'
       }`}
     >
       {children}
-      <span className="hm-tall text-xs opacity-80">{antall}</span>
+      {/* Avstanden er bare gap, og navnet ble lest «Alle3». */}
+      <span className="sr-only">, </span>
+      <span className="hm-tall font-semibold opacity-70">
+        {antall}
+        <span className="sr-only"> åpne</span>
+      </span>
     </button>
   )
 }
