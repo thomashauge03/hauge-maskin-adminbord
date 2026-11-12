@@ -1,113 +1,112 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { krevAdmin } from '@/lib/auth'
 import { lagServerKlient } from '@/lib/supabase/server'
+import type { Gjøremål, Gjøremålsfelter } from '@/lib/gjoremal'
 
-/**
- * `n` er nytt for hvert svar og brukes som key på feltene. React 19 tømmer
- * skjemaet etter hver innsending, også den som ble avvist, så teksten sendes
- * tilbake og settes inn igjen – ellers mister man det man skrev på en
- * for lang tittel.
+/*
+ * Lista oppdateres i nettleseren før disse svarer, så de tar rene verdier
+ * og returnerer bare en eventuell feil. Ingen revalidatePath: den ville
+ * sendt hele siden tilbake etter hvert klikk, og en ny liste fra serveren
+ * midt i en rekke raske avhukinger ville hoppet over de som ennå ikke var
+ * lagret.
+ *
+ * Alle skrivingene går med sesjonsklienten. Policyen i 0027 sørger for at
+ * man bare når egne rader, så en forfalsket id treffer ingenting i stedet
+ * for andres liste. krevAdmin står likevel først: en server action er en
+ * POST-rute som kan treffes direkte.
  */
-export type Gjøremålsvar = {
-  n?: number
-  ok?: boolean
-  feil?: string
-  tittel?: string
-  notat?: string
-}
 
-function avvist(feil: string, formData: FormData): Gjøremålsvar {
-  return {
-    n: Date.now(),
-    feil,
-    tittel: String(formData.get('tittel') ?? ''),
-    notat: String(formData.get('notat') ?? ''),
-  }
-}
+export type Svar = { feil?: string }
 
-const STI = '/gjoremal'
+const id = z.uuid()
+const tid = z.iso.datetime({ offset: true })
 
-const tekstfelter = z.object({
-  tittel: z.string().trim().min(1, 'Skriv hva som skal gjøres').max(300, 'Maks 300 tegn i tittelen'),
+const felter = z.object({
+  tittel: z.string().trim().min(1, 'Tittelen kan ikke være tom').max(300, 'Maks 300 tegn i tittelen'),
   notat: z
     .string()
     .trim()
     .max(4000, 'Maks 4000 tegn i notatet')
-    .transform((n) => (n === '' ? null : n)),
+    .nullable()
+    .transform((n) => (n ? n : null)),
+  frist: z.iso.date({ message: 'Ugyldig frist' }).nullable(),
+  viktig: z.boolean(),
+  // Finnes ikke systemet, stopper fremmednøkkelen skrivingen.
+  systemId: id.nullable(),
 })
 
-const id = z.uuid()
+const nytt = felter.extend({ id })
+const helt = felter.extend({ id, gjort: tid.nullable(), opprettet: tid })
 
-/*
- * Alle skrivingene går med sesjonsklienten. Policyen i 0027 sørger for at
- * man bare når egne rader, så en forfalsket id treffer ingenting i stedet
- * for andres liste. krevAdmin står likevel først: uten den ville en utlogget
- * forespørsel fått en databasefeil i stedet for å bli sendt til innlogging.
- */
-
-export async function leggTilGjøremål(_forrige: Gjøremålsvar, formData: FormData): Promise<Gjøremålsvar> {
-  await krevAdmin()
-
-  const felter = tekstfelter.safeParse({
-    tittel: formData.get('tittel') ?? '',
-    notat: formData.get('notat') ?? '',
-  })
-  if (!felter.success) return avvist(felter.error.issues[0].message, formData)
-
-  const supabase = await lagServerKlient()
-  const { error } = await supabase.from('gjoremal').insert(felter.data)
-  if (error) return avvist(`Kunne ikke lagre: ${error.message}`, formData)
-
-  revalidatePath(STI)
-  return { n: Date.now(), ok: true }
+function tilRad(f: z.infer<typeof felter>) {
+  return { tittel: f.tittel, notat: f.notat, frist: f.frist, viktig: f.viktig, system_id: f.systemId }
 }
 
-export async function endreGjøremål(_forrige: Gjøremålsvar, formData: FormData): Promise<Gjøremålsvar> {
-  await krevAdmin()
-
-  const gjøremålId = id.safeParse(formData.get('id'))
-  if (!gjøremålId.success) return avvist('Ukjent gjøremål', formData)
-  const felter = tekstfelter.safeParse({
-    tittel: formData.get('tittel') ?? '',
-    notat: formData.get('notat') ?? '',
-  })
-  if (!felter.success) return avvist(felter.error.issues[0].message, formData)
-
-  const supabase = await lagServerKlient()
-  const { error } = await supabase.from('gjoremal').update(felter.data).eq('id', gjøremålId.data)
-  if (error) return avvist(`Kunne ikke lagre: ${error.message}`, formData)
-
-  revalidatePath(STI)
-  return { n: Date.now(), ok: true }
+function feilFra(e: z.ZodError): Svar {
+  return { feil: e.issues[0].message }
 }
 
-export async function settGjort(formData: FormData): Promise<void> {
+export async function leggTilGjøremål(inn: Gjøremålsfelter & { id: string }): Promise<Svar> {
   await krevAdmin()
+  const f = nytt.safeParse(inn)
+  if (!f.success) return feilFra(f.error)
 
-  const gjøremålId = id.parse(formData.get('id'))
-  const gjort = formData.get('gjort') === 'ja'
+  const supabase = await lagServerKlient()
+  const { error } = await supabase.from('gjoremal').insert({ id: f.data.id, ...tilRad(f.data) })
+  return error ? { feil: `Kunne ikke lagre «${f.data.tittel}»: ${error.message}` } : {}
+}
+
+export async function endreGjøremål(inn: Gjøremålsfelter & { id: string }): Promise<Svar> {
+  await krevAdmin()
+  const f = nytt.safeParse(inn)
+  if (!f.success) return feilFra(f.error)
+
+  const supabase = await lagServerKlient()
+  const { error } = await supabase.from('gjoremal').update(tilRad(f.data)).eq('id', f.data.id)
+  return error ? { feil: `Kunne ikke lagre endringen: ${error.message}` } : {}
+}
+
+export async function settGjort(gjøremålId: string, gjort: boolean): Promise<Svar> {
+  await krevAdmin()
+  const felt = id.safeParse(gjøremålId)
+  if (!felt.success) return { feil: 'Ukjent gjøremål' }
 
   const supabase = await lagServerKlient()
   const { error } = await supabase
     .from('gjoremal')
     .update({ gjort: gjort ? new Date().toISOString() : null })
-    .eq('id', gjøremålId)
-  if (error) throw new Error(`Kunne ikke oppdatere gjøremålet: ${error.message}`)
-
-  revalidatePath(STI)
+    .eq('id', felt.data)
+  return error ? { feil: `Kunne ikke huke av: ${error.message}` } : {}
 }
 
-export async function slettGjøremål(formData: FormData): Promise<void> {
+export async function slettGjøremål(gjøremålId: string): Promise<Svar> {
   await krevAdmin()
-
-  const gjøremålId = id.parse(formData.get('id'))
+  const felt = id.safeParse(gjøremålId)
+  if (!felt.success) return { feil: 'Ukjent gjøremål' }
 
   const supabase = await lagServerKlient()
-  const { error } = await supabase.from('gjoremal').delete().eq('id', gjøremålId)
-  if (error) throw new Error(`Kunne ikke slette gjøremålet: ${error.message}`)
+  const { error } = await supabase.from('gjoremal').delete().eq('id', felt.data)
+  return error ? { feil: `Kunne ikke slette: ${error.message}` } : {}
+}
 
-  revalidatePath(STI)
+/**
+ * «Angre» etter sletting. Raden er alt borte fra databasen, så den settes
+ * inn på nytt med samme id og tidspunkter – ellers ville den havnet øverst
+ * som nylagt, og et gjort gjøremål ville stått som åpent.
+ *
+ * Valgt framfor å vente med selve slettingen til angrefristen var ute: da
+ * ville en side som lukkes innen fristen latt gjøremålet stå igjen.
+ */
+export async function gjenopprettGjøremål(inn: Gjøremål): Promise<Svar> {
+  await krevAdmin()
+  const f = helt.safeParse(inn)
+  if (!f.success) return feilFra(f.error)
+
+  const supabase = await lagServerKlient()
+  const { error } = await supabase
+    .from('gjoremal')
+    .insert({ id: f.data.id, gjort: f.data.gjort, opprettet: f.data.opprettet, ...tilRad(f.data) })
+  return error ? { feil: `Kunne ikke angre slettingen: ${error.message}` } : {}
 }

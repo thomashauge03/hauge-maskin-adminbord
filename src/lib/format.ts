@@ -21,6 +21,20 @@ const datoTid = new Intl.DateTimeFormat('nb-NO', {
   timeZone: 'Europe/Oslo',
 })
 
+const kortTid = new Intl.DateTimeFormat('nb-NO', {
+  day: 'numeric',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+  timeZone: 'Europe/Oslo',
+})
+
+/** «12. nov., 13:30». For lister der året sjelden er spørsmålet og plassen er trang. */
+export function visKortTid(iso: string | null): string {
+  if (!iso) return '–'
+  return kortTid.format(new Date(iso))
+}
+
 export function visDato(iso: string | null): string {
   if (!iso) return '–'
   return dato.format(new Date(iso))
@@ -34,6 +48,38 @@ export function visDatoTid(iso: string | null): string {
 /** ÅÅÅÅ-MM-DD i norsk tid. `toISOString` er UTC, og gir gårsdagen den første timen etter midnatt. */
 export function isoDato(naa: number): string {
   return new Date(naa).toLocaleDateString('sv-SE', { timeZone: 'Europe/Oslo' })
+}
+
+/** ÅÅÅÅ-MM-DD flyttet `dager` fram (eller tilbake). Regnet på datoen alene, så sommertid ikke flytter den. */
+export function leggTilDager(dato: string, dager: number): string {
+  const d = new Date(`${dato}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + dager)
+  return d.toISOString().slice(0, 10)
+}
+
+const fristDato = new Intl.DateTimeFormat('nb-NO', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' })
+const fristDatoÅr = new Intl.DateTimeFormat('nb-NO', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
+
+/**
+ * «I dag», «I morgen», «I går», ellers «fre. 14. nov.». Året bare når det
+ * ikke er i år. `idag` kommer fra serveren, så server og nettleser skriver
+ * det samme ved hydrering.
+ */
+export function visFrist(frist: string, idag: string): string {
+  if (frist === idag) return 'I dag'
+  if (frist === leggTilDager(idag, 1)) return 'I morgen'
+  if (frist === leggTilDager(idag, -1)) return 'I går'
+  const d = new Date(`${frist}T00:00:00Z`)
+  return (frist.slice(0, 4) === idag.slice(0, 4) ? fristDato : fristDatoÅr).format(d)
+}
+
+/** Mandagen i uka `naa` faller i, som ÅÅÅÅ-MM-DD i norsk tid. Sammenlignes som tekst med isoDato. */
+export function ukestart(naa: number): string {
+  // Regnet på datoen alene, i UTC: et klokkeslett ville flyttet seg en
+  // time når sommertida slår inn midt i uka.
+  const dag = new Date(`${isoDato(naa)}T00:00:00Z`)
+  dag.setUTCDate(dag.getUTCDate() - ((dag.getUTCDay() + 6) % 7))
+  return dag.toISOString().slice(0, 10)
 }
 
 /**

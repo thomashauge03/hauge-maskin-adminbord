@@ -240,6 +240,64 @@ dialog.hm-panel::backdrop {
   animation: hm-inn 320ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 
+/* ── Avhuking i gjøremålslista ────────────────────────────────
+   Streken trekkes over teksten i stedet for å slå på line-through, så
+   man ser at trykket tok – lagringen skjer i bakgrunnen og gir ellers
+   ingen tilbakemelding. Bakgrunn framfor text-decoration fordi den kan
+   animeres; clone gir hver linje sin egen strek når tittelen brytes. */
+.hm-strek {
+  /* --strek lar flisa gjøre streken rød i avhukingsøyeblikket, uten at
+     de gjorte radene under – som deler klassen – blir røde. */
+  background-image: linear-gradient(var(--strek, currentColor), var(--strek, currentColor));
+  background-repeat: no-repeat;
+  background-position: 0 55%;
+  background-size: 0% 2px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  transition:
+    background-size 280ms cubic-bezier(0.2, 0, 0, 1),
+    color 200ms ease-out;
+}
+.hm-strek[data-gjort] {
+  background-size: 100% 2px;
+}
+
+@keyframes hm-hak {
+  from {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+.hm-hak {
+  animation: hm-hak 180ms cubic-bezier(0.2, 0, 0, 1.4) both;
+}
+
+/* Avhuket flis setter seg ned i skyggen, samme bevegelse som .hm-trykk,
+   og blekner rett før BLI_STÅENDE_MS (1200) i liste.tsx flytter den ned.
+   Forsinkelsen må holdes under den, ellers hopper flisa ut av lista mens
+   den fortsatt synes. Bare transform og opacity, så ingenting regnes om. */
+.hm-flis {
+  transition:
+    transform 150ms cubic-bezier(0.2, 0, 0, 1),
+    box-shadow 150ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 200ms;
+}
+.hm-flis[data-gjort] {
+  transform: translate(4px, 4px);
+  box-shadow: 0 0 0 0 var(--kant-sterk);
+  animation: hm-ut 220ms 950ms both;
+}
+@keyframes hm-ut {
+  to {
+    opacity: 0;
+    transform: translate(4px, 10px);
+  }
+}
+
 /* Bevegelse er aldri nødvendig for å forstå grensesnittet. */
 @media (prefers-reduced-motion: reduce) {
   *,
