@@ -35,6 +35,14 @@ export function visKortTid(iso: string | null): string {
   return kortTid.format(new Date(iso))
 }
 
+const kortDato = new Intl.DateTimeFormat('nb-NO', { day: 'numeric', month: 'short', timeZone: 'Europe/Oslo' })
+
+/** «12. nov.», i norsk tid. */
+export function visKortDato(iso: string | null): string {
+  if (!iso) return '–'
+  return kortDato.format(new Date(iso))
+}
+
 export function visDato(iso: string | null): string {
   if (!iso) return '–'
   return dato.format(new Date(iso))

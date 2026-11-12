@@ -15,6 +15,8 @@ export type Gjøremålsfelter = {
 export type Gjøremål = Gjøremålsfelter & {
   id: string
   gjort: string | null
+  /** Når oppfølgingen startet, eller null. Slås av og på for seg, som `gjort`. */
+  oppfølgingSiden: string | null
   opprettet: string
 }
 
@@ -29,10 +31,11 @@ type GjøremålRad = {
   viktig: boolean
   system_id: string | null
   gjort: string | null
+  under_oppfolging_siden: string | null
   opprettet: string
 }
 
-const KOLONNER = 'id, tittel, notat, frist, viktig, system_id, gjort, opprettet'
+const KOLONNER = 'id, tittel, notat, frist, viktig, system_id, gjort, under_oppfolging_siden, opprettet'
 
 /** Hvor mange avhukede som hentes. Åpne hentes alltid alle. */
 const GJORT_GRENSE = 100
@@ -46,6 +49,7 @@ function fraRad(r: GjøremålRad): Gjøremål {
     viktig: r.viktig,
     systemId: r.system_id,
     gjort: r.gjort,
+    oppfølgingSiden: r.under_oppfolging_siden,
     opprettet: r.opprettet,
   }
 }

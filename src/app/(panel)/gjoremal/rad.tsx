@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { KNAPP_FARLIG, KNAPP_LITEN } from '@/components/ui'
-import { leggTilDager, visFrist, visKortTid } from '@/lib/format'
+import { leggTilDager, visFrist, visKortDato, visKortTid } from '@/lib/format'
 import type { Gjøremål, Gjøremålsfelter, Systemvalg } from '@/lib/gjoremal'
 import { Valglinje, type Valg } from './valg'
 
@@ -42,6 +42,15 @@ function fristtekst(frist: string, idag: string, søndag: string): { tekst: stri
 
 const HAK = 'M3 8.5 6.5 12 13 4.5'
 
+function Klokke({ className }: { className: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth="1.75">
+      <circle cx="8" cy="8" r="6" />
+      <path d="M8 4.5V8l2.5 1.5" />
+    </svg>
+  )
+}
+
 /**
  * `flis` er de åpne: kraftig kant og skygge, så de er det øyet går til. De
  * viser frist og system, men ikke når de ble lagt inn – det er bare støy på
@@ -61,6 +70,7 @@ export function Rad({
   onHukAv,
   onEndre,
   onSlett,
+  onFølgOpp,
   onLukk,
   skalFåFokus,
 }: {
@@ -75,6 +85,7 @@ export function Rad({
   onHukAv: (g: Gjøremål, tastatur?: boolean) => void
   onEndre: (g: Gjøremål, felter: Gjøremålsfelter) => void
   onSlett: (g: Gjøremål) => void
+  onFølgOpp?: (g: Gjøremål) => void
   /**
    * Blyanten finnes ikke mens skjemaet står framme, og bytter gjøremålet
    * gruppe ved Lagre, monteres raden på nytt i en annen liste. Derfor
@@ -90,6 +101,8 @@ export function Rad({
   const [redigerer, settRedigerer] = useState(false)
   const gjort = g.gjort !== null
   const viktig = g.viktig && !gjort
+  // På de gjorte er oppfølgingen over; merket ville bare sagt at noe pågår.
+  const følgesOpp = g.oppfølgingSiden !== null && !gjort
 
   function lukk() {
     onLukk?.(g.id)
@@ -219,6 +232,20 @@ export function Rad({
             {g.notat && (
               <p className="mt-0.5 text-sm break-words whitespace-pre-line text-[var(--blekk-svak)]">{g.notat}</p>
             )}
+            {flis && følgesOpp && (
+              // Gult og ikke rødt: rødt betyr at noe haster eller er forfalt,
+              // dette betyr at noe er i gang. Ordet bærer meningen, så fargen
+              // ikke trengs for å forstå det.
+              <p className="mt-2">
+                <span className="inline-flex items-center gap-1.5 border-2 border-hm-amber px-1.5 py-px text-[11px] leading-4 font-bold tracking-wider text-[var(--blekk)] uppercase">
+                  <Klokke className="size-3 text-hm-amber" />
+                  Under oppfølging
+                  <span className="hm-tall font-semibold tracking-normal text-[var(--blekk-svak)] normal-case">
+                    siden {visKortDato(g.oppfølgingSiden)}
+                  </span>
+                </span>
+              </p>
+            )}
             {flis && (frist || systemNavn) && (
               // Bryter heller enn å kutte: «HAUGE MASKIN – HEIMESIDE» ble
               // «HA…» på telefon, og et kuttet navn er verre enn en linje til.
@@ -265,6 +292,25 @@ export function Rad({
             <span className="hm-tall hidden shrink-0 pt-0.5 text-xs whitespace-nowrap text-[var(--blekk-svak)] sm:block">
               Gjort {visKortTid(g.gjort)}
             </span>
+          )}
+
+          {flis && onFølgOpp && (
+            // Står fast mens den er på, så man ser at den kan slås av igjen
+            // der merket står; ellers skjult som blyanten til raden er i bruk.
+            <button
+              type="button"
+              aria-pressed={følgesOpp}
+              onClick={() => onFølgOpp(g)}
+              aria-label={følgesOpp ? `Avslutt oppfølging av «${g.tittel}»` : `Merk «${g.tittel}» som under oppfølging`}
+              title={følgesOpp ? 'Avslutt oppfølging' : 'Merk som under oppfølging'}
+              className={`flex size-8 shrink-0 items-center justify-center transition-[opacity,color,background-color] pointer-coarse:-my-1.5 pointer-coarse:size-11 ${
+                følgesOpp
+                  ? 'bg-hm-amber text-white hover:bg-hm-amber/80'
+                  : 'text-[var(--blekk-svak)] opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 hover:bg-[var(--kant)] hover:text-[var(--blekk)] pointer-coarse:opacity-100'
+              }`}
+            >
+              <Klokke className="size-4" />
+            </button>
           )}
 
           {/* Skjult til raden er under musa eller har fokus, så lista er

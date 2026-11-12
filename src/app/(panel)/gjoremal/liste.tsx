@@ -12,6 +12,7 @@ import {
   gjenopprettGjøremål,
   leggTilGjøremål,
   settGjort,
+  settOppfølging,
   slettGjøremål,
   type Svar,
 } from './actions'
@@ -80,6 +81,7 @@ export function Gjøremålsliste({
 }) {
   // null = alle systemer, '' = gjøremål uten system.
   const [filter, settFilter] = useState<string | null>(null)
+  const [bareOppfølging, settBareOppfølging] = useState(false)
   const router = useRouter()
   const [liste, settListe] = useState(start)
   // Ny liste fra serveren (etter en feil, eller en ny sidelast) erstatter
@@ -157,6 +159,7 @@ export function Gjøremålsliste({
       // har svart på at den finnes.
       id: crypto.randomUUID(),
       gjort: null,
+      oppfølgingSiden: null,
       opprettet: new Date().toISOString(),
     }
     settListe((l) => [g, ...l])
@@ -239,6 +242,14 @@ export function Gjøremålsliste({
     lagre(() => endreGjøremål({ id: g.id, ...f }))
   }
 
+  function følgOpp(g: Gjøremål) {
+    const på = g.oppfølgingSiden === null
+    settListe((l) =>
+      l.map((x) => (x.id === g.id ? { ...x, oppfølgingSiden: på ? new Date().toISOString() : null } : x)),
+    )
+    lagre(() => settOppfølging(g.id, på))
+  }
+
   function slett(g: Gjøremål) {
     settListe((l) => l.filter((x) => x.id !== g.id))
     settSlettet(g)
@@ -268,9 +279,14 @@ export function Gjøremålsliste({
     ...systemer.filter((s) => iBruk.has(s.id)),
     ...(iBruk.has('') ? [{ id: '', navn: 'Uten system' }] : []),
   ]
-  const visFilter = filterValg.some((s) => s.id !== '')
   const aktivtFilter = filter !== null && filterValg.some((s) => s.id === filter) ? filter : null
-  const synlig = aktivtFilter === null ? liste : liste.filter((g) => (g.systemId ?? '') === aktivtFilter)
+  const forSystem = aktivtFilter === null ? liste : liste.filter((g) => (g.systemId ?? '') === aktivtFilter)
+  // Fanen kommer bare når noe åpent følges opp, og blir stående mens den er
+  // valgt, av samme grunn som systemfanene.
+  const antallOppfølging = forSystem.filter((g) => venter(g) && g.oppfølgingSiden !== null).length
+  const visOppfølgingFane = bareOppfølging || liste.some((g) => venter(g) && g.oppfølgingSiden !== null)
+  const visFilter = filterValg.some((s) => s.id !== '') || visOppfølgingFane
+  const synlig = bareOppfølging ? forSystem.filter((g) => g.oppfølgingSiden !== null) : forSystem
   // Nylig avhukede telles med til de flytter seg, så tallet stemmer med
   // flisene som faktisk står der.
   const antallÅpneFor = (systemId: string | null) =>
@@ -314,6 +330,7 @@ export function Gjøremålsliste({
     onHukAv: hukAv,
     onEndre: endre,
     onSlett: slett,
+    onFølgOpp: følgOpp,
     onLukk: radLukket,
     skalFåFokus,
   }
@@ -350,6 +367,22 @@ export function Gjøremålsliste({
           <Filterknapp aktiv={aktivtFilter === null} antall={antallÅpneFor(null)} onClick={() => settFilter(null)}>
             Alle
           </Filterknapp>
+          {visOppfølgingFane && (
+            // Egen bryter og ikke en fane til i systemrekka: den kombineres
+            // med systemfilteret («under oppfølging i Rørlager»), mens
+            // systemfanene utelukker hverandre. Rett etter Alle og ikke
+            // sist: med mange systemer havnet den utenfor skjermkanten.
+            <span className="flex items-center">
+              <Filterknapp
+                aktiv={bareOppfølging}
+                antall={antallOppfølging}
+                onClick={() => settBareOppfølging((v) => !v)}
+              >
+                Under oppfølging
+              </Filterknapp>
+              <span aria-hidden="true" className="mx-1 h-5 w-0.5 bg-[var(--kant)]" />
+            </span>
+          )}
           {filterValg.map((s) => (
             <Filterknapp
               key={s.id || 'uten'}

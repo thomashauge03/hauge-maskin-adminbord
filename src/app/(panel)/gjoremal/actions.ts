@@ -38,7 +38,7 @@ const felter = z.object({
 })
 
 const nytt = felter.extend({ id })
-const helt = felter.extend({ id, gjort: tid.nullable(), opprettet: tid })
+const helt = felter.extend({ id, gjort: tid.nullable(), oppfølgingSiden: tid.nullable(), opprettet: tid })
 
 function tilRad(f: z.infer<typeof felter>) {
   return { tittel: f.tittel, notat: f.notat, frist: f.frist, viktig: f.viktig, system_id: f.systemId }
@@ -81,6 +81,19 @@ export async function settGjort(gjøremålId: string, gjort: boolean): Promise<S
   return error ? { feil: `Kunne ikke huke av: ${error.message}` } : {}
 }
 
+export async function settOppfølging(gjøremålId: string, på: boolean): Promise<Svar> {
+  await krevAdmin()
+  const felt = id.safeParse(gjøremålId)
+  if (!felt.success) return { feil: 'Ukjent gjøremål' }
+
+  const supabase = await lagServerKlient()
+  const { error } = await supabase
+    .from('gjoremal')
+    .update({ under_oppfolging_siden: på ? new Date().toISOString() : null })
+    .eq('id', felt.data)
+  return error ? { feil: `Kunne ikke endre oppfølgingen: ${error.message}` } : {}
+}
+
 export async function slettGjøremål(gjøremålId: string): Promise<Svar> {
   await krevAdmin()
   const felt = id.safeParse(gjøremålId)
@@ -107,6 +120,12 @@ export async function gjenopprettGjøremål(inn: Gjøremål): Promise<Svar> {
   const supabase = await lagServerKlient()
   const { error } = await supabase
     .from('gjoremal')
-    .insert({ id: f.data.id, gjort: f.data.gjort, opprettet: f.data.opprettet, ...tilRad(f.data) })
+    .insert({
+      id: f.data.id,
+      gjort: f.data.gjort,
+      under_oppfolging_siden: f.data.oppfølgingSiden,
+      opprettet: f.data.opprettet,
+      ...tilRad(f.data),
+    })
   return error ? { feil: `Kunne ikke angre slettingen: ${error.message}` } : {}
 }
