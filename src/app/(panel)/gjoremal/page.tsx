@@ -8,12 +8,12 @@ export const metadata: Metadata = { title: 'Gjøremål' }
 
 export default async function GjøremålSide() {
   await krevAdmin()
-  const { liste, systemer, gjortAvkortet, idag, mandag } = await hentGjøremål()
+  const { liste, systemer, idag, mandag } = await hentGjøremål()
 
   return (
     <div className="mx-auto max-w-3xl space-y-8">
       <Seksjonstittel under="Din egen huskeliste. Bare du ser den.">Gjøremål</Seksjonstittel>
-      <Gjøremålsliste start={liste} systemer={systemer} gjortAvkortet={gjortAvkortet} idag={idag} mandag={mandag} />
+      <Gjøremålsliste start={liste} systemer={systemer} idag={idag} mandag={mandag} />
     </div>
   )
 }

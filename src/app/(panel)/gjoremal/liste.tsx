@@ -21,6 +21,8 @@ import {
 const ANGREFRIST_MS = 6000
 /** Så lenge et avhuket gjøremål blir stående blant de åpne, så streken rekker å synes. */
 const BLI_STÅENDE_MS = 1200
+/** Så mange gjorte vises før «Vis alle». Resten er der, bare ikke i veien. */
+const SYNLIGE_GJORTE = 10
 
 const nyestFørst = (a: string, b: string) => (a < b ? 1 : a > b ? -1 : 0)
 
@@ -69,13 +71,11 @@ function fokusUtAvVarselet(varsel: HTMLElement | null, nyLinje: HTMLElement | nu
 export function Gjøremålsliste({
   start,
   systemer,
-  gjortAvkortet,
   idag,
   mandag,
 }: {
   start: Gjøremål[]
   systemer: Systemvalg[]
-  gjortAvkortet: boolean
   idag: string
   mandag: string
 }) {
@@ -292,36 +292,19 @@ export function Gjøremålsliste({
   const antallÅpneFor = (systemId: string | null) =>
     liste.filter((g) => venter(g) && (systemId === null || (g.systemId ?? '') === systemId)).length
 
-  // Masken viser at det er mer å sveipe til, men bare når det er det: ellers
-  // ville siste fane alltid sett halvt borte ut.
-  const fanerad = useRef<HTMLDivElement>(null)
-  const [flyterOver, settFlyterOver] = useState(false)
-  const fanenøkkel = filterValg.map((s) => s.id).join('|')
-  useEffect(() => {
-    const rad = fanerad.current
-    if (!rad) return
-    const mål = () => settFlyterOver(rad.scrollWidth > rad.clientWidth + 1)
-    mål()
-    // Raden selv endrer ikke bredde når en fane kommer til, så fanene
-    // observeres også.
-    const observatør = new ResizeObserver(mål)
-    observatør.observe(rad)
-    for (const barn of rad.children) observatør.observe(barn)
-    return () => observatør.disconnect()
-  }, [visFilter, fanenøkkel])
-
   const åpne = synlig.filter((g) => g.gjort === null || nyligGjort.has(g.id))
   const grupper = grupperEtterFrist(åpne, idag)
   const gjort = synlig
     .filter((g) => g.gjort !== null && !nyligGjort.has(g.id))
     .sort((a, b) => nyestFørst(a.gjort!, b.gjort!))
-  const gjortUka = gjort.filter((g) => isoDato(Date.parse(g.gjort!)) >= mandag)
-  const gjortEldre = gjort.slice(gjortUka.length)
+  const gjortUka = gjort.filter((g) => isoDato(Date.parse(g.gjort!)) >= mandag).length
 
   const filterNavn = aktivtFilter === null ? null : (filterValg.find((s) => s.id === aktivtFilter)?.navn ?? null)
 
   const antallÅpne = synlig.filter((g) => g.gjort === null).length
-  const antallGjortUka = synlig.filter((g) => g.gjort !== null && isoDato(Date.parse(g.gjort)) >= mandag).length
+  // Hele lista, ikke bare uka: gjøremålene skal ligge der for alltid, og et
+  // tall som nullstilles hver mandag fikk det til å se ut som om de forsvant.
+  const antallGjort = synlig.filter((g) => g.gjort !== null).length
   const antallForfalt = synlig.filter((g) => g.gjort === null && g.frist !== null && g.frist < idag).length
   const radProps = {
     idag,
@@ -338,8 +321,8 @@ export function Gjøremålsliste({
   return (
     <div className="space-y-6">
       <Fremdrift
-        gjort={antallGjortUka}
-        av={antallÅpne + antallGjortUka}
+        gjort={antallGjort}
+        av={antallÅpne + antallGjort}
         ventende={ventende > 0}
         forfalt={antallForfalt}
         systemNavn={filterNavn}
@@ -350,20 +333,10 @@ export function Gjøremålsliste({
       </div>
 
       {visFilter && (
-        // Én rad som sveipes sidelengs, også på PC. Brutt over flere linjer
-        // tok knappene halve skjermhøyden på telefon, og på PC svevde den
-        // røde understreken på en andrelinje i stedet for på grunnlinja.
-        // Grunnlinja er en innvendig skygge og ikke border-b: overflow-x-auto
-        // klipper ved kanten av polstringen, og ville kuttet den røde
-        // understreken der den skal ligge oppå linja.
-        <div
-          ref={fanerad}
-          role="group"
-          aria-label="Vis gjøremål for"
-          className={`flex gap-0 overflow-x-auto shadow-[inset_0_-2px_0_var(--kant)] [scrollbar-width:none] max-sm:-mx-4 max-sm:px-4 [&>*]:shrink-0 ${
-            flyterOver ? '[mask-image:linear-gradient(to_right,#000_calc(100%-2rem),transparent)]' : ''
-          }`}
-        >
+        // Knapper som brytes over flere linjer, ikke en rad som sveipes: med
+        // seks–sju systemer forsvant de siste utenfor kanten, og ingen visste
+        // at de fantes. Alt skal synes uten å lete.
+        <div role="group" aria-label="Vis gjøremål for" className="flex flex-wrap items-center gap-2">
           <Filterknapp aktiv={aktivtFilter === null} antall={antallÅpneFor(null)} onClick={() => settFilter(null)}>
             Alle
           </Filterknapp>
@@ -372,7 +345,7 @@ export function Gjøremålsliste({
             // med systemfilteret («under oppfølging i Rørlager»), mens
             // systemfanene utelukker hverandre. Rett etter Alle og ikke
             // sist: med mange systemer havnet den utenfor skjermkanten.
-            <span className="flex items-center">
+            <span className="flex items-center gap-2">
               <Filterknapp
                 aktiv={bareOppfølging}
                 antall={antallOppfølging}
@@ -380,7 +353,7 @@ export function Gjøremålsliste({
               >
                 Under oppfølging
               </Filterknapp>
-              <span aria-hidden="true" className="mx-1 h-5 w-0.5 bg-[var(--kant)]" />
+              <span aria-hidden="true" className="h-6 w-0.5 bg-[var(--kant)]" />
             </span>
           )}
           {filterValg.map((s) => (
@@ -470,33 +443,32 @@ export function Gjøremålsliste({
       {gjort.length > 0 && (
         <section aria-labelledby="gjort-tittel" className="space-y-3 pt-2">
           <h2 id="gjort-tittel" className="hm-display flex items-center gap-3 text-sm tracking-wider">
-            <span>Gjort denne uka</span>
+            <span>Gjort</span>
             <span className="sr-only">, </span>
-            <span className="hm-tall font-sans text-xs font-semibold text-[var(--blekk-svak)]">{gjortUka.length}</span>
+            <span className="hm-tall font-sans text-xs font-semibold text-[var(--blekk-svak)]">{gjort.length}</span>
+            {gjortUka > 0 && (
+              <span className="font-sans text-xs font-semibold tracking-normal text-[var(--blekk-svak)] normal-case">
+                {gjortUka} denne uka
+              </span>
+            )}
             {/* Stiplet som radene under: historikk, ikke noe som venter. */}
             <span aria-hidden="true" className="h-0 flex-1 border-t-2 border-dashed border-[var(--kant)]" />
           </h2>
 
-          {gjortUka.length === 0 && (
-            <p className="text-sm text-[var(--blekk-svak)]">Ingenting huket av siden mandag.</p>
-          )}
           <ul className="space-y-2">
-            {gjortUka.map((g) => (
+            {(visEldre ? gjort : gjort.slice(0, SYNLIGE_GJORTE)).map((g) => (
               <Rad key={g.id} gjøremål={g} nylig={nettoppFlyttet.has(g.id)} {...radProps} />
             ))}
-            {visEldre && gjortEldre.map((g) => <Rad key={g.id} gjøremål={g} {...radProps} />)}
           </ul>
 
-          {gjortEldre.length > 0 && (
+          {gjort.length > SYNLIGE_GJORTE && (
             <button
               type="button"
               onClick={() => settVisEldre((v) => !v)}
               aria-expanded={visEldre}
               className="text-sm text-[var(--blekk-svak)] underline underline-offset-4 hover:text-[var(--blekk)] pointer-coarse:min-h-11"
             >
-              {visEldre
-                ? 'Skjul eldre'
-                : `Vis ${gjortEldre.length} eldre${gjortAvkortet ? ' (de 100 siste)' : ''}`}
+              {visEldre ? 'Vis bare de siste' : `Vis alle ${gjort.length} gjorte`}
             </button>
           )}
         </section>
@@ -536,15 +508,13 @@ function Filterknapp({
       type="button"
       aria-pressed={aktiv}
       onClick={onClick}
-      // Fane og ikke fylt boks: den fylte «Alle» var det sterkeste på siden,
-      // sterkere enn flisene. Understreken er en form, så aktiv fane ses
-      // også uten å skille rødt fra grått.
-      // Fokusringen innenfor kanten: fanene står i en rad som ruller, og den
-      // klipper alt som stikker ut, så en ring utenpå ville ikke synes.
-      className={`relative flex min-h-10 items-center gap-1.5 px-3 text-xs font-bold tracking-wider whitespace-nowrap uppercase transition-colors focus-visible:outline-offset-[-3px] pointer-coarse:min-h-11 ${
+      // Kant og ikke fylt boks: den fylte «Alle» var det sterkeste på siden,
+      // sterkere enn flisene. Den aktive har en tykk rød underkant i tillegg
+      // til fargen – en form, så den ses også uten å skille rødt fra grått.
+      className={`flex min-h-9 items-center gap-1.5 border-2 px-2.5 text-xs font-bold tracking-wider whitespace-nowrap uppercase transition-colors pointer-coarse:min-h-11 ${
         aktiv
-          ? "text-[var(--blekk)] after:absolute after:inset-x-3 after:bottom-0 after:h-[3px] after:bg-hm-red after:content-['']"
-          : 'text-[var(--blekk-svak)] hover:text-[var(--blekk)]'
+          ? 'border-[var(--kant-sterk)] bg-[var(--flate-opp)] text-[var(--blekk)] shadow-[inset_0_-3px_0_var(--color-hm-red)]'
+          : 'border-[var(--kant)] text-[var(--blekk-svak)] hover:border-[var(--kant-sterk)] hover:text-[var(--blekk)]'
       }`}
     >
       {children}

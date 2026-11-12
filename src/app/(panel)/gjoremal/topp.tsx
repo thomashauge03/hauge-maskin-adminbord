@@ -31,8 +31,8 @@ export function Fremdrift({
   systemNavn?: string | null
 }) {
   const alt = av > 0 && gjort === av
-  const tekst = `${gjort} av ${av} gjort denne uka${forfalt > 0 ? `, ${forfalt} forfalt` : ''}`
-  const navn = systemNavn ? `Fremdrift denne uka for ${systemNavn}` : 'Fremdrift denne uka'
+  const tekst = `${gjort} av ${av} gjort${forfalt > 0 ? `, ${forfalt} forfalt` : ''}`
+  const navn = systemNavn ? `Fremdrift for ${systemNavn}` : 'Fremdrift'
 
   return (
     // Ikke section med eget navn: da leste skjermleseren navnet to ganger, først
@@ -52,7 +52,7 @@ export function Fremdrift({
               skjerm brytes «·» da sammen med ordet sitt, i stedet for å bli
               hengende alene på slutten av en linje. */}
           <p className="mt-2 flex flex-wrap gap-x-2 text-xs font-bold tracking-widest text-[var(--blekk-svak)] uppercase">
-            <span>{av === 0 ? 'Ingenting denne uka' : alt ? 'Alt gjort denne uka' : 'Gjort denne uka'}</span>
+            <span>{av === 0 ? 'Ingenting på lista ennå' : alt ? 'Alt er gjort' : 'Gjort'}</span>
             {systemNavn && <span className="text-[var(--blekk)] before:mr-2 before:text-[var(--blekk-svak)] before:content-['·']">{systemNavn}</span>}
             {av > 0 && forfalt > 0 && (
               <span className="text-hm-red before:mr-2 before:text-[var(--blekk-svak)] before:content-['·']">
