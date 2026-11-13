@@ -42,6 +42,56 @@ function fristtekst(frist: string, idag: string, søndag: string): { tekst: stri
 
 const HAK = 'M3 8.5 6.5 12 13 4.5'
 
+/**
+ * Systemnavnet som tekst, med nettleserens velger usynlig oppå.
+ *
+ * Ikke selve <select> synlig: på berøring får alle felt 16 px skrift så
+ * iPhone ikke zoomer inn (globals.css), og da ble merket dobbelt så stort
+ * som resten av linja og kappet lange navn. Teksten under styrer utseendet;
+ * velgeren tar trykket og får fokus.
+ */
+function SystemMerke({
+  tekst,
+  verdi,
+  etikett,
+  systemer,
+  onBytt,
+}: {
+  tekst: string
+  verdi: string
+  etikett: string
+  systemer: { id: string; navn: string }[]
+  onBytt: (systemId: string | null) => void
+}) {
+  return (
+    <span className="relative -mx-1 inline-flex items-center border-2 border-transparent px-1 text-[11px] leading-4 font-bold tracking-wider text-[var(--blekk-svak)] uppercase transition-colors hover:border-[var(--kant)] hover:text-[var(--blekk)] has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-hm-red pointer-coarse:min-h-8 pointer-coarse:border-[var(--kant)]">
+      {tekst}
+      <select
+        value={verdi}
+        onChange={(e) => onBytt(e.target.value || null)}
+        aria-label={etikett}
+        title="Bytt system"
+        className="absolute inset-0 w-full cursor-pointer appearance-none opacity-0"
+      >
+        <Systemalternativer systemer={systemer} />
+      </select>
+    </span>
+  )
+}
+
+function Systemalternativer({ systemer }: { systemer: { id: string; navn: string }[] }) {
+  return (
+    <>
+      <option value="">Uten system</option>
+      {systemer.map((s) => (
+        <option key={s.id} value={s.id}>
+          {s.navn}
+        </option>
+      ))}
+    </>
+  )
+}
+
 function Klokke({ className }: { className: string }) {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true" className={className} fill="none" stroke="currentColor" strokeWidth="1.75">
@@ -107,6 +157,16 @@ export function Rad({
   function lukk() {
     onLukk?.(g.id)
     settRedigerer(false)
+  }
+
+  function byttSystem(systemId: string | null) {
+    onEndre(g, {
+      tittel: g.tittel,
+      notat: g.notat,
+      frist: g.frist,
+      viktig: g.viktig,
+      systemId,
+    })
   }
 
   return (
@@ -246,13 +306,19 @@ export function Rad({
                 </span>
               </p>
             )}
-            {flis && (frist || systemNavn) && (
+            {flis && (frist || systemNavn || !g.systemId) && (
               // Bryter heller enn å kutte: «HAUGE MASKIN – HEIMESIDE» ble
               // «HA…» på telefon, og et kuttet navn er verre enn en linje til.
               // Frist først fordi det er den som haster. Systemet skilles med
               // en egen strek og ikke «·»: et skilletegn ble hengende alene
               // på slutten av første linje når linja brøt på telefon.
-              <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+              // Står bare «+ System» i linja, finnes den bare på berøring;
+              // med mus ligger den som ikon ved blyanten.
+              <p
+                className={`mt-2 flex-wrap items-center gap-x-3 gap-y-1 ${
+                  frist || systemNavn ? 'flex' : 'hidden pointer-coarse:flex'
+                }`}
+              >
                 {frist && (
                   <span
                     className={`hm-tall text-xs whitespace-nowrap ${
@@ -265,15 +331,27 @@ export function Rad({
                   </span>
                 )}
                 {systemNavn && (
-                  <span
-                    className={`${
-                      frist ? 'border-l-2 border-[var(--kant-sterk)] pl-2' : ''
-                    } text-[11px] leading-4 font-bold tracking-wider text-[var(--blekk-svak)] uppercase`}
-                  >
-                    {/* Streken er bare for øyet; uten denne ble frist og system
-                        lest som ett ord. */}
-                    {frist && <span className="sr-only">, </span>}
-                    {systemNavn}
+                  <span className={frist ? 'border-l-2 border-[var(--kant-sterk)] pl-2' : ''}>
+                    {/* Merket er selve velgeren: der man ser systemet, bytter man
+                        det. Gjennom blyanten var det tre trykk og et skjema. */}
+                    <SystemMerke
+                      tekst={systemNavn}
+                      verdi={g.systemId ?? ''}
+                      etikett={`System for «${g.tittel}»`}
+                      systemer={systemer}
+                      onBytt={byttSystem}
+                    />
+                  </span>
+                )}
+                {!g.systemId && (
+                  <span className="hidden pointer-coarse:inline-flex">
+                    <SystemMerke
+                      tekst="+ System"
+                      verdi=""
+                      etikett={`Velg system for «${g.tittel}»`}
+                      systemer={systemer}
+                      onBytt={byttSystem}
+                    />
                   </span>
                 )}
               </p>
@@ -291,6 +369,31 @@ export function Rad({
           {!flis && (
             <span className="hm-tall hidden shrink-0 pt-0.5 text-xs whitespace-nowrap text-[var(--blekk-svak)] sm:block">
               Gjort {visKortTid(g.gjort)}
+            </span>
+          )}
+
+          {flis && !g.systemId && (
+            // Bare et ikon som synes, med den ekte velgeren usynlig oppå, så
+            // en flis uten system ikke får en ekstra linje med mus. Nettleserens
+            // egen liste åpnes ved trykk, så tastatur og skjermleser virker som
+            // vanlig. Ikke på berøring: et tredje ikon klemte tittelen ned i
+            // fire linjer, så der står «+ System» i linja under i stedet.
+            <span
+              className="relative flex size-8 shrink-0 items-center justify-center text-[var(--blekk-svak)] opacity-0 transition-[opacity,color,background-color] group-focus-within:opacity-100 group-hover:opacity-100 hover:bg-[var(--kant)] hover:text-[var(--blekk)] has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-hm-red pointer-coarse:hidden"
+              title="Velg system"
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.75">
+                <path d="M2.5 2.5h5.5l5.5 5.5-5.5 5.5-5.5-5.5Z" />
+                <circle cx="5.5" cy="5.5" r="1" />
+              </svg>
+              <select
+                value=""
+                onChange={(e) => byttSystem(e.target.value || null)}
+                aria-label={`Velg system for «${g.tittel}»`}
+                className="absolute inset-0 cursor-pointer appearance-none opacity-0"
+              >
+                <Systemalternativer systemer={systemer} />
+              </select>
             </span>
           )}
 
