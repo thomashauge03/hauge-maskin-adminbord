@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { logg } from '@/lib/data'
+import { alleRader } from '@/lib/supabase/alle-rader'
 import { feil, krevSmartdokPdfTilgang } from '@/lib/smartdok-pdf/tilgang'
 import 'server-only'
 
@@ -9,12 +10,17 @@ export async function GET(request: Request) {
   const bruker = await krevSmartdokPdfTilgang(request)
   if (bruker instanceof Response) return bruker
 
-  const { data, error } = await supabaseAdmin
-    .from('prosjekter')
-    .select('nummer, navn, kunde, aktiv')
-  if (error) return feil('Kunne ikke hente prosjektene.', 500)
+  // Over 1000 prosjekter kappes ellers stille av PostgREST; nummer er unikt, så sorteringen er stabil.
+  let data
+  try {
+    data = await alleRader<{ nummer: unknown; navn: unknown; kunde: unknown; aktiv: unknown }>('prosjektene', (fra, til) =>
+      supabaseAdmin.from('prosjekter').select('nummer, navn, kunde, aktiv').order('nummer').range(fra, til),
+    )
+  } catch {
+    return feil('Kunne ikke hente prosjektene.', 500)
+  }
 
-  const prosjekter = (data ?? [])
+  const prosjekter = data
     .map((r) => ({
       nummer: String(r.nummer),
       navn: String(r.navn),

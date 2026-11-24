@@ -186,3 +186,9 @@ test('tolkMaskiner: Id til Name', () => {
   ] })
   assert.deepEqual([...m], [[5, 'Gravemaskin CAT 320'], [6, 'Hjullaster']])
 })
+
+test('sidedelt svar der TotalCount er større enn Items gir feil', () => {
+  assert.throws(() => tolk({ Items: [rad({})], TotalCount: 5 }), /1 av 5 rader/)
+  assert.throws(() => tolkNavn({ Items: [], TotalCount: 2 }), /0 av 2 rader/)
+  assert.equal(tolk({ Items: [rad({})], TotalCount: 1 }).length, 1)
+})

@@ -36,8 +36,16 @@ export type SmartdokTime = {
  */
 function liste(svar: unknown): unknown[] {
   if (Array.isArray(svar)) return svar
-  const items = (svar as { Items?: unknown } | null)?.Items
-  if (Array.isArray(items)) return items
+  const innpakket = svar as { Items?: unknown; TotalCount?: unknown } | null
+  const items = innpakket?.Items
+  if (Array.isArray(items)) {
+    // Et sidedelt svar ville gitt for få timer uten at noen ser det.
+    const totalt = innpakket?.TotalCount
+    if (typeof totalt === 'number' && totalt > items.length) {
+      throw new Error(`SmartDok svarte med bare ${items.length} av ${totalt} rader. Prøv en kortere periode.`)
+    }
+    return items
+  }
   throw new Error('SmartDok svarte i et uventet format')
 }
 

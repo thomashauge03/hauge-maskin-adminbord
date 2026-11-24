@@ -39,7 +39,14 @@ export async function GET(request: Request) {
     // Ingen delvise data: feiler én bit, feiler hele svaret.
     timer = rader.flatMap((r) => tolkTimer(r, prosjekt, navn, maskinnavn))
   } catch (e) {
-    return feil(e instanceof Error ? e.message : 'Kunne ikke hente timer fra SmartDok.', 502)
+    const melding = e instanceof Error ? e.message : 'Kunne ikke hente timer fra SmartDok.'
+    // Bare prosjekt og periode og vår egen feilmelding; aldri timer eller token.
+    await logg('smartdok_pdf.timer_feilet', {
+      utfortAv: bruker.id,
+      utfortAvEpost: bruker.epost,
+      detaljer: { prosjekt, fra, til, feil: melding },
+    })
+    return feil(melding, 502)
   }
 
   await logg('smartdok_pdf.timer_hentet', {
