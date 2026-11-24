@@ -29,11 +29,16 @@ export type SmartdokTime = {
   maskin: string
 }
 
-/** SmartDok svarer med enten en ren liste eller `{ Items }`. */
+/*
+ * SmartDok svarer med enten en ren liste eller `{ Items }`. Alt annet
+ * (feilkropp, omdøpt nøkkel, null) skal stoppe: radene havner på et
+ * fakturavedlegg, og en stille tom liste ser ut som «ingen timer».
+ */
 function liste(svar: unknown): unknown[] {
   if (Array.isArray(svar)) return svar
   const items = (svar as { Items?: unknown } | null)?.Items
-  return Array.isArray(items) ? items : []
+  if (Array.isArray(items)) return items
+  throw new Error('SmartDok svarte i et uventet format')
 }
 
 function tekst(verdi: unknown): string {
@@ -55,7 +60,9 @@ export function tolkTimer(
   const ut: SmartdokTime[] = []
 
   for (const element of liste(rader)) {
-    if (typeof element !== 'object' || element === null) continue
+    if (typeof element !== 'object' || element === null) {
+      throw new Error('SmartDok ga en timerad i et uventet format')
+    }
     const r = element as Record<string, unknown>
     if (String(r.ProjectNumber) !== prosjektnummer) continue
 
@@ -63,21 +70,28 @@ export function tolkTimer(
     const type =
       maskinradId !== null ? 'maskin' : r.WageAddition === true || r.UnitAddition === true ? 'tillegg' : 'arbeid'
 
+    // Ingen stille 0: en manglende mengde eller id ville gitt feil på fakturaen.
+    if (typeof r.WorkHourID !== 'number') throw new Error('SmartDok-rad mangler WorkHourID')
+    if (typeof r.NetHours !== 'number' || !Number.isFinite(r.NetHours)) {
+      throw new Error(`SmartDok-rad ${r.WorkHourID} mangler NetHours`)
+    }
+    if (typeof r.Date !== 'string') throw new Error(`SmartDok-rad ${r.WorkHourID} mangler Date`)
+
     const utstyrId = tallEllerNull(r.EquipmentId)
     const maskin = (utstyrId !== null ? maskiner.get(utstyrId) : undefined) ?? tekst(r.EquipmentCode)
 
     ut.push({
-      id: tallEllerNull(r.WorkHourID) ?? 0,
+      id: r.WorkHourID,
       maskinradId,
       type,
-      dato: tekst(r.Date).slice(0, 10),
+      dato: r.Date.slice(0, 10),
       fra: tallEllerNull(r.OrdinaryHoursFrom),
       til: tallEllerNull(r.OrdinaryHoursTo),
       navn: navn.get(String(r.UserID)) ?? '',
       aktivitet: tekst(r.WorkDescription),
       lonnsart: tekst(r.WageName),
       kommentar: tekst(r.Comment),
-      mengde: tallEllerNull(r.NetHours) ?? 0,
+      mengde: r.NetHours,
       fakturert: r.Invoiced === true,
       underprosjekt: [tekst(r.SubProjectNumber), tekst(r.SubProjectName)].filter(Boolean).join(' '),
       maskin,
@@ -111,7 +125,7 @@ function tilDato(dag: number): string {
 export function delPeriode(fra: string, til: string): { fra: string; til: string }[] {
   const start = dagnummer(fra)
   const slutt = dagnummer(til)
-  if (start === null || slutt === null) return []
+  if (start === null || slutt === null) throw new Error('delPeriode fikk en ugyldig dato')
 
   const biter: { fra: string; til: string }[] = []
   for (let a = start; a <= slutt; a += MAKS_DAGER_PER_BIT) {

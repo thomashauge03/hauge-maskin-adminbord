@@ -111,10 +111,33 @@ test('manglende felter gir trygge standardverdier', () => {
   assert.equal(t.til, null)
 })
 
-test('uventet svar gir tom liste, og rader uten objekt hoppes over', () => {
-  assert.deepEqual(tolk(null), [])
-  assert.deepEqual(tolk({}), [])
-  assert.deepEqual(tolk([null, 'x', rad({})]).map((t) => t.id), [101])
+test('uventet svar og rader som ikke er objekter gir feil, ikke tom liste', () => {
+  for (const svar of [null, undefined, {}, { Message: 'Feil' }, { items: [] }, 'x']) {
+    assert.throws(() => tolk(svar), /uventet format/)
+    assert.throws(() => tolkNavn(svar), /uventet format/)
+    assert.throws(() => tolkMaskiner(svar), /uventet format/)
+  }
+  assert.throws(() => tolk([null, rad({})]), /uventet format/)
+  assert.throws(() => tolk(['x']), /uventet format/)
+})
+
+test('manglende WorkHourID, NetHours eller Date gir feil uten persondata', () => {
+  assert.throws(() => tolk([rad({ WorkHourID: undefined })]), /WorkHourID/)
+  for (const NetHours of [undefined, null, '8', NaN]) {
+    assert.throws(() => tolk([rad({ NetHours })]), (e) => /NetHours/.test(e.message) && !/Kari/.test(e.message))
+  }
+  for (const Date of [undefined, null, 20261110]) {
+    assert.throws(() => tolk([rad({ Date })]), /Date/)
+  }
+})
+
+test('rader fra andre prosjekter filtreres bort før de sjekkes', () => {
+  assert.deepEqual(tolk([rad({ ProjectNumber: '1', NetHours: null })]), [])
+})
+
+test('delPeriode: ugyldig dato gir feil', () => {
+  assert.throws(() => delPeriode('i går', '2026-01-01'), /ugyldig/)
+  assert.throws(() => delPeriode('2026-01-01', '2026-02-30'), /ugyldig/)
 })
 
 test('delPeriode: ett år blir biter på maks 93 dager uten hull eller overlapp', () => {
