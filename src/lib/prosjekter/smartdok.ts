@@ -322,3 +322,31 @@ export async function hentFraSmartdok(
     return { ok: false, feil: e instanceof Error ? e.message : String(e) }
   }
 }
+
+/**
+ * Leser fra SmartDok for andre apper (SmartDok til PDF). Fornyer aldri
+ * nøkkelen: det gjør bare synken, så to steder ikke kan gjøre hverandres
+ * nøkkel ugyldig. Stiene kalles etter hverandre, som SmartDok ba om.
+ */
+export async function lesFraSmartdok(stier: string[]): Promise<unknown[]> {
+  const { data } = await supabaseAdmin
+    .from('smartdok_tilkobling')
+    .select('nokkel_kryptert')
+    .eq('id', 1)
+    .maybeSingle()
+  if (!data?.nokkel_kryptert) throw new Error('SmartDok er ikke satt opp')
+
+  let nøkkel: string
+  try {
+    nøkkel = dekrypter(data.nokkel_kryptert as string)
+  } catch {
+    throw new Error('Den lagrede SmartDok-nøkkelen kan ikke leses')
+  }
+
+  const økt = await økttoken(nøkkel)
+  const svar: unknown[] = []
+  for (const sti of stier) {
+    svar.push(await kall(sti, { headers: { Authorization: `Bearer ${økt}`, Accept: 'application/json' } }))
+  }
+  return svar
+}
