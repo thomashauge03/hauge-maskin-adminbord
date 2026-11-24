@@ -11,10 +11,16 @@ export async function GET(request: Request) {
   if (bruker instanceof Response) return bruker
 
   // Over 1000 prosjekter kappes ellers stille av PostgREST; nummer er unikt, så sorteringen er stabil.
+  // Bare aktive: et prosjekt som er deaktivert eller ferdigmeldt i SmartDok skal ikke kunne velges (Thomas).
   let data
   try {
     data = await alleRader<{ nummer: unknown; navn: unknown; kunde: unknown; aktiv: unknown }>('prosjektene', (fra, til) =>
-      supabaseAdmin.from('prosjekter').select('nummer, navn, kunde, aktiv').order('nummer').range(fra, til),
+      supabaseAdmin
+        .from('prosjekter')
+        .select('nummer, navn, kunde, aktiv')
+        .eq('aktiv', true)
+        .order('nummer')
+        .range(fra, til),
     )
   } catch {
     return feil('Kunne ikke hente prosjektene.', 500)
@@ -27,8 +33,8 @@ export async function GET(request: Request) {
       kunde: (r.kunde as string | null) ?? null,
       aktiv: r.aktiv === true,
     }))
-    // Aktive først, så høyeste nummer først. Numerisk, så 900 kommer før 99.
-    .sort((a, b) => Number(b.aktiv) - Number(a.aktiv) || b.nummer.localeCompare(a.nummer, 'nb', { numeric: true }))
+    // Høyeste nummer først. Numerisk, så 900 kommer før 99.
+    .sort((a, b) => b.nummer.localeCompare(a.nummer, 'nb', { numeric: true }))
 
   await logg('smartdok_pdf.prosjekter_hentet', {
     utfortAv: bruker.id,
