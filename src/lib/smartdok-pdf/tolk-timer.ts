@@ -27,6 +27,10 @@ export type SmartdokTime = {
   underprosjekt: string
   /** Maskinnavn fra /Machines, ellers EquipmentCode, ellers tom. */
   maskin: string
+  /** EquipmentId, bare for maskinrader. Ikke-tall gir null i stedet for å stoppe hele svaret. */
+  maskinId: number | null
+  /** ExportedExternalId, som er Tripletex-merket vi skrev dit. Tom gir null. */
+  eksterntMerke: string | null
 }
 
 /*
@@ -87,6 +91,7 @@ export function tolkTimer(
 
     const utstyrId = tallEllerNull(r.EquipmentId)
     const maskin = (utstyrId !== null ? maskiner.get(utstyrId) : undefined) ?? tekst(r.EquipmentCode)
+    const eksterntMerke = tekst(r.ExportedExternalId)
 
     ut.push({
       id: r.WorkHourID,
@@ -103,6 +108,8 @@ export function tolkTimer(
       fakturert: r.Invoiced === true,
       underprosjekt: [tekst(r.SubProjectNumber), tekst(r.SubProjectName)].filter(Boolean).join(' '),
       maskin,
+      maskinId: maskinradId !== null ? utstyrId : null,
+      eksterntMerke: eksterntMerke || null,
     })
   }
 

@@ -58,6 +58,8 @@ test('dato klippes til YYYY-MM-DD og feltene får navets navn', () => {
   assert.deepEqual(t, {
     id: 101,
     maskinradId: null,
+    maskinId: null,
+    eksterntMerke: null,
     type: 'arbeid',
     dato: '2026-11-10',
     fra: 7,
@@ -77,9 +79,33 @@ test('ukjent bruker gir tomt navn, og ingen andre nøkler lekker ut', () => {
   const [t] = tolk([rad({ UserID: '999' })])
   assert.equal(t.navn, '')
   assert.deepEqual(Object.keys(t).sort(), [
-    'aktivitet', 'dato', 'fakturert', 'fra', 'id', 'kommentar', 'lonnsart',
-    'maskin', 'maskinradId', 'mengde', 'navn', 'til', 'type', 'underprosjekt',
+    'aktivitet', 'dato', 'eksterntMerke', 'fakturert', 'fra', 'id', 'kommentar', 'lonnsart',
+    'maskin', 'maskinId', 'maskinradId', 'mengde', 'navn', 'til', 'type', 'underprosjekt',
   ])
+})
+
+test('maskinId kommer bare fra maskinrader, og et ikke-tall gir null uten feil', () => {
+  const [maskinrad, arbeidsrad, ugyldig] = tolk([
+    rad({ MachineHourId: 9, EquipmentId: 5 }),
+    rad({ EquipmentId: 5 }),
+    rad({ MachineHourId: 9, EquipmentId: '5' }),
+  ])
+  assert.equal(maskinrad.maskinId, 5)
+  assert.equal(arbeidsrad.maskinId, null)
+  assert.equal(ugyldig.maskinId, null)
+})
+
+test('eksterntMerke er ExportedExternalId trimmet, og tom eller manglende gir null', () => {
+  const [a, b, c, d] = tolk([
+    rad({ ExportedExternalId: 'Tripletex ordre 12 (ab)' }),
+    rad({ ExportedExternalId: '' }),
+    rad({ ExportedExternalId: null }),
+    rad({ ExportedExternalId: '  Tripletex ordre 13  ' }),
+  ])
+  assert.equal(a.eksterntMerke, 'Tripletex ordre 12 (ab)')
+  assert.equal(b.eksterntMerke, null)
+  assert.equal(c.eksterntMerke, null)
+  assert.equal(d.eksterntMerke, 'Tripletex ordre 13')
 })
 
 test('maskin fra kartet via EquipmentId, ellers EquipmentCode, ellers tom', () => {
