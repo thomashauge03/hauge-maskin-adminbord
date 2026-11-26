@@ -41,11 +41,15 @@ export async function apneTripletex(): Promise<Tripletexøkt> {
   const autorisasjon = `Basic ${Buffer.from(`0:${token}`).toString('base64')}`
 
   async function send(sti: string, init: RequestInit): Promise<Tripletexsvar> {
+    // Headers tar alle formene RequestInit godtar; å spre et Headers-objekt gir {} og mister alt.
+    const hoder = new Headers(init.headers)
+    if (!hoder.has('Accept')) hoder.set('Accept', 'application/json')
+    hoder.set('Authorization', autorisasjon)
     let svar: Response
     try {
       svar = await fetch(`${ADRESSE}${sti}`, {
         ...init,
-        headers: { Accept: 'application/json', ...(init.headers as Record<string, string> | undefined), Authorization: autorisasjon },
+        headers: hoder,
         cache: 'no-store',
         signal: AbortSignal.timeout(TIDSAVBRUDD_MS),
       })

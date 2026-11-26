@@ -109,6 +109,21 @@ test('linjer: godtar gyldige', () => {
   assert.ok(Array.isArray(sjekkLinjer([{ produktId: 5, antall: 0.1, tekst: 'x'.repeat(200) }])))
 })
 
+test('linjer: antall kommer ut med nøyaktig to desimaler', () => {
+  // 0.1 + 0.2 er 0.30000000000000004 i flyttall; det skal ikke gå videre til Tripletex.
+  const r = sjekkLinjer([{ produktId: 5, antall: 0.1 + 0.2, tekst: 'x' }])
+  assert.ok(Array.isArray(r))
+  assert.equal(r[0].antall, 0.3)
+  const s = sjekkLinjer([{ produktId: 5, antall: 7.5 + 0.15 + 0.1, tekst: 'x' }])
+  assert.ok(Array.isArray(s))
+  assert.equal(s[0].antall, 7.75)
+})
+
+test('linjer: tekst med bare mellomrom avvises', () => {
+  assert.equal(typeof sjekkLinjer([{ produktId: 5, antall: 1, tekst: '   ' }]), 'string')
+  assert.equal(typeof sjekkLinjer([{ produktId: 5, antall: 1, tekst: '\t\n' }]), 'string')
+})
+
 test('linjer: avviser det ugyldige med norsk melding', () => {
   const ugyldig = [
     [],

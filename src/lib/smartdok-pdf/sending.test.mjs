@@ -1,0 +1,305 @@
+// Rene regler for sending av timer til Tripletex-ordre. Kjøres med `npm test`.
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import {
+  sjekkSending,
+  sjekkKode,
+  sjekkAvklar,
+  vurder,
+  sluttstatus,
+  gjeldendeStatus,
+  tillatt,
+  kommentar,
+  medKommentar,
+  harKode,
+  tolkPris,
+  tolkNyOrdre,
+  tolkOrdre,
+  ordrerMedKode,
+  linjeneKomInn,
+  sumEksMva,
+  MAKS_PDF_BYTE,
+} from './sending.ts'
+
+const PDF = Buffer.from('%PDF-1.7\n%test\n').toString('base64')
+
+function gyldig(over = {}) {
+  return {
+    prosjekt: '2026118',
+    ordre: { ny: true },
+    linjer: [{ produktId: 5, antall: 7.5, tekst: 'Gravemaskin 12t, uke 47' }],
+    timerIder: [101, 102],
+    pdf: PDF,
+    filnavn: 'timer-2026118.pdf',
+    periode: { fra: '2026-11-16', til: '2026-11-22' },
+    ...over,
+  }
+}
+
+/* ── Kroppen til legg-paa-ordre ─────────────────────────────── */
+
+test('sending: godtar en gyldig kropp og dekoder PDF-en', () => {
+  const r = sjekkSending(gyldig())
+  assert.equal(typeof r, 'object')
+  assert.equal(r.prosjekt, '2026118')
+  assert.deepEqual(r.ordre, { ny: true })
+  assert.deepEqual(r.timerIder, [101, 102])
+  assert.equal(Buffer.from(r.pdf).subarray(0, 4).toString('latin1'), '%PDF')
+  assert.deepEqual(r.periode, { fra: '2026-11-16', til: '2026-11-22' })
+})
+
+test('sending: eksisterende ordre med id', () => {
+  const r = sjekkSending(gyldig({ ordre: { id: 42 } }))
+  assert.deepEqual(r.ordre, { id: 42 })
+})
+
+test('sending: prosjektnummeret trimmes', () => {
+  assert.equal(sjekkSending(gyldig({ prosjekt: ' 2026118 ' })).prosjekt, '2026118')
+})
+
+test('sending: linjene går gjennom sjekkLinjer', () => {
+  assert.equal(typeof sjekkSending(gyldig({ linjer: [] })), 'string')
+  assert.equal(typeof sjekkSending(gyldig({ linjer: [{ produktId: 5, antall: 1.234, tekst: 'x' }] })), 'string')
+})
+
+test('sending: avviser ugyldige kropper med norsk melding', () => {
+  const stor = Buffer.alloc(MAKS_PDF_BYTE + 1, 0x20)
+  stor.write('%PDF', 0, 'latin1')
+  const ugyldig = [
+    null,
+    'tekst',
+    [],
+    gyldig({ prosjekt: '' }),
+    gyldig({ prosjekt: '   ' }),
+    gyldig({ prosjekt: 5 }),
+    gyldig({ prosjekt: 'x'.repeat(51) }),
+    gyldig({ ordre: undefined }),
+    gyldig({ ordre: { ny: false } }),
+    gyldig({ ordre: { id: 0 } }),
+    gyldig({ ordre: { id: -3 } }),
+    gyldig({ ordre: { id: 1.5 } }),
+    gyldig({ ordre: { id: '42' } }),
+    gyldig({ ordre: { ny: true, id: 42 } }),
+    gyldig({ timerIder: [] }),
+    gyldig({ timerIder: 'x' }),
+    gyldig({ timerIder: [1, 1] }),
+    gyldig({ timerIder: [0] }),
+    gyldig({ timerIder: [-1] }),
+    gyldig({ timerIder: [1.5] }),
+    gyldig({ timerIder: ['1'] }),
+    gyldig({ timerIder: [2147483648] }),
+    gyldig({ pdf: '' }),
+    gyldig({ pdf: 5 }),
+    gyldig({ pdf: 'ikke base64!' }),
+    gyldig({ pdf: Buffer.from('<html>').toString('base64') }),
+    gyldig({ pdf: stor.toString('base64') }),
+    gyldig({ filnavn: '' }),
+    gyldig({ filnavn: 'timer.txt' }),
+    gyldig({ filnavn: 'x'.repeat(117) + '.pdf' }),
+    gyldig({ filnavn: 'a"b.pdf' }),
+    gyldig({ filnavn: 'a/b.pdf' }),
+    gyldig({ filnavn: 'a\nb.pdf' }),
+    gyldig({ periode: undefined }),
+    gyldig({ periode: { fra: '2026-02-30', til: '2026-03-01' } }),
+    gyldig({ periode: { fra: '2026-11-22', til: '2026-11-16' } }),
+  ]
+  for (const x of ugyldig) {
+    const r = sjekkSending(x)
+    assert.equal(typeof r, 'string', JSON.stringify(x)?.slice(0, 120))
+    assert.ok(r.length > 0)
+  }
+})
+
+test('sending: filnavn på 120 tegn med .PDF godtas', () => {
+  assert.equal(typeof sjekkSending(gyldig({ filnavn: 'x'.repeat(116) + '.PDF' })), 'object')
+})
+
+test('sending: PDF på nøyaktig grensen godtas', () => {
+  const b = Buffer.alloc(MAKS_PDF_BYTE, 0x20)
+  b.write('%PDF', 0, 'latin1')
+  assert.equal(typeof sjekkSending(gyldig({ pdf: b.toString('base64') })), 'object')
+})
+
+/* ── kode og avklaring ─────────────────────────────────────── */
+
+test('kode: seks tegn a-z0-9', () => {
+  assert.equal(sjekkKode({ kode: 'k7x2ab' }), 'k7x2ab')
+  for (const x of [null, {}, { kode: 'K7X2AB' }, { kode: 'k7x2a' }, { kode: 'k7x2abc' }, { kode: 5 }, { kode: "k7x2a'" }]) {
+    assert.equal(sjekkKode(x), null, JSON.stringify(x))
+  }
+})
+
+test('avklar: kode og valg', () => {
+  assert.deepEqual(sjekkAvklar({ kode: 'k7x2ab', valg: 'sjekk' }), { kode: 'k7x2ab', valg: 'sjekk' })
+  assert.deepEqual(sjekkAvklar({ kode: 'k7x2ab', valg: 'frigi' }), { kode: 'k7x2ab', valg: 'frigi' })
+  assert.deepEqual(sjekkAvklar({ kode: 'k7x2ab', valg: 'merk' }), { kode: 'k7x2ab', valg: 'merk' })
+  assert.equal(typeof sjekkAvklar({ kode: 'k7x2ab', valg: 'slett' }), 'string')
+  assert.equal(typeof sjekkAvklar({ kode: 'x', valg: 'sjekk' }), 'string')
+  assert.equal(typeof sjekkAvklar(null), 'string')
+})
+
+/* ── Hva et svar betyr, steg for steg ──────────────────────── */
+
+test('vurder: 2xx er ok på alle steg', () => {
+  for (const steg of ['ny_ordre', 'hent_ordre', 'kommentar', 'pris', 'linjer', 'vedlegg', 'merke']) {
+    assert.equal(vurder(steg, 200), 'ok')
+    assert.equal(vurder(steg, 201), 'ok')
+  }
+})
+
+test('vurder: ny ordre og linjer — avvist er feilet, uten svar er ukjent', () => {
+  for (const steg of ['ny_ordre', 'linjer']) {
+    for (const s of [400, 401, 403, 404, 409, 422, 429]) assert.equal(vurder(steg, s), 'feilet', `${steg} ${s}`)
+    for (const s of [500, 502, 503, 504, 'brudd', 302, 0]) assert.equal(vurder(steg, s), 'ukjent_utfall', `${steg} ${s}`)
+  }
+})
+
+test('vurder: lesing, kommentar og pris kan ikke ha lagt noe på ordren', () => {
+  for (const steg of ['hent_ordre', 'kommentar', 'pris']) {
+    for (const s of [400, 404, 500, 503, 'brudd']) assert.equal(vurder(steg, s), 'feilet', `${steg} ${s}`)
+  }
+})
+
+test('vurder: vedlegg og merke', () => {
+  for (const s of [400, 413, 500, 'brudd']) assert.equal(vurder('vedlegg', s), 'sendt_uten_vedlegg')
+  for (const s of [400, 500, 'brudd']) assert.equal(vurder('merke', s), 'sendt_uten_merke')
+})
+
+test('sluttstatus: merket teller mest, så vedlegget', () => {
+  assert.equal(sluttstatus(true, true), 'sendt')
+  assert.equal(sluttstatus(false, true), 'sendt_uten_vedlegg')
+  assert.equal(sluttstatus(true, false), 'sendt_uten_merke')
+  assert.equal(sluttstatus(false, false), 'sendt_uten_merke')
+})
+
+/* ── Overganger ────────────────────────────────────────────── */
+
+test('gjeldende status: startet som er blitt gammel er ukjent utfall', () => {
+  const naa = Date.parse('2026-11-26T12:00:00Z')
+  assert.equal(gjeldendeStatus('startet', '2026-11-26T11:59:00Z', naa), 'startet')
+  assert.equal(gjeldendeStatus('startet', '2026-11-26T11:49:00Z', naa), 'ukjent_utfall')
+  assert.equal(gjeldendeStatus('startet', 'tull', naa), 'ukjent_utfall')
+  assert.equal(gjeldendeStatus('sendt', '2020-01-01T00:00:00Z', naa), 'sendt')
+})
+
+test('tillatt: fjern merke bare fra sendt-statusene', () => {
+  for (const s of ['sendt', 'sendt_uten_vedlegg', 'sendt_uten_merke']) assert.equal(tillatt('fjern-merke', s), true, s)
+  for (const s of ['startet', 'ukjent_utfall', 'feilet', 'angret']) assert.equal(tillatt('fjern-merke', s), false, s)
+})
+
+test('tillatt: frigi og merk bare fra ukjent utfall og sendt uten merke', () => {
+  for (const h of ['frigi', 'merk']) {
+    for (const s of ['ukjent_utfall', 'sendt_uten_merke']) assert.equal(tillatt(h, s), true, `${h} ${s}`)
+    for (const s of ['startet', 'sendt', 'sendt_uten_vedlegg', 'feilet', 'angret']) assert.equal(tillatt(h, s), false, `${h} ${s}`)
+  }
+})
+
+test('tillatt: sjekk kan gjøres når som helst unntatt mens sendingen pågår', () => {
+  for (const s of ['sendt', 'sendt_uten_vedlegg', 'sendt_uten_merke', 'ukjent_utfall', 'feilet', 'angret']) {
+    assert.equal(tillatt('sjekk', s), true, s)
+  }
+  assert.equal(tillatt('sjekk', 'startet'), false)
+})
+
+/* ── Kommentar på ordren ───────────────────────────────────── */
+
+test('kommentar: kode og periode', () => {
+  assert.equal(kommentar('k7x2ab', '2026-11-16', '2026-11-22'), 'SmartDok til PDF k7x2ab, 2026-11-16–2026-11-22')
+})
+
+test('kommentar: legges etter det som står der fra før', () => {
+  const k = 'SmartDok til PDF k7x2ab, 2026-11-16–2026-11-22'
+  assert.equal(medKommentar('Ring før levering', k), `Ring før levering ${k}`)
+  assert.equal(medKommentar('', k), k)
+  assert.equal(medKommentar(null, k), k)
+  assert.equal(medKommentar(undefined, k), k)
+  assert.equal(medKommentar('  ', k), k)
+})
+
+test('harKode: leter etter hele merket, ikke bare seks tegn', () => {
+  assert.equal(harKode('Ring før SmartDok til PDF k7x2ab, 2026-11-16–2026-11-22', 'k7x2ab'), true)
+  assert.equal(harKode('k7x2ab', 'k7x2ab'), false)
+  assert.equal(harKode('SmartDok til PDF k7x2abc, x', 'k7x2ab'), false)
+  assert.equal(harKode(null, 'k7x2ab'), false)
+})
+
+/* ── Svar fra Tripletex ────────────────────────────────────── */
+
+test('pris: positivt tall fra malen, ellers null', () => {
+  assert.equal(tolkPris({ value: { unitPriceExcludingVatCurrency: 1250 } }), 1250)
+  assert.equal(tolkPris({ value: { unitPriceExcludingVatCurrency: 99.5 } }), 99.5)
+  for (const j of [
+    null,
+    {},
+    { value: {} },
+    { value: { unitPriceExcludingVatCurrency: 0 } },
+    { value: { unitPriceExcludingVatCurrency: -1 } },
+    { value: { unitPriceExcludingVatCurrency: '1250' } },
+    { value: { unitPriceExcludingVatCurrency: null } },
+    { value: { unitPriceIncludingVatCurrency: 1250 } },
+  ]) {
+    assert.equal(tolkPris(j), null, JSON.stringify(j))
+  }
+})
+
+test('ny ordre: id og nummer, ellers null', () => {
+  assert.deepEqual(tolkNyOrdre({ value: { id: 77, number: '1234' } }), { id: 77, nummer: '1234' })
+  assert.deepEqual(tolkNyOrdre({ value: { id: 77, number: 1234 } }), { id: 77, nummer: '1234' })
+  for (const j of [null, {}, { value: { number: '1' } }, { value: { id: 0, number: '1' } }, { value: { id: 7 } }, { value: { id: '7', number: '1' } }]) {
+    assert.equal(tolkNyOrdre(j), null, JSON.stringify(j))
+  }
+})
+
+test('ordre: felt som trengs for å legge til og sjekke', () => {
+  assert.deepEqual(
+    tolkOrdre({
+      value: {
+        id: 77,
+        version: 3,
+        number: '1234',
+        isClosed: false,
+        project: { id: 9 },
+        internalComment: 'hei',
+        orderLines: [{ id: 1 }, { id: 2 }],
+      },
+    }),
+    { id: 77, versjon: 3, nummer: '1234', lukket: false, prosjektId: 9, kommentar: 'hei', antallLinjer: 2 },
+  )
+  assert.deepEqual(tolkOrdre({ value: { id: 77, version: 0, number: '1', isClosed: true } }), {
+    id: 77,
+    versjon: 0,
+    nummer: '1',
+    lukket: true,
+    prosjektId: null,
+    kommentar: '',
+    antallLinjer: 0,
+  })
+  // Ukjent lukket-status regnes ikke som åpen.
+  assert.equal(tolkOrdre({ value: { id: 77, version: 0, number: '1' } }).lukket, null)
+  for (const j of [null, {}, { value: { version: 1, number: '1' } }, { value: { id: 1, number: '1' } }, { value: { id: 1, version: 1 } }]) {
+    assert.equal(tolkOrdre(j), null, JSON.stringify(j))
+  }
+})
+
+test('ordrer med kode: plukker ordrene med koden i kommentaren', () => {
+  const values = [
+    { id: 1, number: '10', internalComment: 'SmartDok til PDF aaaaaa, x', orderLines: [{ id: 1 }] },
+    { id: 2, number: '11', internalComment: 'SmartDok til PDF k7x2ab, 2026-11-16–2026-11-22', orderLines: [{ id: 1 }, { id: 2 }] },
+    { id: 3, number: '12', internalComment: null },
+    'søppel',
+  ]
+  assert.deepEqual(ordrerMedKode(values, 'k7x2ab'), [{ id: 2, nummer: '11', antallLinjer: 2 }])
+  assert.deepEqual(ordrerMedKode(values, 'zzzzzz'), [])
+})
+
+test('linjene kom inn: like mange tilbake som sendt', () => {
+  assert.equal(linjeneKomInn({ values: [{ id: 1 }, { id: 2 }] }, 2), true)
+  assert.equal(linjeneKomInn({ values: [{ id: 1 }] }, 2), false)
+  assert.equal(linjeneKomInn({}, 2), false)
+  assert.equal(linjeneKomInn(null, 1), false)
+})
+
+test('sum eks. mva med to desimaler', () => {
+  assert.equal(sumEksMva([{ antall: 7.5, pris: 1250 }, { antall: 0.1, pris: 0.2 }]), 9375.02)
+  assert.equal(sumEksMva([]), 0)
+})

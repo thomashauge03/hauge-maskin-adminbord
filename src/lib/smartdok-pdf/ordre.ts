@@ -127,8 +127,9 @@ export function sjekkLinjer(x: unknown): { produktId: number; antall: number; te
       return `${nr}: antall må være over 0 og høyst 10000.`
     }
     if (Math.abs(Math.round(antall * 100) - antall * 100) > 1e-6) return `${nr}: antall kan ha høyst to desimaler.`
-    if (typeof tekst !== 'string' || tekst.length < 1 || tekst.length > 200) return `${nr}: teksten må være 1 til 200 tegn.`
-    ut.push({ produktId, antall, tekst })
+    if (typeof tekst !== 'string' || tekst.trim().length < 1 || tekst.length > 200) return `${nr}: teksten må være 1 til 200 tegn.`
+    // Flyttallsstøy (0.1 + 0.2) skal ikke stå som antall på en faktura.
+    ut.push({ produktId, antall: Math.round(antall * 100) / 100, tekst })
   }
   return ut
 }

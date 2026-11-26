@@ -1,0 +1,288 @@
+import { sjekkLinjer } from './ordre.ts'
+import { sjekkPeriode } from './tolk-timer.ts'
+
+/* ═══════════════════════════════════════════════════════════
+   Regler for å sende timer til en Tripletex-ordre: hva en kropp må
+   inneholde, hva hvert svar fra Tripletex betyr for sendingen, og hvilke
+   statusoverganger som er lov. Ingen nett, ingen database.
+
+   Hovedregelen bak vurder(): «feilet» betyr at ingenting som kan
+   faktureres, er lagt inn, og at timene kan sendes på nytt. Er det tvil,
+   blir det «ukjent_utfall», som sperrer timene til et menneske har sett
+   på ordren. En sperret time er bryderi; en dobbel faktura er verre.
+   ═══════════════════════════════════════════════════════════ */
+
+export type Sendestatus =
+  | 'startet'
+  | 'sendt'
+  | 'sendt_uten_vedlegg'
+  | 'sendt_uten_merke'
+  | 'ukjent_utfall'
+  | 'feilet'
+  | 'angret'
+
+export type Linje = { produktId: number; antall: number; tekst: string }
+
+export type Sendeinput = {
+  prosjekt: string
+  ordre: { ny: true } | { id: number }
+  linjer: Linje[]
+  timerIder: number[]
+  pdf: Uint8Array
+  filnavn: string
+  periode: { fra: string; til: string }
+}
+
+export const MAKS_PDF_BYTE = 4 * 1024 * 1024
+const MAKS_BASE64 = Math.ceil(MAKS_PDF_BYTE / 3) * 4
+const MAKS_TIMER = 10_000
+/** Kolonnen timer_ider er int[] (32 bit). */
+const MAKS_INT = 2_147_483_647
+
+function objekt(x: unknown): Record<string, unknown> | null {
+  return x && typeof x === 'object' && !Array.isArray(x) ? (x as Record<string, unknown>) : null
+}
+
+const positivtHeltall = (x: unknown): x is number => typeof x === 'number' && Number.isSafeInteger(x) && x > 0
+
+function sjekkOrdrevalg(x: unknown): Sendeinput['ordre'] | null {
+  const o = objekt(x)
+  if (!o) return null
+  const nøkler = Object.keys(o)
+  if (nøkler.length === 1 && o.ny === true) return { ny: true }
+  if (nøkler.length === 1 && positivtHeltall(o.id)) return { id: o.id }
+  return null
+}
+
+function sjekkTimerIder(x: unknown): number[] | string {
+  if (!Array.isArray(x) || x.length === 0) return 'Ingen timer å merke i SmartDok.'
+  if (x.length > MAKS_TIMER) return `Høyst ${MAKS_TIMER} timer per sending.`
+  if (!x.every((id) => positivtHeltall(id) && id <= MAKS_INT)) return 'Time-id-ene må være positive heltall.'
+  if (new Set(x).size !== x.length) return 'Samme time er med to ganger.'
+  return x as number[]
+}
+
+/** Streng base64: Buffer.from hopper stille over tegn som ikke hører hjemme, og da kunne en ødelagt fil gått videre. */
+function sjekkPdf(x: unknown): Uint8Array | string {
+  if (typeof x !== 'string' || x.length === 0) return 'PDF-en mangler.'
+  if (x.length > MAKS_BASE64) return 'PDF-en er større enn 4 MB.'
+  if (x.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(x)) return 'PDF-en er ikke gyldig base64.'
+  const byte = Buffer.from(x, 'base64')
+  if (byte.length > MAKS_PDF_BYTE) return 'PDF-en er større enn 4 MB.'
+  if (byte.subarray(0, 4).toString('latin1') !== '%PDF') return 'Filen er ikke en PDF.'
+  return new Uint8Array(byte.buffer, byte.byteOffset, byte.length)
+}
+
+function sjekkFilnavn(x: unknown): string | null {
+  if (typeof x !== 'string' || x.length < 1 || x.length > 120) return null
+  // Navnet havner i Content-Disposition; anførselstegn, skråstreker og linjeskift kan bryte den.
+  if (/[\u0000-\u001f\u007f"\\/]/.test(x)) return null
+  if (!/\.pdf$/i.test(x)) return null
+  return x
+}
+
+/** Kroppen til legg-paa-ordre. Norsk melding ved første feil. */
+export function sjekkSending(x: unknown): Sendeinput | string {
+  const b = objekt(x)
+  if (!b) return 'Ugyldig forespørsel.'
+
+  const prosjekt = typeof b.prosjekt === 'string' ? b.prosjekt.trim() : ''
+  if (!prosjekt || prosjekt.length > 50) return 'Velg et prosjekt.'
+
+  const ordre = sjekkOrdrevalg(b.ordre)
+  if (!ordre) return 'Velg ny ordre eller en eksisterende ordre.'
+
+  const linjer = sjekkLinjer(b.linjer)
+  if (typeof linjer === 'string') return linjer
+
+  const timerIder = sjekkTimerIder(b.timerIder)
+  if (typeof timerIder === 'string') return timerIder
+
+  const pdf = sjekkPdf(b.pdf)
+  if (typeof pdf === 'string') return pdf
+
+  const filnavn = sjekkFilnavn(b.filnavn)
+  if (!filnavn) return 'Filnavnet må være 1 til 120 tegn, slutte på .pdf og ikke ha anførselstegn eller skråstrek.'
+
+  const p = objekt(b.periode)
+  const fra = typeof p?.fra === 'string' ? p.fra : ''
+  const til = typeof p?.til === 'string' ? p.til : ''
+  const periodefeil = sjekkPeriode(fra, til)
+  if (periodefeil) return periodefeil
+
+  return { prosjekt, ordre, linjer, timerIder, pdf, filnavn, periode: { fra, til } }
+}
+
+/** Koden fra lagKode(). Alt annet avvises før det når databasen. */
+export function sjekkKode(x: unknown): string | null {
+  const k = objekt(x)?.kode
+  return typeof k === 'string' && /^[a-z0-9]{6}$/.test(k) ? k : null
+}
+
+export type Avklaring = 'sjekk' | 'frigi' | 'merk'
+
+export function sjekkAvklar(x: unknown): { kode: string; valg: Avklaring } | string {
+  const kode = sjekkKode(x)
+  if (!kode) return 'Ugyldig sendingskode.'
+  const valg = objekt(x)?.valg
+  if (valg !== 'sjekk' && valg !== 'frigi' && valg !== 'merk') return 'Ukjent valg.'
+  return { kode, valg }
+}
+
+/* ── Hva et svar betyr ─────────────────────────────────────── */
+
+export type Steg = 'ny_ordre' | 'hent_ordre' | 'kommentar' | 'pris' | 'linjer' | 'vedlegg' | 'merke'
+/** HTTP-status, eller 'brudd' når svaret aldri kom (tidsavbrudd, nettfeil). */
+export type Utfall = number | 'brudd'
+export type Vurdering = 'ok' | 'feilet' | 'ukjent_utfall' | 'sendt_uten_vedlegg' | 'sendt_uten_merke'
+
+export function vurder(steg: Steg, utfall: Utfall): Vurdering {
+  if (typeof utfall === 'number' && utfall >= 200 && utfall < 300) return 'ok'
+  switch (steg) {
+    case 'ny_ordre':
+    case 'linjer':
+      // En ren 4xx betyr at Tripletex avviste og ikke skrev noe (også 401 og 429).
+      // Alt annet kan ha blitt utført før svaret falt bort.
+      return typeof utfall === 'number' && utfall >= 400 && utfall < 500 ? 'feilet' : 'ukjent_utfall'
+    case 'hent_ordre':
+    case 'pris':
+    // Kommentaren er ikke noe som faktureres. Har den kommet inn uten linjer, er ordren
+    // som før med en ekstra linje tekst, og timene kan trygt sendes igjen.
+    case 'kommentar':
+      return 'feilet'
+    case 'vedlegg':
+      return 'sendt_uten_vedlegg'
+    case 'merke':
+      return 'sendt_uten_merke'
+  }
+}
+
+/** Uten merke er det verst: da står timene som ikke sendt i SmartDok og kan sendes igjen der. */
+export function sluttstatus(vedleggOk: boolean, merkeOk: boolean): 'sendt' | 'sendt_uten_vedlegg' | 'sendt_uten_merke' {
+  if (!merkeOk) return 'sendt_uten_merke'
+  if (!vedleggOk) return 'sendt_uten_vedlegg'
+  return 'sendt'
+}
+
+/* ── Overganger ────────────────────────────────────────────── */
+
+/**
+ * En sending lever høyst maxDuration (120 s). Står den fortsatt som startet
+ * etter ti minutter, døde funksjonen underveis, og vi vet ikke hvor langt den kom.
+ */
+export const FORELDET_MS = 10 * 60 * 1000
+
+export function gjeldendeStatus(status: Sendestatus, endret: string, naa: number): Sendestatus {
+  if (status !== 'startet') return status
+  const t = Date.parse(endret)
+  if (!Number.isFinite(t) || naa - t > FORELDET_MS) return 'ukjent_utfall'
+  return status
+}
+
+export type Handling = 'fjern-merke' | 'frigi' | 'merk' | 'sjekk'
+
+const LOV: Record<Handling, Sendestatus[]> = {
+  'fjern-merke': ['sendt', 'sendt_uten_vedlegg', 'sendt_uten_merke'],
+  frigi: ['ukjent_utfall', 'sendt_uten_merke'],
+  merk: ['ukjent_utfall', 'sendt_uten_merke'],
+  sjekk: ['sendt', 'sendt_uten_vedlegg', 'sendt_uten_merke', 'ukjent_utfall', 'feilet', 'angret'],
+}
+
+/** Tar gjeldende status (etter gjeldendeStatus), ikke den lagrede. */
+export function tillatt(handling: Handling, status: Sendestatus): boolean {
+  return LOV[handling].includes(status)
+}
+
+/* ── Kommentaren på ordren ─────────────────────────────────── */
+
+const FORSTAVELSE = 'SmartDok til PDF '
+
+export function kommentar(kode: string, fra: string, til: string): string {
+  return `${FORSTAVELSE}${kode}, ${fra}–${til}`
+}
+
+export function medKommentar(eksisterende: unknown, tillegg: string): string {
+  const før = typeof eksisterende === 'string' ? eksisterende.trim() : ''
+  return før ? `${før} ${tillegg}` : tillegg
+}
+
+/** Hele «SmartDok til PDF <kode>,» så seks tilfeldige tegn ellers i teksten ikke gir falskt treff. */
+export function harKode(internalComment: unknown, kode: string): boolean {
+  return typeof internalComment === 'string' && internalComment.includes(`${FORSTAVELSE}${kode},`)
+}
+
+/* ── Svar fra Tripletex ────────────────────────────────────── */
+
+function verdi(json: unknown): Record<string, unknown> | null {
+  return objekt(objekt(json)?.value)
+}
+
+/** Prisen fra orderLineTemplate. Null for manglende, null og negativ: da stopper sendingen. */
+export function tolkPris(json: unknown): number | null {
+  const p = verdi(json)?.unitPriceExcludingVatCurrency
+  return typeof p === 'number' && Number.isFinite(p) && p > 0 ? p : null
+}
+
+function nummer(x: unknown): string | null {
+  if (typeof x === 'string' && x) return x
+  if (typeof x === 'number' && Number.isFinite(x)) return String(x)
+  return null
+}
+
+export function tolkNyOrdre(json: unknown): { id: number; nummer: string } | null {
+  const v = verdi(json)
+  if (!v || !positivtHeltall(v.id)) return null
+  const n = nummer(v.number)
+  return n ? { id: v.id, nummer: n } : null
+}
+
+export type Ordreinfo = {
+  id: number
+  versjon: number
+  nummer: string
+  /** Null når Tripletex ikke sa noe: regnes ikke som åpen. */
+  lukket: boolean | null
+  prosjektId: number | null
+  kommentar: string
+  antallLinjer: number
+}
+
+export function tolkOrdre(json: unknown): Ordreinfo | null {
+  const v = verdi(json)
+  if (!v || !positivtHeltall(v.id)) return null
+  if (typeof v.version !== 'number' || !Number.isSafeInteger(v.version) || v.version < 0) return null
+  const n = nummer(v.number)
+  if (!n) return null
+  const prosjektId = objekt(v.project)?.id
+  return {
+    id: v.id,
+    versjon: v.version,
+    nummer: n,
+    lukket: typeof v.isClosed === 'boolean' ? v.isClosed : null,
+    prosjektId: positivtHeltall(prosjektId) ? prosjektId : null,
+    kommentar: typeof v.internalComment === 'string' ? v.internalComment : '',
+    antallLinjer: Array.isArray(v.orderLines) ? v.orderLines.length : 0,
+  }
+}
+
+export function ordrerMedKode(values: unknown[], kode: string): { id: number; nummer: string; antallLinjer: number }[] {
+  const ut: { id: number; nummer: string; antallLinjer: number }[] = []
+  for (const x of values) {
+    const o = objekt(x)
+    if (!o || !harKode(o.internalComment, kode) || !positivtHeltall(o.id)) continue
+    const n = nummer(o.number)
+    if (!n) continue
+    ut.push({ id: o.id, nummer: n, antallLinjer: Array.isArray(o.orderLines) ? o.orderLines.length : 0 })
+  }
+  return ut
+}
+
+/** Et ok-svar med færre linjer enn sendt er ikke noe vi forstår, og regnes som ukjent. */
+export function linjeneKomInn(json: unknown, antall: number): boolean {
+  const v = objekt(json)?.values
+  return Array.isArray(v) && v.length === antall
+}
+
+export function sumEksMva(linjer: { antall: number; pris: number }[]): number {
+  return Math.round(linjer.reduce((s, l) => s + l.antall * l.pris, 0) * 100) / 100
+}

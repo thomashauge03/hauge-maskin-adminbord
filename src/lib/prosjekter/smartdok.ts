@@ -354,9 +354,10 @@ export async function lesFraSmartdok(stier: string[]): Promise<unknown[]> {
 /**
  * Skriver til SmartDok for andre apper (POST med JSON). Samme økt og samme
  * regler som lesingen: fornyer aldri nøkkelen, og feiler på norsk ved alt
- * annet enn 2xx (kall() kaster da).
+ * annet enn 2xx (kall() kaster da). Uten body går POST-en tom, uten
+ * Content-Type, slik UnmarkExportedExternal vil ha det.
  */
-export async function skrivTilSmartdok(sti: string, body: unknown): Promise<void> {
+export async function skrivTilSmartdok(sti: string, body?: unknown): Promise<void> {
   const { data } = await supabaseAdmin
     .from('smartdok_tilkobling')
     .select('nokkel_kryptert')
@@ -372,9 +373,14 @@ export async function skrivTilSmartdok(sti: string, body: unknown): Promise<void
   }
 
   const økt = await økttoken(nøkkel)
-  await kall(sti, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${økt}`, 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify(body),
-  })
+  await kall(
+    sti,
+    body === undefined
+      ? { method: 'POST', headers: { Authorization: `Bearer ${økt}`, Accept: 'application/json' } }
+      : {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${økt}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify(body),
+        },
+  )
 }
