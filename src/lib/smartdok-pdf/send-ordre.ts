@@ -19,6 +19,7 @@ import {
   sumEksMva,
   tillatt,
   tolkMal,
+  tellUtfylling,
   tolkNyOrdre,
   tolkOrdre,
   vurder,
@@ -242,7 +243,7 @@ export async function sendOrdre(inn: Sendeinput, bruker: Bruker): Promise<Result
   const s = { ordreId: null as number | null, ordrenummer: null as string | null, ny: 'ny' in inn.ordre }
   // Satt når Tripletex kan ha fått noe som faktureres: en ny ordre eller linjer.
   let kanVæreSkrevet = false
-  const linjer: { produktId: number; antall: number; pris: number; rabatt: number; tekst: string }[] = []
+  const linjer: { produktId: number | null; antall: number; pris: number; rabatt: number; tekst: string }[] = []
 
   const logget = async (status: Sendestatus) => {
     await logg('smartdok_pdf.ordre_sendt', {
@@ -255,6 +256,7 @@ export async function sendOrdre(inn: Sendeinput, bruker: Bruker): Promise<Result
         status,
         antallLinjer: linjer.length,
         sumEksMva: linjer.length ? sumEksMva(linjer) : null,
+        ...tellUtfylling(linjer),
       },
     })
   }
@@ -363,7 +365,8 @@ export async function sendOrdre(inn: Sendeinput, bruker: Bruker): Promise<Result
     /* 2. Pris og rabatt, fra Tripletex' egen mal så kundepriser og rabatter gjelder */
     const maler = new Map<number, { pris: number; rabatt: number }>()
     for (const l of inn.linjer) {
-      if (maler.has(l.produktId)) continue
+      // Tekstlinjer har ikke noe produkt å slå opp pris for.
+      if (l.produktId === null || maler.has(l.produktId)) continue
       const r = await prøv(
         okt,
         `/order/orderline/orderLineTemplate?orderId=${ordreId}&productId=${l.produktId}&fields=unitPriceExcludingVatCurrency,discount`,
@@ -378,13 +381,16 @@ export async function sendOrdre(inn: Sendeinput, bruker: Bruker): Promise<Result
       if (mal === null) {
         return avslutt(
           'feilet',
-          `Produkt ${l.produktId} har ingen gyldig pris eller rabatt i Tripletex for denne ordren. Rett det der og prøv igjen. ` +
+          `Produkt ${l.produktId} har ugyldig rabatt i Tripletex for denne ordren. Rett det der og prøv igjen. ` +
             `Ingen linjer er lagt på.${tomOrdre()}`,
         )
       }
       maler.set(l.produktId, mal)
     }
-    const medPris = inn.linjer.map((l) => ({ ...l, ...(maler.get(l.produktId) as { pris: number; rabatt: number }) }))
+    const medPris = inn.linjer.map((l) => ({
+      ...l,
+      ...(l.produktId === null ? { pris: 0, rabatt: 0 } : (maler.get(l.produktId) as { pris: number; rabatt: number })),
+    }))
 
     /* 3. Linjene, bare om det er tid nok igjen til å vite hvordan det gikk */
     if (forSentForLinjer(start, Date.now())) {
@@ -401,12 +407,12 @@ export async function sendOrdre(inn: Sendeinput, bruker: Bruker): Promise<Result
         'POST',
         medPris.map((l) => ({
           order: { id: ordreId },
-          product: { id: l.produktId },
+          // Uten produkt er det en ren tekstlinje; uten rabattfelt også, siden det ikke finnes noen kundeavtale å følge.
+          ...(l.produktId === null ? {} : { product: { id: l.produktId }, discount: l.rabatt }),
           count: l.antall,
           description: l.tekst,
           // Bare dette prisfeltet; Tripletex regner ut det med mva selv, og mva-satsen kommer fra produktet.
           unitPriceExcludingVatCurrency: l.pris,
-          discount: l.rabatt,
         })),
       ),
     )

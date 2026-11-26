@@ -13,6 +13,7 @@ import {
   medKommentar,
   harKode,
   tolkPris,
+  tellUtfylling,
   tolkNyOrdre,
   tolkOrdre,
   ordrerMedKode,
@@ -259,12 +260,15 @@ test('mal: rabatt som ikke er en prosent mellom 0 og 100 stopper', () => {
   }
 })
 
-test('mal: uten pris er det ingen mal', () => {
-  assert.equal(tolkMal({ value: { discount: 10 } }), null)
-  assert.equal(tolkMal({ value: { unitPriceExcludingVatCurrency: 0, discount: 10 } }), null)
+test('mal: uten pris, med 0 eller negativ pris blir prisen 0, ikke stopp', () => {
+  assert.deepEqual(tolkMal({ value: { discount: 10 } }), { pris: 0, rabatt: 10 })
+  assert.deepEqual(tolkMal({ value: { unitPriceExcludingVatCurrency: 0, discount: 10 } }), { pris: 0, rabatt: 10 })
+  assert.deepEqual(tolkMal({ value: { unitPriceExcludingVatCurrency: null } }), { pris: 0, rabatt: 0 })
+  assert.deepEqual(tolkMal({ value: { unitPriceExcludingVatCurrency: -5 } }), { pris: 0, rabatt: 0 })
+  assert.deepEqual(tolkMal(null), { pris: 0, rabatt: 0 })
 })
 
-test('pris: positivt tall fra malen, ellers null', () => {
+test('pris: positivt tall fra malen, ellers 0', () => {
   assert.equal(tolkPris({ value: { unitPriceExcludingVatCurrency: 1250 } }), 1250)
   assert.equal(tolkPris({ value: { unitPriceExcludingVatCurrency: 99.5 } }), 99.5)
   for (const j of [
@@ -277,8 +281,26 @@ test('pris: positivt tall fra malen, ellers null', () => {
     { value: { unitPriceExcludingVatCurrency: null } },
     { value: { unitPriceIncludingVatCurrency: 1250 } },
   ]) {
-    assert.equal(tolkPris(j), null, JSON.stringify(j))
+    assert.equal(tolkPris(j), 0, JSON.stringify(j))
   }
+})
+
+test('utfylling: teller tekstlinjer og nullprislinjer til loggen', () => {
+  assert.deepEqual(
+    tellUtfylling([
+      { produktId: null, pris: 0 },
+      { produktId: 5, pris: 0 },
+      { produktId: 6, pris: 100 },
+      { produktId: null, pris: 0 },
+    ]),
+    { tekstlinjer: 2, nullprisLinjer: 1 },
+  )
+  assert.deepEqual(tellUtfylling([]), { tekstlinjer: 0, nullprisLinjer: 0 })
+})
+
+test('sending: linje uten produkt (tekstlinje) godtas', () => {
+  const r = sjekkSending(gyldig({ linjer: [{ produktId: null, antall: 1, tekst: 'Maskin – arbeid utført iht. vedlegg' }] }))
+  assert.equal(typeof r, 'object')
 })
 
 test('ny ordre: id og nummer, ellers null', () => {

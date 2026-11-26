@@ -114,15 +114,18 @@ export function tolkApneOrdrer(
 }
 
 /** Linjene brukeren vil sende. Gir norsk melding ved første feil, ellers de rensede linjene. */
-export function sjekkLinjer(x: unknown): { produktId: number; antall: number; tekst: string }[] | string {
+export function sjekkLinjer(x: unknown): { produktId: number | null; antall: number; tekst: string }[] | string {
   if (!Array.isArray(x) || x.length === 0) return 'Ingen linjer å sende.'
-  const ut: { produktId: number; antall: number; tekst: string }[] = []
+  const ut: { produktId: number | null; antall: number; tekst: string }[] = []
   for (let i = 0; i < x.length; i++) {
     const nr = `Linje ${i + 1}`
     const l = x[i]
     if (!l || typeof l !== 'object') return `${nr} er ugyldig.`
     const { produktId, antall, tekst } = l as Record<string, unknown>
-    if (typeof produktId !== 'number' || !Number.isSafeInteger(produktId) || produktId <= 0) return `${nr} mangler produkt.`
+    // null er en tekstlinje: ordren er godkjenningen, så en linje uten produkt fylles ut i Tripletex.
+    if (produktId !== null && (typeof produktId !== 'number' || !Number.isSafeInteger(produktId) || produktId <= 0)) {
+      return `${nr} har ugyldig produkt.`
+    }
     if (typeof antall !== 'number' || !Number.isFinite(antall) || antall <= 0 || antall > 10000) {
       return `${nr}: antall må være over 0 og høyst 10000.`
     }

@@ -21,7 +21,7 @@ export type Sendestatus =
   | 'feilet'
   | 'angret'
 
-export type Linje = { produktId: number; antall: number; tekst: string }
+export type Linje = { produktId: number | null; antall: number; tekst: string }
 
 export type Sendeinput = {
   prosjekt: string
@@ -319,24 +319,36 @@ function verdi(json: unknown): Record<string, unknown> | null {
   return objekt(objekt(json)?.value)
 }
 
-/** Prisen fra orderLineTemplate. Null for manglende, null og negativ: da stopper sendingen. */
-export function tolkPris(json: unknown): number | null {
+/**
+ * Prisen fra orderLineTemplate. Manglende, null, 0 og negativ gir 0: ordren i
+ * Tripletex er godkjenningen, så en linje uten pris fylles ut der i stedet for
+ * å stoppe sendingen.
+ */
+export function tolkPris(json: unknown): number {
   const p = verdi(json)?.unitPriceExcludingVatCurrency
-  return typeof p === 'number' && Number.isFinite(p) && p > 0 ? p : null
+  return typeof p === 'number' && Number.isFinite(p) && p > 0 ? p : 0
 }
 
 /**
  * Pris og rabatt fra orderLineTemplate. Rabatten (prosent) er kundens avtale i
  * Tripletex og skal følge med linjen; uten den ville kunden fått full pris.
- * Mangler rabatten, er det ingen. En rabatt vi ikke forstår, stopper sendingen.
+ * Mangler rabatten, er det ingen. En rabatt vi ikke forstår, stopper sendingen
+ * (null): å gjette 0 ville gitt kunden full pris.
  */
 export function tolkMal(json: unknown): { pris: number; rabatt: number } | null {
   const pris = tolkPris(json)
-  if (pris === null) return null
   const d = verdi(json)?.discount
   if (d === undefined || d === null) return { pris, rabatt: 0 }
   if (typeof d !== 'number' || !Number.isFinite(d) || d < 0 || d > 100) return null
   return { pris, rabatt: d }
+}
+
+/** Tekstlinjer (uten produkt) og nullprislinjer, til loggen så det kan ses hvor mye som må fylles ut i Tripletex. */
+export function tellUtfylling(linjer: { produktId: number | null; pris: number }[]): { tekstlinjer: number; nullprisLinjer: number } {
+  return {
+    tekstlinjer: linjer.filter((l) => l.produktId === null).length,
+    nullprisLinjer: linjer.filter((l) => l.produktId !== null && l.pris === 0).length,
+  }
 }
 
 function nummer(x: unknown): string | null {

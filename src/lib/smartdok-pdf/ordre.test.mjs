@@ -109,6 +109,14 @@ test('linjer: godtar gyldige', () => {
   assert.ok(Array.isArray(sjekkLinjer([{ produktId: 5, antall: 0.1, tekst: 'x'.repeat(200) }])))
 })
 
+test('linjer: produkt kan mangle (null) når teksten er der', () => {
+  assert.deepEqual(sjekkLinjer([{ produktId: null, antall: 2, tekst: 'Maskin – arbeid utført iht. vedlegg' }]), [
+    { produktId: null, antall: 2, tekst: 'Maskin – arbeid utført iht. vedlegg' },
+  ])
+  assert.equal(typeof sjekkLinjer([{ produktId: null, antall: 1, tekst: '' }]), 'string')
+  assert.equal(typeof sjekkLinjer([{ antall: 1, tekst: 'x' }]), 'string')
+})
+
 test('linjer: antall kommer ut med nøyaktig to desimaler', () => {
   // 0.1 + 0.2 er 0.30000000000000004 i flyttall; det skal ikke gå videre til Tripletex.
   const r = sjekkLinjer([{ produktId: 5, antall: 0.1 + 0.2, tekst: 'x' }])
