@@ -122,12 +122,16 @@ export function sjekkKode(x: unknown): string | null {
 
 export type Avklaring = 'sjekk' | 'frigi' | 'merk'
 
-export function sjekkAvklar(x: unknown): { kode: string; valg: Avklaring } | string {
+export function sjekkAvklar(x: unknown): { kode: string; valg: Avklaring; bekreftetLinjer: boolean } | string {
   const kode = sjekkKode(x)
   if (!kode) return 'Ugyldig sendingskode.'
   const valg = objekt(x)?.valg
   if (valg !== 'sjekk' && valg !== 'frigi' && valg !== 'merk') return 'Ukjent valg.'
-  return { kode, valg }
+  // Bekreftelsen åpner for å merke timer på en eksisterende ordre. Bare ekte true teller,
+  // så «"true"» eller 1 fra en feil klient ikke blir en bekreftelse ingen har gitt.
+  const bekreftet = objekt(x)?.bekreftetLinjer
+  if (bekreftet !== undefined && typeof bekreftet !== 'boolean') return 'Ugyldig bekreftelse.'
+  return { kode, valg, bekreftetLinjer: bekreftet === true }
 }
 
 /* ── Hva et svar betyr ─────────────────────────────────────── */
@@ -198,7 +202,8 @@ export function tillatt(handling: Handling, status: Sendestatus): boolean {
  * Merk etter ukjent utfall. På en ordre vi selv laget, er alle linjene våre,
  * så «funnet med linjer» betyr at timene er lagt på. På en eksisterende ordre
  * kan linjene ha stått der fra før, og vi kan ikke se om våre kom inn: der
- * må et menneske se i Tripletex.
+ * må et menneske se i Tripletex og bekrefte det (`bekreftetLinjer`). En feil
+ * bekreftelse gir timer som ikke faktureres, aldri dobbel faktura.
  *
  * `nyOrdre` er kolonnen ny_ordre, satt da sendingen startet. Null skal ikke
  * forekomme, men regnes som eksisterende ordre: det er den trygge siden.
@@ -207,20 +212,37 @@ export function kanMerke(
   status: Sendestatus,
   nyOrdre: boolean | null,
   funn: { funnet: boolean; antallLinjer: number; ordrenummer: string | null } | null,
+  bekreftetLinjer = false,
 ): string | null {
   if (status === 'sendt_uten_merke') return null
   if (status !== 'ukjent_utfall') return 'Sendingen kan ikke merkes nå.'
   if (!funn || !funn.funnet) return 'Fant ingen ordre med sendingens kode i Tripletex. Timene merkes ikke; frigi sendingen i stedet.'
-  if (nyOrdre !== true) {
-    return (
-      `Ordre ${funn.ordrenummer} er en eksisterende ordre, og vi kan ikke se om linjene fra denne sendingen kom inn. ` +
-      'Se på ordren i Tripletex: mangler linjene, frigi sendingen og send på nytt; står de der, merk timene for hånd i SmartDok.'
-    )
-  }
+  // En ordre uten linjer har sikkert ikke våre heller, uansett hva noen bekrefter.
   if (funn.antallLinjer === 0) {
     return `Ordre ${funn.ordrenummer} har ingen linjer. Timene merkes ikke; frigi sendingen i stedet.`
   }
+  if (nyOrdre !== true && !bekreftetLinjer) {
+    return (
+      `Ordre ${funn.ordrenummer} er en eksisterende ordre, og vi kan ikke se om linjene fra denne sendingen kom inn. ` +
+      'Se på ordren i Tripletex: står linjene der, bekreft det og merk som sendt; mangler de, frigi sendingen og send på nytt.'
+    )
+  }
   return null
+}
+
+/**
+ * Svaret etter «Frigi». `avmerket` er merket vi prøvde å fjerne i SmartDok
+ * (bare fra sendt_uten_merke), ellers null. Meldingen lover ikke mer enn det
+ * som faktisk skjedde: feilet avmerkingen, må merket fjernes for hånd.
+ */
+export function frigiMelding(avmerket: string | null, avmerkingFeilet: boolean): string {
+  const iSmartdok =
+    avmerket === null
+      ? ''
+      : avmerkingFeilet
+        ? `Merket i SmartDok kunne ikke fjernes: se etter timer merket «${avmerket}» der og fjern merket for hånd. `
+        : 'Eventuelle merker i SmartDok er fjernet. '
+  return `Timene er frigitt og kan sendes på nytt. ${iSmartdok}Se på ordren i Tripletex først, så de ikke faktureres to ganger.`
 }
 
 /**

@@ -6,6 +6,7 @@ import { lagKode, lagMerke, overlapp, tolkProsjekt } from '@/lib/smartdok-pdf/or
 import {
   delIBiter,
   forSentForLinjer,
+  frigiMelding,
   gjeldendeStatus,
   harKode,
   kanMerke,
@@ -618,7 +619,7 @@ async function finnOrdre(rad: Rad): Promise<Funn | Resultat> {
   return { funnet: true, ordreId: t.id, ordrenummer: t.nummer, antallLinjer: t.antallLinjer }
 }
 
-export async function avklar(kode: string, valg: Avklaring, bruker: Bruker): Promise<Resultat> {
+export async function avklar(kode: string, valg: Avklaring, bruker: Bruker, bekreftetLinjer = false): Promise<Resultat> {
   let rad: Rad | null
   try {
     rad = await hentRad(kode)
@@ -630,11 +631,16 @@ export async function avklar(kode: string, valg: Avklaring, bruker: Bruker): Pro
   const status = gjeldendeStatus(rad.status, rad.endret, Date.now())
   if (!tillatt(valg, status)) return feilsvar(`Sendingen er ${STATUSORD[status]}; det valget gjelder ikke nå.`, 409)
 
-  const loggAvklar = (ny: Sendestatus, ordrenummer: string | null, antallLinjer: number | null) =>
+  const loggAvklar = (
+    ny: Sendestatus,
+    ordrenummer: string | null,
+    antallLinjer: number | null,
+    ekstra: Record<string, unknown> = {},
+  ) =>
     logg('smartdok_pdf.sending_avklart', {
       utfortAv: bruker.id,
       utfortAvEpost: bruker.epost,
-      detaljer: { kode, prosjekt: rad.prosjekt, valg, fra: rad.status, status: ny, ordrenummer, antallLinjer },
+      detaljer: { kode, prosjekt: rad.prosjekt, valg, fra: rad.status, status: ny, ordrenummer, antallLinjer, ...ekstra },
     })
 
   try {
@@ -682,31 +688,55 @@ export async function avklar(kode: string, valg: Avklaring, bruker: Bruker): Pro
     }
 
     if (valg === 'frigi') {
-      if (!(await flytt(kode, rad.status, { status: 'angret' }, rad.endret))) {
-        return feilsvar('Sendingen ble endret samtidig. Last inn på nytt.', 409)
+      /*
+       * Sendt uten merke: merkingen feilet, men SmartDok kan ha rukket noen timer før
+       * den falt. Uten avmerking ville de timene stått som sendt etter frigivingen og
+       * ikke kunnet sendes på nytt. Merket er unikt for sendingen, så det rører ingen
+       * andre timer. Som i fjernMerke stopper en feil her ikke frigivingen.
+       */
+      let avmerkingFeilet = false
+      const avmerk = status === 'sendt_uten_merke' && rad.merke !== null
+      if (avmerk) {
+        try {
+          await skrivTilSmartdok(avmerkesti(rad.merke as string))
+        } catch {
+          avmerkingFeilet = true
+        }
       }
-      await loggAvklar('angret', rad.ordrenummer, rad.antall_linjer)
+      if (!(await flytt(kode, rad.status, { status: 'angret' }, rad.endret))) {
+        return feilsvar(
+          (avmerk && !avmerkingFeilet ? 'Eventuelle merker i SmartDok er fjernet, men sendingen' : 'Sendingen') +
+            ' ble endret samtidig. Last inn på nytt.',
+          409,
+        )
+      }
+      await loggAvklar('angret', rad.ordrenummer, rad.antall_linjer, avmerkingFeilet ? { avmerkingFeilet: true } : {})
       return {
         http: 200,
         kropp: {
           status: 'angret',
           kode,
           ordrenummer: rad.ordrenummer,
-          melding: 'Timene er frigitt og kan sendes på nytt. Se på ordren i Tripletex først, så de ikke faktureres to ganger.',
+          melding: frigiMelding(avmerk ? rad.merke : null, avmerkingFeilet),
         },
       }
     }
 
-    // merk: etter ukjent utfall bare på en ordre sendingen selv laget, og som har linjer.
+    // merk: etter ukjent utfall bare på en ordre som er funnet og har linjer, og på en
+    // eksisterende ordre bare når et menneske har bekreftet at linjene står der.
     let ordreId = rad.ordre_id
     let ordrenummer = rad.ordrenummer
+    let antallLinjer = rad.antall_linjer
     if (status === 'ukjent_utfall') {
       const f = await finnOrdre(rad)
       if ('http' in f) return f
-      const nei = kanMerke(status, rad.ny_ordre, f)
+      const nei = kanMerke(status, rad.ny_ordre, f, bekreftetLinjer)
       if (nei) return feilsvar(nei, 409)
       ordreId = f.ordreId
       ordrenummer = f.ordrenummer
+      // På en ordre sendingen selv laget, er alle linjene våre: da vet vi antallet.
+      // På en eksisterende ordre teller Tripletex også linjer som sto der fra før.
+      if (rad.ny_ordre === true) antallLinjer = f.antallLinjer
     } else {
       const nei = kanMerke(status, rad.ny_ordre, null)
       if (nei) return feilsvar(nei, 409)
@@ -719,16 +749,29 @@ export async function avklar(kode: string, valg: Avklaring, bruker: Bruker): Pro
     } catch {
       // Ordren er funnet, så det som gjenstår, er bare merket.
       if (status === 'ukjent_utfall') {
-        await flytt(kode, rad.status, { status: 'sendt_uten_merke', ordre_id: ordreId, ordrenummer, merke }, rad.endret)
-        await loggAvklar('sendt_uten_merke', ordrenummer, null)
+        await flytt(
+          kode,
+          rad.status,
+          { status: 'sendt_uten_merke', ordre_id: ordreId, ordrenummer, merke, antall_linjer: antallLinjer },
+          rad.endret,
+        )
+        await loggAvklar('sendt_uten_merke', ordrenummer, antallLinjer, bekreftetLinjer ? { bekreftetLinjer: true } : {})
       }
       return feilsvar('SmartDok tok ikke imot merket. Prøv igjen.', 502)
     }
 
-    if (!(await flytt(kode, rad.status, { status: 'sendt', ordre_id: ordreId, ordrenummer, merke }, rad.endret))) {
+    if (
+      !(await flytt(
+        kode,
+        rad.status,
+        { status: 'sendt', ordre_id: ordreId, ordrenummer, merke, antall_linjer: antallLinjer },
+        rad.endret,
+      ))
+    ) {
       return feilsvar('Sendingen ble endret samtidig. Last inn på nytt.', 409)
     }
-    await loggAvklar('sendt', ordrenummer, null)
+    // Bekreftelsen logges, så det i ettertid kan ses at et menneske sa at linjene sto der.
+    await loggAvklar('sendt', ordrenummer, antallLinjer, bekreftetLinjer ? { bekreftetLinjer: true } : {})
     return { http: 200, kropp: { status: 'sendt', kode, ordrenummer, melding: `Timene er merket med ordre ${ordrenummer} i SmartDok.` } }
   } catch {
     return feilsvar('Kunne ikke lagre sendingen. Prøv igjen.', 500)

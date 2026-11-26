@@ -29,7 +29,7 @@ export type SmartdokTime = {
   maskin: string
   /** EquipmentId, bare for maskinrader. Ikke-tall gir null i stedet for å stoppe hele svaret. */
   maskinId: number | null
-  /** ExportedExternalId, som er Tripletex-merket vi skrev dit. Tom gir null. */
+  /** ExportedExternalId når ExportedExternal er true («Eksportert» om id mangler), ellers null. */
   eksterntMerke: string | null
 }
 
@@ -91,7 +91,9 @@ export function tolkTimer(
 
     const utstyrId = tallEllerNull(r.EquipmentId)
     const maskin = (utstyrId !== null ? maskiner.get(utstyrId) : undefined) ?? tekst(r.EquipmentCode)
-    const eksterntMerke = tekst(r.ExportedExternalId)
+    // Bare ExportedExternal=true betyr eksportert. Unmark kan la en gammel id bli stående,
+    // og da skal timen ikke se sendt ut. Eksportert uten id er likevel eksportert.
+    const eksterntMerke = r.ExportedExternal === true ? (tekst(r.ExportedExternalId) || 'Eksportert') : null
 
     ut.push({
       id: r.WorkHourID,
@@ -109,7 +111,7 @@ export function tolkTimer(
       underprosjekt: [tekst(r.SubProjectNumber), tekst(r.SubProjectName)].filter(Boolean).join(' '),
       maskin,
       maskinId: maskinradId !== null ? utstyrId : null,
-      eksterntMerke: eksterntMerke || null,
+      eksterntMerke,
     })
   }
 

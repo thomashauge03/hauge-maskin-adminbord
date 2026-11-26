@@ -21,6 +21,6 @@ export async function POST(request: Request) {
   const inn = sjekkAvklar(kropp)
   if (typeof inn === 'string') return feil(inn, 400)
 
-  const r = await avklar(inn.kode, inn.valg, bruker)
+  const r = await avklar(inn.kode, inn.valg, bruker, inn.bekreftetLinjer)
   return Response.json(r.kropp, { status: r.http, headers: { 'Cache-Control': 'private, no-store' } })
 }

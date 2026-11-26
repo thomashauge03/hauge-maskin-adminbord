@@ -26,6 +26,7 @@ import {
   forSentForLinjer,
   kanMerke,
   kollisjonsmelding,
+  frigiMelding,
 } from './sending.ts'
 
 const PDF = Buffer.from('%PDF-1.7\n%test\n').toString('base64')
@@ -137,9 +138,20 @@ test('kode: seks tegn a-z0-9', () => {
 })
 
 test('avklar: kode og valg', () => {
-  assert.deepEqual(sjekkAvklar({ kode: 'k7x2ab', valg: 'sjekk' }), { kode: 'k7x2ab', valg: 'sjekk' })
-  assert.deepEqual(sjekkAvklar({ kode: 'k7x2ab', valg: 'frigi' }), { kode: 'k7x2ab', valg: 'frigi' })
-  assert.deepEqual(sjekkAvklar({ kode: 'k7x2ab', valg: 'merk' }), { kode: 'k7x2ab', valg: 'merk' })
+  assert.deepEqual(sjekkAvklar({ kode: 'k7x2ab', valg: 'sjekk' }), { kode: 'k7x2ab', valg: 'sjekk', bekreftetLinjer: false })
+  assert.deepEqual(sjekkAvklar({ kode: 'k7x2ab', valg: 'frigi' }), { kode: 'k7x2ab', valg: 'frigi', bekreftetLinjer: false })
+  assert.deepEqual(sjekkAvklar({ kode: 'k7x2ab', valg: 'merk' }), { kode: 'k7x2ab', valg: 'merk', bekreftetLinjer: false })
+  assert.deepEqual(
+    sjekkAvklar({ kode: 'k7x2ab', valg: 'merk', bekreftetLinjer: true }),
+    { kode: 'k7x2ab', valg: 'merk', bekreftetLinjer: true },
+  )
+  assert.deepEqual(
+    sjekkAvklar({ kode: 'k7x2ab', valg: 'merk', bekreftetLinjer: false }),
+    { kode: 'k7x2ab', valg: 'merk', bekreftetLinjer: false },
+  )
+  // Bare ekte true teller som bekreftelse; alt annet er en feil i kallet.
+  assert.equal(typeof sjekkAvklar({ kode: 'k7x2ab', valg: 'merk', bekreftetLinjer: 'true' }), 'string')
+  assert.equal(typeof sjekkAvklar({ kode: 'k7x2ab', valg: 'merk', bekreftetLinjer: 1 }), 'string')
   assert.equal(typeof sjekkAvklar({ kode: 'k7x2ab', valg: 'slett' }), 'string')
   assert.equal(typeof sjekkAvklar({ kode: 'x', valg: 'sjekk' }), 'string')
   assert.equal(typeof sjekkAvklar(null), 'string')
@@ -386,13 +398,44 @@ test('kan merke: ukjent utfall bare på en ny ordre som er funnet og har linjer'
   }
 })
 
-test('kan merke: eksisterende ordre, eller ukjent om ordren var ny, merkes ikke', () => {
+test('kan merke: eksisterende ordre, eller ukjent om ordren var ny, merkes ikke uten bekreftelse', () => {
   for (const ny of [false, null]) {
-    const r = kanMerke('ukjent_utfall', ny, { ...FUNNET, antallLinjer: 5 })
-    assert.equal(typeof r, 'string', String(ny))
-    assert.match(r, /eksisterende/)
-    assert.match(r, /Tripletex/)
+    for (const bekreftet of [undefined, false]) {
+      const r = kanMerke('ukjent_utfall', ny, { ...FUNNET, antallLinjer: 5 }, bekreftet)
+      assert.equal(typeof r, 'string', String(ny))
+      assert.match(r, /eksisterende/)
+      assert.match(r, /Tripletex/)
+      assert.doesNotMatch(r, /for hånd i SmartDok/)
+    }
   }
+})
+
+test('kan merke: eksisterende ordre med bekreftede linjer kan merkes', () => {
+  for (const ny of [false, null]) {
+    assert.equal(kanMerke('ukjent_utfall', ny, { ...FUNNET, antallLinjer: 5 }, true), null, String(ny))
+  }
+})
+
+test('kan merke: bekreftelsen hjelper ikke når ordren ikke er funnet eller er tom', () => {
+  for (const funn of [null, { funnet: false, antallLinjer: 0, ordrenummer: null }, { ...FUNNET, antallLinjer: 0 }]) {
+    assert.equal(typeof kanMerke('ukjent_utfall', false, funn, true), 'string', JSON.stringify(funn))
+  }
+  for (const s of ['startet', 'sendt', 'feilet', 'angret']) {
+    assert.equal(typeof kanMerke(s, false, FUNNET, true), 'string', s)
+  }
+})
+
+test('frigi-melding: sier bare det som skjedde i SmartDok', () => {
+  const uten = frigiMelding(null, false)
+  assert.match(uten, /frigitt/)
+  assert.doesNotMatch(uten, /SmartDok/)
+  const ok = frigiMelding('Tripletex ordre 11 (k7x2ab)', false)
+  assert.match(ok, /merker i SmartDok er fjernet/)
+  const feilet = frigiMelding('Tripletex ordre 11 (k7x2ab)', true)
+  assert.match(feilet, /kunne ikke fjernes/)
+  assert.match(feilet, /«Tripletex ordre 11 \(k7x2ab\)»/)
+  assert.doesNotMatch(feilet, /er fjernet/)
+  for (const m of [uten, ok, feilet]) assert.match(m, /Tripletex først/)
 })
 
 test('kan merke: andre statuser kan ikke merkes', () => {

@@ -95,17 +95,29 @@ test('maskinId kommer bare fra maskinrader, og et ikke-tall gir null uten feil',
   assert.equal(ugyldig.maskinId, null)
 })
 
-test('eksterntMerke er ExportedExternalId trimmet, og tom eller manglende gir null', () => {
+test('eksterntMerke er ExportedExternalId trimmet når ExportedExternal er true', () => {
   const [a, b, c, d] = tolk([
-    rad({ ExportedExternalId: 'Tripletex ordre 12 (ab)' }),
-    rad({ ExportedExternalId: '' }),
-    rad({ ExportedExternalId: null }),
-    rad({ ExportedExternalId: '  Tripletex ordre 13  ' }),
+    rad({ ExportedExternal: true, ExportedExternalId: 'Tripletex ordre 12 (ab)' }),
+    rad({ ExportedExternal: true, ExportedExternalId: '' }),
+    rad({ ExportedExternal: true, ExportedExternalId: null }),
+    rad({ ExportedExternal: true, ExportedExternalId: '  Tripletex ordre 13  ' }),
   ])
   assert.equal(a.eksterntMerke, 'Tripletex ordre 12 (ab)')
+  // Eksportert uten id er fortsatt eksportert: ellers ser timen usendt ut og kan sendes igjen.
+  assert.equal(b.eksterntMerke, 'Eksportert')
+  assert.equal(c.eksterntMerke, 'Eksportert')
+  assert.equal(d.eksterntMerke, 'Tripletex ordre 13')
+})
+
+test('eksterntMerke er null når ExportedExternal ikke er true, selv med gammel id', () => {
+  const [a, b, c] = tolk([
+    rad({ ExportedExternal: false, ExportedExternalId: 'Tripletex ordre 12 (ab)' }),
+    rad({ ExportedExternalId: 'Tripletex ordre 12 (ab)' }),
+    rad({ ExportedExternal: false, ExportedExternalId: '' }),
+  ])
+  assert.equal(a.eksterntMerke, null)
   assert.equal(b.eksterntMerke, null)
   assert.equal(c.eksterntMerke, null)
-  assert.equal(d.eksterntMerke, 'Tripletex ordre 13')
 })
 
 test('maskin fra kartet via EquipmentId, ellers EquipmentCode, ellers tom', () => {
