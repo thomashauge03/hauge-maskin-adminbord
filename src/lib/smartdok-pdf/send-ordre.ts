@@ -5,7 +5,6 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { lagKode, lagMerke, overlapp, tolkProsjekt } from '@/lib/smartdok-pdf/ordre'
 import {
   delIBiter,
-  erNyOrdre,
   forSentForLinjer,
   gjeldendeStatus,
   harKode,
@@ -65,11 +64,13 @@ type Rad = {
   timer_ider: number[]
   status: Sendestatus
   antall_linjer: number | null
+  /** Sant når sendingen selv laget ordren. Null regnes som eksisterende ordre. */
+  ny_ordre: boolean | null
   opprettet: string
   endret: string
 }
 
-type Aktiv = { kode: string; ordrenummer: string | null; timer_ider: number[]; status: Sendestatus }
+type Aktiv = { kode: string; ordrenummer: string | null; timer_ider: number[]; status: Sendestatus; endret: string }
 
 const STATUSORD: Record<Sendestatus, string> = {
   startet: 'under sending',
@@ -131,7 +132,7 @@ async function flytt(kode: string, fra: Sendestatus, felt: Record<string, unknow
 async function hentRad(kode: string): Promise<Rad | null> {
   const { data, error } = await supabaseAdmin
     .from(TABELL)
-    .select('kode, prosjekt, ordre_id, ordrenummer, merke, timer_ider, status, antall_linjer, opprettet, endret')
+    .select('kode, prosjekt, ordre_id, ordrenummer, merke, timer_ider, status, antall_linjer, ny_ordre, opprettet, endret')
     .eq('kode', kode)
     .maybeSingle()
   if (error) throw new Lagringsfeil()
@@ -147,7 +148,7 @@ async function hentAktive(timerIder: number[], utenKode?: string): Promise<Aktiv
   for (const bit of delIBiter(timerIder, BIT)) {
     let q = supabaseAdmin
       .from(TABELL)
-      .select('kode, ordrenummer, timer_ider, status')
+      .select('kode, ordrenummer, timer_ider, status, endret')
       .overlaps('timer_ider', bit)
       .not('status', 'in', '(angret,feilet)')
     if (utenKode !== undefined) q = q.neq('kode', utenKode)
@@ -199,13 +200,21 @@ export async function sendOrdre(inn: Sendeinput, bruker: Bruker): Promise<Result
   let radSkrevet = false
   try {
     const treff = kollisjon(inn.timerIder, await hentAktive(inn.timerIder))
-    if (treff) return feilsvar(kollisjonsmelding(treff), 409)
+    if (treff) return feilsvar(kollisjonsmelding(treff, Date.now()), 409)
 
     for (let forsøk = 0; forsøk < 3 && !radSkrevet; forsøk++) {
       kode = lagKode()
       const { error } = await supabaseAdmin
         .from(TABELL)
-        .insert({ kode, prosjekt: inn.prosjekt, timer_ider: inn.timerIder, status: 'startet', opprettet_av: bruker.id })
+        .insert({
+          kode,
+          prosjekt: inn.prosjekt,
+          timer_ider: inn.timerIder,
+          status: 'startet',
+          // Skrevet før ordren finnes, så «merk» etter ukjent utfall vet om alle linjene på ordren er våre.
+          ny_ordre: 'ny' in inn.ordre,
+          opprettet_av: bruker.id,
+        })
       if (!error) radSkrevet = true
       // 23505: koden fantes fra før. Alt annet er en feil vi ikke skal prøve oss forbi.
       else if (error.code !== '23505') throw new Lagringsfeil()
@@ -222,7 +231,7 @@ export async function sendOrdre(inn: Sendeinput, bruker: Bruker): Promise<Result
     const andre = kollisjon(inn.timerIder, await hentAktive(inn.timerIder, kode))
     if (andre) {
       await flytt(kode, 'startet', { status: 'feilet' })
-      return feilsvar(kollisjonsmelding(andre), 409)
+      return feilsvar(kollisjonsmelding(andre, Date.now()), 409)
     }
   } catch {
     if (radSkrevet) await flytt(kode, 'startet', { status: 'feilet' }).catch(() => false)
@@ -336,7 +345,7 @@ export async function sendOrdre(inn: Sendeinput, bruker: Bruker): Promise<Result
         json('PUT', {
           id: o.id,
           version: o.versjon,
-          internalComment: medKommentar(o.kommentar, kommentar(kode, inn.periode.fra, inn.periode.til, true)),
+          internalComment: medKommentar(o.kommentar, kommentar(kode, inn.periode.fra, inn.periode.til)),
         }),
       )
       if (vurder('kommentar', k.utfall) !== 'ok') {
@@ -512,13 +521,23 @@ export async function fjernMerke(kode: string, bruker: Bruker): Promise<Resultat
     }
   }
 
+  // Hva som faktisk skjedde i SmartDok, så meldingene under ikke lover mer enn det.
+  const iSmartdok =
+    status !== 'sendt_uten_merke'
+      ? 'Merket er fjernet i SmartDok'
+      : avmerkingFeilet
+        ? `Merket i SmartDok (sending ${kode}) kunne ikke fjernes`
+        : rad.merke
+          ? 'Eventuelle merker i SmartDok er fjernet'
+          : 'Timene var ikke merket i SmartDok'
+
   let flyttet: boolean
   try {
     flyttet = await flytt(kode, rad.status, { status: 'angret' }, rad.endret)
   } catch {
-    return feilsvar('Merket er fjernet i SmartDok, men sendingen kunne ikke lagres som angret. Prøv igjen.', 500)
+    return feilsvar(`${iSmartdok}, men sendingen ${kode} kunne ikke lagres som angret. Prøv igjen.`, 500)
   }
-  if (!flyttet) return feilsvar('Sendingen ble endret samtidig. Last inn på nytt.', 409)
+  if (!flyttet) return feilsvar(`${iSmartdok}, men sending ${kode} ble endret samtidig. Last inn på nytt.`, 409)
 
   await logg('smartdok_pdf.merke_fjernet', {
     utfortAv: bruker.id,
@@ -541,18 +560,20 @@ export async function fjernMerke(kode: string, bruker: Bruker): Promise<Resultat
       kode,
       ordrenummer: rad.ordrenummer,
       melding:
-        `Merket er fjernet i SmartDok. Ordre ${rad.ordrenummer ?? ''} i Tripletex er ikke endret: ` +
-        'fjern linjene der for hånd om ordren skal rettes.' +
-        (avmerkingFeilet ? ' (SmartDok svarte ikke på avmerkingen; se etter timer med merket der.)' : ''),
+        (avmerkingFeilet
+          ? `Sending ${kode} er angret i listen vår, men merket i SmartDok kunne ikke fjernes: ` +
+            `se etter timer merket «${rad.merke}» der og fjern merket for hånd. `
+          : `${iSmartdok}. `) +
+        `Ordre ${rad.ordrenummer ?? ''} i Tripletex er ikke endret: fjern linjene der for hånd om ordren skal rettes.`,
     },
   }
 }
 
 /* ── Avklar ────────────────────────────────────────────────── */
 
-type Funn = { funnet: boolean; nyOrdre: boolean; ordreId: number | null; ordrenummer: string | null; antallLinjer: number }
+type Funn = { funnet: boolean; ordreId: number | null; ordrenummer: string | null; antallLinjer: number }
 
-const ikkeFunnet: Funn = { funnet: false, nyOrdre: false, ordreId: null, ordrenummer: null, antallLinjer: 0 }
+const ikkeFunnet: Funn = { funnet: false, ordreId: null, ordrenummer: null, antallLinjer: 0 }
 
 /** Leter etter ordren med sendingens kode i den interne kommentaren. */
 async function finnOrdre(rad: Rad): Promise<Funn | Resultat> {
@@ -570,13 +591,7 @@ async function finnOrdre(rad: Rad): Promise<Funn | Resultat> {
     const o = tolkOrdre(r.json)
     if (!o) return feilsvar('Uventet svar fra Tripletex om ordren.', 502)
     return harKode(o.kommentar, rad.kode)
-      ? {
-          funnet: true,
-          nyOrdre: erNyOrdre(o.kommentar, rad.kode),
-          ordreId: o.id,
-          ordrenummer: o.nummer,
-          antallLinjer: o.antallLinjer,
-        }
+      ? { funnet: true, ordreId: o.id, ordrenummer: o.nummer, antallLinjer: o.antallLinjer }
       : ikkeFunnet
   }
 
@@ -600,7 +615,7 @@ async function finnOrdre(rad: Rad): Promise<Funn | Resultat> {
   if (treff.length > 1) return feilsvar(`Flere ordrer i Tripletex har koden ${rad.kode}. Se på dem der.`, 409)
   if (treff.length === 0) return ikkeFunnet
   const t = treff[0]
-  return { funnet: true, nyOrdre: t.nyOrdre, ordreId: t.id, ordrenummer: t.nummer, antallLinjer: t.antallLinjer }
+  return { funnet: true, ordreId: t.id, ordrenummer: t.nummer, antallLinjer: t.antallLinjer }
 }
 
 export async function avklar(kode: string, valg: Avklaring, bruker: Bruker): Promise<Resultat> {
@@ -633,8 +648,10 @@ export async function avklar(kode: string, valg: Avklaring, bruker: Bruker): Pro
        */
       const foreldet = rad.status === 'startet'
       const husk = f.funnet && rad.ordre_id === null
+      // Statusen vi svarer med, er den som faktisk står lagret etterpå.
+      let lagret: Sendestatus = status
       if (foreldet || husk) {
-        await flytt(
+        const flyttet = await flytt(
           kode,
           rad.status,
           {
@@ -643,11 +660,24 @@ export async function avklar(kode: string, valg: Avklaring, bruker: Bruker): Pro
           },
           rad.endret,
         )
+        if (flyttet) {
+          lagret = foreldet ? 'ukjent_utfall' : rad.status
+        } else {
+          // Noen andre rakk å endre sendingen mens vi lette: les den på nytt.
+          const nå = await hentRad(kode)
+          lagret = nå ? gjeldendeStatus(nå.status, nå.endret, Date.now()) : status
+        }
       }
-      await loggAvklar(status, f.ordrenummer, f.antallLinjer)
+      await loggAvklar(lagret, f.ordrenummer, f.antallLinjer)
       return {
         http: 200,
-        kropp: { funnet: f.funnet, nyOrdre: f.nyOrdre, ordrenummer: f.ordrenummer, antallLinjer: f.antallLinjer, status },
+        kropp: {
+          funnet: f.funnet,
+          nyOrdre: rad.ny_ordre === true,
+          ordrenummer: f.ordrenummer,
+          antallLinjer: f.antallLinjer,
+          status: lagret,
+        },
       }
     }
 
@@ -673,12 +703,12 @@ export async function avklar(kode: string, valg: Avklaring, bruker: Bruker): Pro
     if (status === 'ukjent_utfall') {
       const f = await finnOrdre(rad)
       if ('http' in f) return f
-      const nei = kanMerke(status, f)
+      const nei = kanMerke(status, rad.ny_ordre, f)
       if (nei) return feilsvar(nei, 409)
       ordreId = f.ordreId
       ordrenummer = f.ordrenummer
     } else {
-      const nei = kanMerke(status, null)
+      const nei = kanMerke(status, rad.ny_ordre, null)
       if (nei) return feilsvar(nei, 409)
     }
     if (!ordrenummer) return feilsvar('Sendingen mangler ordrenummer. Ingenting er endret.', 409)

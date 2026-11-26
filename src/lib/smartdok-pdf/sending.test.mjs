@@ -24,7 +24,6 @@ import {
   delIBiter,
   FRIST_LINJER_MS,
   forSentForLinjer,
-  erNyOrdre,
   kanMerke,
   kollisjonsmelding,
 } from './sending.ts'
@@ -319,7 +318,7 @@ test('ordrer med kode: plukker ordrene med koden i kommentaren', () => {
     { id: 3, number: '12', internalComment: null },
     'søppel',
   ]
-  assert.deepEqual(ordrerMedKode(values, 'k7x2ab'), [{ id: 2, nummer: '11', antallLinjer: 2, nyOrdre: true }])
+  assert.deepEqual(ordrerMedKode(values, 'k7x2ab'), [{ id: 2, nummer: '11', antallLinjer: 2 }])
   assert.deepEqual(ordrerMedKode(values, 'zzzzzz'), [])
 })
 
@@ -367,68 +366,69 @@ test('frist: linjene sendes ikke etter 90 sekunder', () => {
   assert.equal(forSentForLinjer(1000, 1000 + 90_001), true)
 })
 
-/* ── Ny eller eksisterende ordre, og merk etter ukjent utfall ── */
+/* ── Merk etter ukjent utfall ──────────────────────────────── */
 
-test('kommentar: på eksisterende ordre har teksten et eget kjennetegn', () => {
-  assert.equal(
-    kommentar('k7x2ab', '2026-11-16', '2026-11-22', true),
-    'SmartDok til PDF k7x2ab på eksisterende ordre, 2026-11-16–2026-11-22',
-  )
-  assert.equal(harKode('Ring før SmartDok til PDF k7x2ab på eksisterende ordre, 2026-11-16–2026-11-22', 'k7x2ab'), true)
-})
-
-test('ny ordre: bare når kommentaren har koden uten kjennetegnet for eksisterende', () => {
-  assert.equal(erNyOrdre(kommentar('k7x2ab', '2026-11-16', '2026-11-22'), 'k7x2ab'), true)
-  assert.equal(erNyOrdre(kommentar('k7x2ab', '2026-11-16', '2026-11-22', true), 'k7x2ab'), false)
-  assert.equal(erNyOrdre(medKommentar('', kommentar('k7x2ab', 'a', 'b', true)), 'k7x2ab'), false)
-  assert.equal(erNyOrdre('Noe annet', 'k7x2ab'), false)
-  assert.equal(erNyOrdre(null, 'k7x2ab'), false)
-})
-
-test('ordrer med kode: forteller om ordren er ny', () => {
-  const values = [
-    { id: 2, number: '11', internalComment: 'x SmartDok til PDF k7x2ab på eksisterende ordre, a–b', orderLines: [{ id: 1 }] },
-  ]
-  assert.deepEqual(ordrerMedKode(values, 'k7x2ab'), [{ id: 2, nummer: '11', antallLinjer: 1, nyOrdre: false }])
-})
+const FUNNET = { funnet: true, antallLinjer: 2, ordrenummer: '11' }
 
 test('kan merke: sendt uten merke kan alltid merkes', () => {
-  assert.equal(kanMerke('sendt_uten_merke', null), null)
+  assert.equal(kanMerke('sendt_uten_merke', true, null), null)
+  assert.equal(kanMerke('sendt_uten_merke', false, null), null)
+  assert.equal(kanMerke('sendt_uten_merke', null, null), null)
 })
 
 test('kan merke: ukjent utfall bare på en ny ordre som er funnet og har linjer', () => {
-  assert.equal(kanMerke('ukjent_utfall', { funnet: true, nyOrdre: true, antallLinjer: 2, ordrenummer: '11' }), null)
-  for (const funn of [
-    null,
-    { funnet: false, nyOrdre: false, antallLinjer: 0, ordrenummer: null },
-    { funnet: true, nyOrdre: true, antallLinjer: 0, ordrenummer: '11' },
-    { funnet: true, nyOrdre: false, antallLinjer: 5, ordrenummer: '11' },
-  ]) {
-    const r = kanMerke('ukjent_utfall', funn)
+  assert.equal(kanMerke('ukjent_utfall', true, FUNNET), null)
+  for (const funn of [null, { funnet: false, antallLinjer: 0, ordrenummer: null }, { ...FUNNET, antallLinjer: 0 }]) {
+    const r = kanMerke('ukjent_utfall', true, funn)
     assert.equal(typeof r, 'string', JSON.stringify(funn))
     assert.ok(r.length > 0)
   }
 })
 
-test('kan merke: eksisterende ordre sier hva brukeren må gjøre', () => {
-  const r = kanMerke('ukjent_utfall', { funnet: true, nyOrdre: false, antallLinjer: 5, ordrenummer: '11' })
-  assert.match(r, /eksisterende/)
-  assert.match(r, /Tripletex/)
+test('kan merke: eksisterende ordre, eller ukjent om ordren var ny, merkes ikke', () => {
+  for (const ny of [false, null]) {
+    const r = kanMerke('ukjent_utfall', ny, { ...FUNNET, antallLinjer: 5 })
+    assert.equal(typeof r, 'string', String(ny))
+    assert.match(r, /eksisterende/)
+    assert.match(r, /Tripletex/)
+  }
 })
 
 test('kan merke: andre statuser kan ikke merkes', () => {
   for (const s of ['startet', 'sendt', 'sendt_uten_vedlegg', 'feilet', 'angret']) {
-    assert.equal(typeof kanMerke(s, { funnet: true, nyOrdre: true, antallLinjer: 1, ordrenummer: '1' }), 'string', s)
+    assert.equal(typeof kanMerke(s, true, FUNNET), 'string', s)
   }
+})
+
+test('kommentar: samme enkle form på ny og eksisterende ordre', () => {
+  assert.equal(kommentar('k7x2ab', '2026-11-16', '2026-11-22'), 'SmartDok til PDF k7x2ab, 2026-11-16–2026-11-22')
 })
 
 /* ── Samtidige sendinger ───────────────────────────────────── */
 
-test('kollisjon: annen sending som pågår, gir egen melding', () => {
+const NAA = Date.parse('2026-11-26T12:00:00Z')
+
+test('kollisjon: en sending som pågår nå, ber om nytt forsøk og nevner koden', () => {
   assert.equal(
-    kollisjonsmelding({ kode: 'aaaaaa', ordrenummer: null, status: 'startet' }),
-    'Timene sendes akkurat nå fra et annet sted. Prøv igjen.',
+    kollisjonsmelding({ kode: 'aaaaaa', ordrenummer: null, status: 'startet', endret: '2026-11-26T11:59:30Z' }, NAA),
+    'Timene sendes akkurat nå fra et annet sted (sending aaaaaa). Prøv igjen.',
   )
-  assert.match(kollisjonsmelding({ kode: 'aaaaaa', ordrenummer: '1234', status: 'sendt' }), /^Timene er alt sendt til ordre 1234/)
-  assert.match(kollisjonsmelding({ kode: 'aaaaaa', ordrenummer: null, status: 'ukjent_utfall' }), /^Timene er alt sendt til ordre/)
 })
+
+test('kollisjon: en «startet» som er blitt gammel, må avklares, ikke prøves igjen', () => {
+  const m = kollisjonsmelding({ kode: 'aaaaaa', ordrenummer: null, status: 'startet', endret: '2026-11-26T11:00:00Z' }, NAA)
+  assert.doesNotMatch(m, /Prøv igjen/)
+  assert.match(m, /[Aa]vklar sending aaaaaa/)
+})
+
+test('kollisjon: ukjent utfall må avklares', () => {
+  const m = kollisjonsmelding({ kode: 'aaaaaa', ordrenummer: '1234', status: 'ukjent_utfall', endret: '2026-11-26T11:00:00Z' }, NAA)
+  assert.match(m, /[Aa]vklar sending aaaaaa/)
+})
+
+test('kollisjon: sendt nevner ordren og koden', () => {
+  const m = kollisjonsmelding({ kode: 'aaaaaa', ordrenummer: '1234', status: 'sendt', endret: '2026-11-26T11:00:00Z' }, NAA)
+  assert.match(m, /^Timene er alt sendt til ordre 1234/)
+  assert.match(m, /aaaaaa/)
+})
+

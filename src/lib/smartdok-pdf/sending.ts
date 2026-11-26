@@ -199,15 +199,19 @@ export function tillatt(handling: Handling, status: Sendestatus): boolean {
  * så «funnet med linjer» betyr at timene er lagt på. På en eksisterende ordre
  * kan linjene ha stått der fra før, og vi kan ikke se om våre kom inn: der
  * må et menneske se i Tripletex.
+ *
+ * `nyOrdre` er kolonnen ny_ordre, satt da sendingen startet. Null skal ikke
+ * forekomme, men regnes som eksisterende ordre: det er den trygge siden.
  */
 export function kanMerke(
   status: Sendestatus,
-  funn: { funnet: boolean; nyOrdre: boolean; antallLinjer: number; ordrenummer: string | null } | null,
+  nyOrdre: boolean | null,
+  funn: { funnet: boolean; antallLinjer: number; ordrenummer: string | null } | null,
 ): string | null {
   if (status === 'sendt_uten_merke') return null
   if (status !== 'ukjent_utfall') return 'Sendingen kan ikke merkes nå.'
   if (!funn || !funn.funnet) return 'Fant ingen ordre med sendingens kode i Tripletex. Timene merkes ikke; frigi sendingen i stedet.'
-  if (!funn.nyOrdre) {
+  if (nyOrdre !== true) {
     return (
       `Ordre ${funn.ordrenummer} er en eksisterende ordre, og vi kan ikke se om linjene fra denne sendingen kom inn. ` +
       'Se på ordren i Tripletex: mangler linjene, frigi sendingen og send på nytt; står de der, merk timene for hånd i SmartDok.'
@@ -219,12 +223,26 @@ export function kanMerke(
   return null
 }
 
-/** Meldingen når en annen sending holder på noen av timene. */
-export function kollisjonsmelding(treff: { kode: string; ordrenummer: string | null; status: string }): string {
-  if (treff.status === 'startet') return 'Timene sendes akkurat nå fra et annet sted. Prøv igjen.'
+/**
+ * Meldingen når en annen sending holder på noen av timene. Statusen regnes som
+ * gjeldende: en «startet» som døde underveis, går ikke over av seg selv ved å
+ * prøve igjen, den må avklares.
+ */
+export function kollisjonsmelding(
+  treff: { kode: string; ordrenummer: string | null; status: Sendestatus; endret: string },
+  naa: number,
+): string {
+  const status = gjeldendeStatus(treff.status, treff.endret, naa)
+  if (status === 'startet') return `Timene sendes akkurat nå fra et annet sted (sending ${treff.kode}). Prøv igjen.`
+  if (status === 'ukjent_utfall') {
+    return (
+      `Timene ligger i sending ${treff.kode}, der vi ikke vet om ordren ble laget i Tripletex. ` +
+      `Avklar sending ${treff.kode} før timene sendes på nytt.`
+    )
+  }
   return (
     `Timene er alt sendt til ordre ${treff.ordrenummer ?? '(ikke avklart)'} (sending ${treff.kode}). ` +
-    'Fjern merket eller avklar den sendingen før timene sendes på nytt.'
+    `Fjern merket eller avklar sending ${treff.kode} før timene sendes på nytt.`
   )
 }
 
@@ -250,16 +268,10 @@ export function delIBiter<T>(liste: T[], n: number): T[][] {
 /* ── Kommentaren på ordren ─────────────────────────────────── */
 
 const FORSTAVELSE = 'SmartDok til PDF '
-/*
- * Kjennetegnet skiller en eksisterende ordre fra en vi laget selv. Det må stå
- * i teksten på den eksisterende: sto det på den nye i stedet, kunne en ordre
- * med tom kommentar fra før sett ut som vår egen, og «merk» ville stolt på
- * linjer som ikke er våre.
- */
-const EKSISTERENDE = ' på eksisterende ordre'
 
-export function kommentar(kode: string, fra: string, til: string, eksisterende = false): string {
-  return `${FORSTAVELSE}${kode}${eksisterende ? EKSISTERENDE : ''}, ${fra}–${til}`
+/** Koden står i kommentaren så ordren kan finnes igjen; om ordren er ny, sier ny_ordre i navet. */
+export function kommentar(kode: string, fra: string, til: string): string {
+  return `${FORSTAVELSE}${kode}, ${fra}–${til}`
 }
 
 export function medKommentar(eksisterende: unknown, tillegg: string): string {
@@ -269,19 +281,7 @@ export function medKommentar(eksisterende: unknown, tillegg: string): string {
 
 /** Hele «SmartDok til PDF <kode>,» så seks tilfeldige tegn ellers i teksten ikke gir falskt treff. */
 export function harKode(internalComment: unknown, kode: string): boolean {
-  return (
-    typeof internalComment === 'string' &&
-    (internalComment.includes(`${FORSTAVELSE}${kode},`) || internalComment.includes(`${FORSTAVELSE}${kode}${EKSISTERENDE},`))
-  )
-}
-
-/** Ordren ble laget av sendingen selv: koden står uten kjennetegnet for eksisterende ordre. */
-export function erNyOrdre(internalComment: unknown, kode: string): boolean {
-  return (
-    typeof internalComment === 'string' &&
-    internalComment.includes(`${FORSTAVELSE}${kode},`) &&
-    !internalComment.includes(`${FORSTAVELSE}${kode}${EKSISTERENDE},`)
-  )
+  return typeof internalComment === 'string' && internalComment.includes(`${FORSTAVELSE}${kode},`)
 }
 
 /* ── Svar fra Tripletex ────────────────────────────────────── */
@@ -355,7 +355,7 @@ export function tolkOrdre(json: unknown): Ordreinfo | null {
   }
 }
 
-export type Kodetreff = { id: number; nummer: string; antallLinjer: number; nyOrdre: boolean }
+export type Kodetreff = { id: number; nummer: string; antallLinjer: number }
 
 export function ordrerMedKode(values: unknown[], kode: string): Kodetreff[] {
   const ut: Kodetreff[] = []
@@ -364,12 +364,7 @@ export function ordrerMedKode(values: unknown[], kode: string): Kodetreff[] {
     if (!o || !harKode(o.internalComment, kode) || !positivtHeltall(o.id)) continue
     const n = nummer(o.number)
     if (!n) continue
-    ut.push({
-      id: o.id,
-      nummer: n,
-      antallLinjer: Array.isArray(o.orderLines) ? o.orderLines.length : 0,
-      nyOrdre: erNyOrdre(o.internalComment, kode),
-    })
+    ut.push({ id: o.id, nummer: n, antallLinjer: Array.isArray(o.orderLines) ? o.orderLines.length : 0 })
   }
   return ut
 }
