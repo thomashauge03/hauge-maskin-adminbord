@@ -4,8 +4,13 @@ import { skrivTilSmartdok } from '@/lib/prosjekter/smartdok'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { lagKode, lagMerke, overlapp, tolkProsjekt } from '@/lib/smartdok-pdf/ordre'
 import {
+  delIBiter,
+  erNyOrdre,
+  forSentForLinjer,
   gjeldendeStatus,
   harKode,
+  kanMerke,
+  kollisjonsmelding,
   kommentar,
   linjeneKomInn,
   medKommentar,
@@ -13,9 +18,9 @@ import {
   sluttstatus,
   sumEksMva,
   tillatt,
+  tolkMal,
   tolkNyOrdre,
   tolkOrdre,
-  tolkPris,
   vurder,
   type Avklaring,
   type Sendeinput,
@@ -48,6 +53,8 @@ type Bruker = { id: string; epost: string }
 export type Resultat = { http: number; kropp: Record<string, unknown> }
 
 const TABELL = 'smartdok_pdf_sending'
+/** Id-er per overlappsoppslag, så adressen til PostgREST holder seg kort. */
+const BIT = 200
 
 type Rad = {
   kode: string
@@ -61,6 +68,8 @@ type Rad = {
   opprettet: string
   endret: string
 }
+
+type Aktiv = { kode: string; ordrenummer: string | null; timer_ider: number[]; status: Sendestatus }
 
 const STATUSORD: Record<Sendestatus, string> = {
   startet: 'under sending',
@@ -96,6 +105,10 @@ const json = (metode: 'POST' | 'PUT', kropp: unknown): RequestInit => ({
   body: JSON.stringify(kropp),
 })
 
+const merkesti = (merke: string) =>
+  `/WorkHours/SetExportedExternal?exportedExternalId=${encodeURIComponent(merke)}&setAsExportedExternal=true`
+const avmerkesti = (merke: string) => `/WorkHours/UnmarkExportedExternal?exportedExternalId=${encodeURIComponent(merke)}`
+
 /* ── Databasen ─────────────────────────────────────────────── */
 
 /**
@@ -125,25 +138,30 @@ async function hentRad(kode: string): Promise<Rad | null> {
   return (data as Rad | null) ?? null
 }
 
-/** Sendinger som fortsatt holder på noen av timene. `førId` gir bare de som kom før vår egen rad. */
-async function hentAktive(timerIder: number[], førId?: number) {
-  let q = supabaseAdmin
-    .from(TABELL)
-    .select('kode, ordrenummer, timer_ider')
-    .overlaps('timer_ider', timerIder)
-    .not('status', 'in', '(angret,feilet)')
-  if (førId !== undefined) q = q.lt('id', førId)
-  const { data, error } = await q
-  if (error) throw new Lagringsfeil()
-  return (data ?? []) as { kode: string; ordrenummer: string | null; timer_ider: number[] }[]
+/**
+ * Sendinger som fortsatt holder på noen av timene, unntatt `utenKode`. I biter
+ * på 200 id-er: 3000 id-er i én adresse ville sprengt grensen hos PostgREST.
+ */
+async function hentAktive(timerIder: number[], utenKode?: string): Promise<Aktiv[]> {
+  const funnet = new Map<string, Aktiv>()
+  for (const bit of delIBiter(timerIder, BIT)) {
+    let q = supabaseAdmin
+      .from(TABELL)
+      .select('kode, ordrenummer, timer_ider, status')
+      .overlaps('timer_ider', bit)
+      .not('status', 'in', '(angret,feilet)')
+    if (utenKode !== undefined) q = q.neq('kode', utenKode)
+    const { data, error } = await q
+    if (error) throw new Lagringsfeil()
+    for (const a of (data ?? []) as Aktiv[]) funnet.set(a.kode, a)
+  }
+  return [...funnet.values()]
 }
 
-function alleredeSendt(treff: { kode: string; ordrenummer: string | null }): Resultat {
-  return feilsvar(
-    `Timene er alt sendt til ordre ${treff.ordrenummer ?? '(ikke avklart)'} (sending ${treff.kode}). ` +
-      'Fjern merket eller avklar den sendingen før timene sendes på nytt.',
-    409,
-  )
+/** Første aktive sending som deler en time med denne, med status til meldingen. */
+function kollisjon(timerIder: number[], aktive: Aktiv[]): Aktiv | null {
+  const treff = overlapp(timerIder, aktive)
+  return treff ? (aktive.find((a) => a.kode === treff.kode) ?? null) : null
 }
 
 /** Prosjektet i Tripletex med eksakt samme nummer. Resultat ved feil. */
@@ -164,6 +182,8 @@ async function finnProsjekt(okt: Tripletexøkt, nummer: string): Promise<{ id: n
 /* ── Legg på ordre ─────────────────────────────────────────── */
 
 export async function sendOrdre(inn: Sendeinput, bruker: Bruker): Promise<Resultat> {
+  const start = Date.now()
+
   let okt: Tripletexøkt
   try {
     okt = await apneTripletex()
@@ -176,39 +196,43 @@ export async function sendOrdre(inn: Sendeinput, bruker: Bruker): Promise<Result
 
   // Raden skrives før noe går til Tripletex, og en ny sending som deler en time med en aktiv, avvises.
   let kode = ''
-  let radId: number | null = null
+  let radSkrevet = false
   try {
-    const treff = overlapp(inn.timerIder, await hentAktive(inn.timerIder))
-    if (treff) return alleredeSendt(treff)
+    const treff = kollisjon(inn.timerIder, await hentAktive(inn.timerIder))
+    if (treff) return feilsvar(kollisjonsmelding(treff), 409)
 
-    for (let forsøk = 0; forsøk < 3 && radId === null; forsøk++) {
+    for (let forsøk = 0; forsøk < 3 && !radSkrevet; forsøk++) {
       kode = lagKode()
-      const { data, error } = await supabaseAdmin
+      const { error } = await supabaseAdmin
         .from(TABELL)
         .insert({ kode, prosjekt: inn.prosjekt, timer_ider: inn.timerIder, status: 'startet', opprettet_av: bruker.id })
-        .select('id')
-        .single()
-      if (!error) radId = (data as { id: number }).id
+      if (!error) radSkrevet = true
       // 23505: koden fantes fra før. Alt annet er en feil vi ikke skal prøve oss forbi.
       else if (error.code !== '23505') throw new Lagringsfeil()
     }
-    if (radId === null) throw new Lagringsfeil()
+    if (!radSkrevet) throw new Lagringsfeil()
 
-    // To samtidige sendinger kan begge ha passert sjekken over. Den som fikk lavest id, vinner.
-    const før = overlapp(inn.timerIder, await hentAktive(inn.timerIder, radId))
-    if (før) {
+    /*
+     * To samtidige sendinger kan begge ha passert sjekken over. Sjekken gjøres
+     * derfor på nytt mot ALLE andre aktive rader, ikke bare eldre: id-en deles ut
+     * ved innsetting, ikke ved commit, så «lavest id vinner» kan slippe begge
+     * gjennom. Ser begge hverandre, gir begge opp; det er trygt, og brukeren
+     * prøver igjen.
+     */
+    const andre = kollisjon(inn.timerIder, await hentAktive(inn.timerIder, kode))
+    if (andre) {
       await flytt(kode, 'startet', { status: 'feilet' })
-      return alleredeSendt(før)
+      return feilsvar(kollisjonsmelding(andre), 409)
     }
   } catch {
-    if (radId !== null) await flytt(kode, 'startet', { status: 'feilet' }).catch(() => false)
+    if (radSkrevet) await flytt(kode, 'startet', { status: 'feilet' }).catch(() => false)
     return feilsvar('Kunne ikke lagre sendingen. Ingenting er sendt til Tripletex.', 500)
   }
 
   const s = { ordreId: null as number | null, ordrenummer: null as string | null, ny: 'ny' in inn.ordre }
   // Satt når Tripletex kan ha fått noe som faktureres: en ny ordre eller linjer.
   let kanVæreSkrevet = false
-  const linjer: { produktId: number; antall: number; pris: number; tekst: string }[] = []
+  const linjer: { produktId: number; antall: number; pris: number; rabatt: number; tekst: string }[] = []
 
   const logget = async (status: Sendestatus) => {
     await logg('smartdok_pdf.ordre_sendt', {
@@ -283,7 +307,7 @@ export async function sendOrdre(inn: Sendeinput, bruker: Bruker): Promise<Result
       }
     } else {
       const id = inn.ordre.id
-      const r = await prøv(okt, `/order/${id}?fields=id,version,number,isClosed,project(id),internalComment`)
+      const r = await prøv(okt, `/order/${id}?fields=id,version,number,isClosed,isPrioritizeAmountsIncludingVat,project(id),internalComment`)
       if (r.utfall === 404) return avslutt('feilet', 'Fant ikke ordren i Tripletex. Ingenting er sendt.', 409)
       if (vurder('hent_ordre', r.utfall) !== 'ok') {
         return avslutt('feilet', `Kunne ikke hente ordren fra Tripletex (${statustekst(r.utfall)}). Ingenting er sendt.`)
@@ -294,6 +318,10 @@ export async function sendOrdre(inn: Sendeinput, bruker: Bruker): Promise<Result
         return avslutt('feilet', `Ordre ${o.nummer} hører ikke til prosjekt ${inn.prosjekt}. Ingenting er sendt.`, 409)
       }
       if (o.lukket !== false) return avslutt('feilet', `Ordre ${o.nummer} er lukket. Ingenting er sendt.`, 409)
+      // Prisene sendes eks. mva; på en ordre som prioriterer inkl. mva ville de blitt lest feil.
+      if (o.prisInklMva !== false) {
+        return avslutt('feilet', 'Ordren bruker priser inkl. mva. Velg en annen ordre eller lag ny.', 409)
+      }
 
       s.ordreId = o.id
       s.ordrenummer = o.nummer
@@ -305,7 +333,11 @@ export async function sendOrdre(inn: Sendeinput, bruker: Bruker): Promise<Result
       const k = await prøv(
         okt,
         `/order/${id}`,
-        json('PUT', { id: o.id, version: o.versjon, internalComment: medKommentar(o.kommentar, kommentar(kode, inn.periode.fra, inn.periode.til)) }),
+        json('PUT', {
+          id: o.id,
+          version: o.versjon,
+          internalComment: medKommentar(o.kommentar, kommentar(kode, inn.periode.fra, inn.periode.til, true)),
+        }),
       )
       if (vurder('kommentar', k.utfall) !== 'ok') {
         return avslutt(
@@ -318,13 +350,13 @@ export async function sendOrdre(inn: Sendeinput, bruker: Bruker): Promise<Result
     }
     const ordreId = s.ordreId as number
 
-    /* 2. Prisene, fra Tripletex' egen mal så kundepriser og rabatter gjelder */
-    const priser = new Map<number, number>()
+    /* 2. Pris og rabatt, fra Tripletex' egen mal så kundepriser og rabatter gjelder */
+    const maler = new Map<number, { pris: number; rabatt: number }>()
     for (const l of inn.linjer) {
-      if (priser.has(l.produktId)) continue
+      if (maler.has(l.produktId)) continue
       const r = await prøv(
         okt,
-        `/order/orderline/orderLineTemplate?orderId=${ordreId}&productId=${l.produktId}&fields=unitPriceExcludingVatCurrency`,
+        `/order/orderline/orderLineTemplate?orderId=${ordreId}&productId=${l.produktId}&fields=unitPriceExcludingVatCurrency,discount`,
       )
       if (vurder('pris', r.utfall) !== 'ok') {
         return avslutt(
@@ -332,19 +364,25 @@ export async function sendOrdre(inn: Sendeinput, bruker: Bruker): Promise<Result
           `Kunne ikke hente prisen for produkt ${l.produktId} fra Tripletex (${statustekst(r.utfall)}). Ingen linjer er lagt på.${tomOrdre()}`,
         )
       }
-      const pris = tolkPris(r.json)
-      if (pris === null) {
+      const mal = tolkMal(r.json)
+      if (mal === null) {
         return avslutt(
           'feilet',
-          `Produkt ${l.produktId} har ingen pris i Tripletex for denne ordren. Legg inn prisen der og prøv igjen. ` +
+          `Produkt ${l.produktId} har ingen gyldig pris eller rabatt i Tripletex for denne ordren. Rett det der og prøv igjen. ` +
             `Ingen linjer er lagt på.${tomOrdre()}`,
         )
       }
-      priser.set(l.produktId, pris)
+      maler.set(l.produktId, mal)
     }
-    const medPris = inn.linjer.map((l) => ({ ...l, pris: priser.get(l.produktId) as number }))
+    const medPris = inn.linjer.map((l) => ({ ...l, ...(maler.get(l.produktId) as { pris: number; rabatt: number }) }))
 
-    /* 3. Linjene */
+    /* 3. Linjene, bare om det er tid nok igjen til å vite hvordan det gikk */
+    if (forSentForLinjer(start, Date.now())) {
+      return avslutt(
+        'feilet',
+        `Tripletex svarte for sakte, så linjene ble ikke sendt. Ingen linjer er lagt på; prøv igjen.${tomOrdre()}`,
+      )
+    }
     kanVæreSkrevet = true
     const r = await prøv(
       okt,
@@ -358,6 +396,7 @@ export async function sendOrdre(inn: Sendeinput, bruker: Bruker): Promise<Result
           description: l.tekst,
           // Bare dette prisfeltet; Tripletex regner ut det med mva selv, og mva-satsen kommer fra produktet.
           unitPriceExcludingVatCurrency: l.pris,
+          discount: l.rabatt,
         })),
       ),
     )
@@ -388,13 +427,9 @@ export async function sendOrdre(inn: Sendeinput, bruker: Bruker): Promise<Result
     const vedleggOk = vurder('vedlegg', vedlegg.utfall) === 'ok'
 
     /* 5. Merket i SmartDok */
-    const merke = lagMerke(s.ordrenummer as string, kode)
     let merkeOk = true
     try {
-      await skrivTilSmartdok(
-        `/WorkHours/SetExportedExternal?exportedExternalId=${encodeURIComponent(merke)}&setAsExportedExternal=true`,
-        inn.timerIder,
-      )
+      await skrivTilSmartdok(merkesti(lagMerke(s.ordrenummer as string, kode)), inn.timerIder)
     } catch {
       merkeOk = false
     }
@@ -426,7 +461,7 @@ export async function sendOrdre(inn: Sendeinput, bruker: Bruker): Promise<Result
         kode,
         ordrenummer: s.ordrenummer,
         ordreId,
-        linjer: linjer.map((l) => ({ produktId: l.produktId, antall: l.antall, pris: l.pris })),
+        linjer: linjer.map((l) => ({ produktId: l.produktId, antall: l.antall, pris: l.pris, rabatt: l.rabatt })),
         ...(meldinger.length ? { melding: meldinger.join(' ') } : {}),
       },
     }
@@ -459,13 +494,21 @@ export async function fjernMerke(kode: string, bruker: Bruker): Promise<Resultat
     return feilsvar(`Sendingen er ${STATUSORD[status]}; merket kan ikke fjernes nå.`, 409)
   }
 
-  // Uten merke i SmartDok er det ingenting å fjerne der.
+  let avmerkingFeilet = false
   if (status !== 'sendt_uten_merke') {
     if (!rad.merke) return feilsvar('Sendingen mangler merke. Ingenting er endret.', 409)
     try {
-      await skrivTilSmartdok(`/WorkHours/UnmarkExportedExternal?exportedExternalId=${encodeURIComponent(rad.merke)}`)
+      await skrivTilSmartdok(avmerkesti(rad.merke))
     } catch {
       return feilsvar('SmartDok tok ikke imot. Merket er ikke fjernet; prøv igjen.', 502)
+    }
+  } else if (rad.merke) {
+    // Merkingen feilet, men SmartDok kan ha rukket noen timer før den falt. Merket er unikt
+    // for sendingen, så å fjerne det rører ingen andre timer. Feiler det, stopper det ikke.
+    try {
+      await skrivTilSmartdok(avmerkesti(rad.merke))
+    } catch {
+      avmerkingFeilet = true
     }
   }
 
@@ -480,7 +523,15 @@ export async function fjernMerke(kode: string, bruker: Bruker): Promise<Resultat
   await logg('smartdok_pdf.merke_fjernet', {
     utfortAv: bruker.id,
     utfortAvEpost: bruker.epost,
-    detaljer: { kode, prosjekt: rad.prosjekt, ordrenummer: rad.ordrenummer, status: 'angret', fra: rad.status, antallLinjer: rad.antall_linjer },
+    detaljer: {
+      kode,
+      prosjekt: rad.prosjekt,
+      ordrenummer: rad.ordrenummer,
+      status: 'angret',
+      fra: rad.status,
+      antallLinjer: rad.antall_linjer,
+      ...(avmerkingFeilet ? { avmerkingFeilet: true } : {}),
+    },
   })
 
   return {
@@ -491,14 +542,17 @@ export async function fjernMerke(kode: string, bruker: Bruker): Promise<Resultat
       ordrenummer: rad.ordrenummer,
       melding:
         `Merket er fjernet i SmartDok. Ordre ${rad.ordrenummer ?? ''} i Tripletex er ikke endret: ` +
-        'fjern linjene der for hånd om ordren skal rettes.',
+        'fjern linjene der for hånd om ordren skal rettes.' +
+        (avmerkingFeilet ? ' (SmartDok svarte ikke på avmerkingen; se etter timer med merket der.)' : ''),
     },
   }
 }
 
 /* ── Avklar ────────────────────────────────────────────────── */
 
-type Funn = { funnet: boolean; ordreId: number | null; ordrenummer: string | null; antallLinjer: number }
+type Funn = { funnet: boolean; nyOrdre: boolean; ordreId: number | null; ordrenummer: string | null; antallLinjer: number }
+
+const ikkeFunnet: Funn = { funnet: false, nyOrdre: false, ordreId: null, ordrenummer: null, antallLinjer: 0 }
 
 /** Leter etter ordren med sendingens kode i den interne kommentaren. */
 async function finnOrdre(rad: Rad): Promise<Funn | Resultat> {
@@ -511,13 +565,19 @@ async function finnOrdre(rad: Rad): Promise<Funn | Resultat> {
 
   if (rad.ordre_id !== null) {
     const r = await prøv(okt, `/order/${rad.ordre_id}?fields=id,version,number,internalComment,orderLines(id)`)
-    if (r.utfall === 404) return { funnet: false, ordreId: null, ordrenummer: null, antallLinjer: 0 }
+    if (r.utfall === 404) return ikkeFunnet
     if (!ok(r.utfall)) return feilsvar(`Kunne ikke hente ordren fra Tripletex (${statustekst(r.utfall)}).`, 502)
     const o = tolkOrdre(r.json)
     if (!o) return feilsvar('Uventet svar fra Tripletex om ordren.', 502)
     return harKode(o.kommentar, rad.kode)
-      ? { funnet: true, ordreId: o.id, ordrenummer: o.nummer, antallLinjer: o.antallLinjer }
-      : { funnet: false, ordreId: null, ordrenummer: null, antallLinjer: 0 }
+      ? {
+          funnet: true,
+          nyOrdre: erNyOrdre(o.kommentar, rad.kode),
+          ordreId: o.id,
+          ordrenummer: o.nummer,
+          antallLinjer: o.antallLinjer,
+        }
+      : ikkeFunnet
   }
 
   // Ordre-id-en kom aldri tilbake: let blant kundens ordrer fra den dagen. Ordredatoen
@@ -538,8 +598,9 @@ async function finnOrdre(rad: Rad): Promise<Funn | Resultat> {
   if ('status' in svar) return feilsvar(`Kunne ikke hente ordrer fra Tripletex (status ${svar.status}).`, 502)
   const treff = ordrerMedKode(svar.json.values, rad.kode)
   if (treff.length > 1) return feilsvar(`Flere ordrer i Tripletex har koden ${rad.kode}. Se på dem der.`, 409)
-  if (treff.length === 0) return { funnet: false, ordreId: null, ordrenummer: null, antallLinjer: 0 }
-  return { funnet: true, ordreId: treff[0].id, ordrenummer: treff[0].nummer, antallLinjer: treff[0].antallLinjer }
+  if (treff.length === 0) return ikkeFunnet
+  const t = treff[0]
+  return { funnet: true, nyOrdre: t.nyOrdre, ordreId: t.id, ordrenummer: t.nummer, antallLinjer: t.antallLinjer }
 }
 
 export async function avklar(kode: string, valg: Avklaring, bruker: Bruker): Promise<Resultat> {
@@ -565,12 +626,29 @@ export async function avklar(kode: string, valg: Avklaring, bruker: Bruker): Pro
     if (valg === 'sjekk') {
       const f = await finnOrdre(rad)
       if ('http' in f) return f
-      // Huskes, så neste sjekk og «merk» går rett på ordren.
-      if (f.funnet && rad.ordre_id === null) {
-        await flytt(kode, rad.status, { ordre_id: f.ordreId, ordrenummer: f.ordrenummer }, rad.endret)
+      /*
+       * En foreldet «startet» flyttes til ukjent_utfall i samme skriving. Ellers
+       * ville skrivingen fornyet `endret`, og raden sett ut som en sending som
+       * pågår i ti minutter til.
+       */
+      const foreldet = rad.status === 'startet'
+      const husk = f.funnet && rad.ordre_id === null
+      if (foreldet || husk) {
+        await flytt(
+          kode,
+          rad.status,
+          {
+            ...(foreldet ? { status: 'ukjent_utfall' } : {}),
+            ...(husk ? { ordre_id: f.ordreId, ordrenummer: f.ordrenummer } : {}),
+          },
+          rad.endret,
+        )
       }
-      await loggAvklar(rad.status, f.ordrenummer, f.antallLinjer)
-      return { http: 200, kropp: { funnet: f.funnet, ordrenummer: f.ordrenummer, antallLinjer: f.antallLinjer, status } }
+      await loggAvklar(status, f.ordrenummer, f.antallLinjer)
+      return {
+        http: 200,
+        kropp: { funnet: f.funnet, nyOrdre: f.nyOrdre, ordrenummer: f.ordrenummer, antallLinjer: f.antallLinjer, status },
+      }
     }
 
     if (valg === 'frigi') {
@@ -589,27 +667,25 @@ export async function avklar(kode: string, valg: Avklaring, bruker: Bruker): Pro
       }
     }
 
-    // merk: bare når vi vet hvilken ordre timene ligger på, og at den har linjer.
+    // merk: etter ukjent utfall bare på en ordre sendingen selv laget, og som har linjer.
     let ordreId = rad.ordre_id
     let ordrenummer = rad.ordrenummer
     if (status === 'ukjent_utfall') {
       const f = await finnOrdre(rad)
       if ('http' in f) return f
-      if (!f.funnet) return feilsvar('Fant ingen ordre med sendingens kode i Tripletex. Timene merkes ikke; frigi sendingen i stedet.', 409)
-      if (f.antallLinjer === 0) {
-        return feilsvar(`Ordre ${f.ordrenummer} har ingen linjer. Timene merkes ikke; frigi sendingen i stedet.`, 409)
-      }
+      const nei = kanMerke(status, f)
+      if (nei) return feilsvar(nei, 409)
       ordreId = f.ordreId
       ordrenummer = f.ordrenummer
+    } else {
+      const nei = kanMerke(status, null)
+      if (nei) return feilsvar(nei, 409)
     }
     if (!ordrenummer) return feilsvar('Sendingen mangler ordrenummer. Ingenting er endret.', 409)
     const merke = rad.merke ?? lagMerke(ordrenummer, kode)
 
     try {
-      await skrivTilSmartdok(
-        `/WorkHours/SetExportedExternal?exportedExternalId=${encodeURIComponent(merke)}&setAsExportedExternal=true`,
-        rad.timer_ider,
-      )
+      await skrivTilSmartdok(merkesti(merke), rad.timer_ider)
     } catch {
       // Ordren er funnet, så det som gjenstår, er bare merket.
       if (status === 'ukjent_utfall') {

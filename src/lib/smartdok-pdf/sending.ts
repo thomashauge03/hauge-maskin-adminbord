@@ -35,7 +35,8 @@ export type Sendeinput = {
 
 export const MAKS_PDF_BYTE = 4 * 1024 * 1024
 const MAKS_BASE64 = Math.ceil(MAKS_PDF_BYTE / 3) * 4
-const MAKS_TIMER = 10_000
+/** Overlappsjekken går i biter på 200 id-er i adressen; 3000 gir høyst 15 oppslag. */
+export const MAKS_TIMER = 3000
 /** Kolonnen timer_ider er int[] (32 bit). */
 const MAKS_INT = 2_147_483_647
 
@@ -193,12 +194,72 @@ export function tillatt(handling: Handling, status: Sendestatus): boolean {
   return LOV[handling].includes(status)
 }
 
+/**
+ * Merk etter ukjent utfall. På en ordre vi selv laget, er alle linjene våre,
+ * så «funnet med linjer» betyr at timene er lagt på. På en eksisterende ordre
+ * kan linjene ha stått der fra før, og vi kan ikke se om våre kom inn: der
+ * må et menneske se i Tripletex.
+ */
+export function kanMerke(
+  status: Sendestatus,
+  funn: { funnet: boolean; nyOrdre: boolean; antallLinjer: number; ordrenummer: string | null } | null,
+): string | null {
+  if (status === 'sendt_uten_merke') return null
+  if (status !== 'ukjent_utfall') return 'Sendingen kan ikke merkes nå.'
+  if (!funn || !funn.funnet) return 'Fant ingen ordre med sendingens kode i Tripletex. Timene merkes ikke; frigi sendingen i stedet.'
+  if (!funn.nyOrdre) {
+    return (
+      `Ordre ${funn.ordrenummer} er en eksisterende ordre, og vi kan ikke se om linjene fra denne sendingen kom inn. ` +
+      'Se på ordren i Tripletex: mangler linjene, frigi sendingen og send på nytt; står de der, merk timene for hånd i SmartDok.'
+    )
+  }
+  if (funn.antallLinjer === 0) {
+    return `Ordre ${funn.ordrenummer} har ingen linjer. Timene merkes ikke; frigi sendingen i stedet.`
+  }
+  return null
+}
+
+/** Meldingen når en annen sending holder på noen av timene. */
+export function kollisjonsmelding(treff: { kode: string; ordrenummer: string | null; status: string }): string {
+  if (treff.status === 'startet') return 'Timene sendes akkurat nå fra et annet sted. Prøv igjen.'
+  return (
+    `Timene er alt sendt til ordre ${treff.ordrenummer ?? '(ikke avklart)'} (sending ${treff.kode}). ` +
+    'Fjern merket eller avklar den sendingen før timene sendes på nytt.'
+  )
+}
+
+/* ── Frister og biter ──────────────────────────────────────── */
+
+/**
+ * Linjene sendes ikke senere enn dette etter start. maxDuration er 120 s, og
+ * linjer, vedlegg og merke trenger tid etterpå; blir funksjonen drept etter
+ * linjene, er utfallet ukjent. Før linjene er ingenting fakturerbart gjort.
+ */
+export const FRIST_LINJER_MS = 90_000
+
+export function forSentForLinjer(start: number, naa: number): boolean {
+  return naa - start > FRIST_LINJER_MS
+}
+
+export function delIBiter<T>(liste: T[], n: number): T[][] {
+  const ut: T[][] = []
+  for (let i = 0; i < liste.length; i += n) ut.push(liste.slice(i, i + n))
+  return ut
+}
+
 /* ── Kommentaren på ordren ─────────────────────────────────── */
 
 const FORSTAVELSE = 'SmartDok til PDF '
+/*
+ * Kjennetegnet skiller en eksisterende ordre fra en vi laget selv. Det må stå
+ * i teksten på den eksisterende: sto det på den nye i stedet, kunne en ordre
+ * med tom kommentar fra før sett ut som vår egen, og «merk» ville stolt på
+ * linjer som ikke er våre.
+ */
+const EKSISTERENDE = ' på eksisterende ordre'
 
-export function kommentar(kode: string, fra: string, til: string): string {
-  return `${FORSTAVELSE}${kode}, ${fra}–${til}`
+export function kommentar(kode: string, fra: string, til: string, eksisterende = false): string {
+  return `${FORSTAVELSE}${kode}${eksisterende ? EKSISTERENDE : ''}, ${fra}–${til}`
 }
 
 export function medKommentar(eksisterende: unknown, tillegg: string): string {
@@ -208,7 +269,19 @@ export function medKommentar(eksisterende: unknown, tillegg: string): string {
 
 /** Hele «SmartDok til PDF <kode>,» så seks tilfeldige tegn ellers i teksten ikke gir falskt treff. */
 export function harKode(internalComment: unknown, kode: string): boolean {
-  return typeof internalComment === 'string' && internalComment.includes(`${FORSTAVELSE}${kode},`)
+  return (
+    typeof internalComment === 'string' &&
+    (internalComment.includes(`${FORSTAVELSE}${kode},`) || internalComment.includes(`${FORSTAVELSE}${kode}${EKSISTERENDE},`))
+  )
+}
+
+/** Ordren ble laget av sendingen selv: koden står uten kjennetegnet for eksisterende ordre. */
+export function erNyOrdre(internalComment: unknown, kode: string): boolean {
+  return (
+    typeof internalComment === 'string' &&
+    internalComment.includes(`${FORSTAVELSE}${kode},`) &&
+    !internalComment.includes(`${FORSTAVELSE}${kode}${EKSISTERENDE},`)
+  )
 }
 
 /* ── Svar fra Tripletex ────────────────────────────────────── */
@@ -221,6 +294,20 @@ function verdi(json: unknown): Record<string, unknown> | null {
 export function tolkPris(json: unknown): number | null {
   const p = verdi(json)?.unitPriceExcludingVatCurrency
   return typeof p === 'number' && Number.isFinite(p) && p > 0 ? p : null
+}
+
+/**
+ * Pris og rabatt fra orderLineTemplate. Rabatten (prosent) er kundens avtale i
+ * Tripletex og skal følge med linjen; uten den ville kunden fått full pris.
+ * Mangler rabatten, er det ingen. En rabatt vi ikke forstår, stopper sendingen.
+ */
+export function tolkMal(json: unknown): { pris: number; rabatt: number } | null {
+  const pris = tolkPris(json)
+  if (pris === null) return null
+  const d = verdi(json)?.discount
+  if (d === undefined || d === null) return { pris, rabatt: 0 }
+  if (typeof d !== 'number' || !Number.isFinite(d) || d < 0 || d > 100) return null
+  return { pris, rabatt: d }
 }
 
 function nummer(x: unknown): string | null {
@@ -242,6 +329,8 @@ export type Ordreinfo = {
   nummer: string
   /** Null når Tripletex ikke sa noe: regnes ikke som åpen. */
   lukket: boolean | null
+  /** isPrioritizeAmountsIncludingVat. Null når ukjent: regnes ikke som eks. mva. */
+  prisInklMva: boolean | null
   prosjektId: number | null
   kommentar: string
   antallLinjer: number
@@ -259,20 +348,28 @@ export function tolkOrdre(json: unknown): Ordreinfo | null {
     versjon: v.version,
     nummer: n,
     lukket: typeof v.isClosed === 'boolean' ? v.isClosed : null,
+    prisInklMva: typeof v.isPrioritizeAmountsIncludingVat === 'boolean' ? v.isPrioritizeAmountsIncludingVat : null,
     prosjektId: positivtHeltall(prosjektId) ? prosjektId : null,
     kommentar: typeof v.internalComment === 'string' ? v.internalComment : '',
     antallLinjer: Array.isArray(v.orderLines) ? v.orderLines.length : 0,
   }
 }
 
-export function ordrerMedKode(values: unknown[], kode: string): { id: number; nummer: string; antallLinjer: number }[] {
-  const ut: { id: number; nummer: string; antallLinjer: number }[] = []
+export type Kodetreff = { id: number; nummer: string; antallLinjer: number; nyOrdre: boolean }
+
+export function ordrerMedKode(values: unknown[], kode: string): Kodetreff[] {
+  const ut: Kodetreff[] = []
   for (const x of values) {
     const o = objekt(x)
     if (!o || !harKode(o.internalComment, kode) || !positivtHeltall(o.id)) continue
     const n = nummer(o.number)
     if (!n) continue
-    ut.push({ id: o.id, nummer: n, antallLinjer: Array.isArray(o.orderLines) ? o.orderLines.length : 0 })
+    ut.push({
+      id: o.id,
+      nummer: n,
+      antallLinjer: Array.isArray(o.orderLines) ? o.orderLines.length : 0,
+      nyOrdre: erNyOrdre(o.internalComment, kode),
+    })
   }
   return ut
 }
@@ -283,6 +380,7 @@ export function linjeneKomInn(json: unknown, antall: number): boolean {
   return Array.isArray(v) && v.length === antall
 }
 
-export function sumEksMva(linjer: { antall: number; pris: number }[]): number {
-  return Math.round(linjer.reduce((s, l) => s + l.antall * l.pris, 0) * 100) / 100
+/** Til loggen. Tripletex regner selv det som faktureres; dette er vårt overslag med rabatten trukket fra. */
+export function sumEksMva(linjer: { antall: number; pris: number; rabatt?: number }[]): number {
+  return Math.round(linjer.reduce((s, l) => s + l.antall * l.pris * (1 - (l.rabatt ?? 0) / 100), 0) * 100) / 100
 }

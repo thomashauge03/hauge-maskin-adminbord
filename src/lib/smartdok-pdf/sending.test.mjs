@@ -19,6 +19,14 @@ import {
   linjeneKomInn,
   sumEksMva,
   MAKS_PDF_BYTE,
+  MAKS_TIMER,
+  tolkMal,
+  delIBiter,
+  FRIST_LINJER_MS,
+  forSentForLinjer,
+  erNyOrdre,
+  kanMerke,
+  kollisjonsmelding,
 } from './sending.ts'
 
 const PDF = Buffer.from('%PDF-1.7\n%test\n').toString('base64')
@@ -225,6 +233,26 @@ test('harKode: leter etter hele merket, ikke bare seks tegn', () => {
 
 /* ── Svar fra Tripletex ────────────────────────────────────── */
 
+test('mal: pris og kunderabatt fra orderLineTemplate', () => {
+  assert.deepEqual(tolkMal({ value: { unitPriceExcludingVatCurrency: 1250, discount: 10 } }), { pris: 1250, rabatt: 10 })
+  assert.deepEqual(tolkMal({ value: { unitPriceExcludingVatCurrency: 99.5, discount: 0 } }), { pris: 99.5, rabatt: 0 })
+  assert.deepEqual(tolkMal({ value: { unitPriceExcludingVatCurrency: 99.5, discount: 100 } }), { pris: 99.5, rabatt: 100 })
+  // Uten rabatt i malen er det ingen rabatt.
+  assert.deepEqual(tolkMal({ value: { unitPriceExcludingVatCurrency: 1250 } }), { pris: 1250, rabatt: 0 })
+  assert.deepEqual(tolkMal({ value: { unitPriceExcludingVatCurrency: 1250, discount: null } }), { pris: 1250, rabatt: 0 })
+})
+
+test('mal: rabatt som ikke er en prosent mellom 0 og 100 stopper', () => {
+  for (const discount of [-1, 100.5, '10', NaN, Infinity]) {
+    assert.equal(tolkMal({ value: { unitPriceExcludingVatCurrency: 1250, discount } }), null, String(discount))
+  }
+})
+
+test('mal: uten pris er det ingen mal', () => {
+  assert.equal(tolkMal({ value: { discount: 10 } }), null)
+  assert.equal(tolkMal({ value: { unitPriceExcludingVatCurrency: 0, discount: 10 } }), null)
+})
+
 test('pris: positivt tall fra malen, ellers null', () => {
   assert.equal(tolkPris({ value: { unitPriceExcludingVatCurrency: 1250 } }), 1250)
   assert.equal(tolkPris({ value: { unitPriceExcludingVatCurrency: 99.5 } }), 99.5)
@@ -258,24 +286,27 @@ test('ordre: felt som trengs for å legge til og sjekke', () => {
         version: 3,
         number: '1234',
         isClosed: false,
+        isPrioritizeAmountsIncludingVat: false,
         project: { id: 9 },
         internalComment: 'hei',
         orderLines: [{ id: 1 }, { id: 2 }],
       },
     }),
-    { id: 77, versjon: 3, nummer: '1234', lukket: false, prosjektId: 9, kommentar: 'hei', antallLinjer: 2 },
+    { id: 77, versjon: 3, nummer: '1234', lukket: false, prisInklMva: false, prosjektId: 9, kommentar: 'hei', antallLinjer: 2 },
   )
-  assert.deepEqual(tolkOrdre({ value: { id: 77, version: 0, number: '1', isClosed: true } }), {
+  assert.deepEqual(tolkOrdre({ value: { id: 77, version: 0, number: '1', isClosed: true, isPrioritizeAmountsIncludingVat: true } }), {
     id: 77,
     versjon: 0,
     nummer: '1',
     lukket: true,
+    prisInklMva: true,
     prosjektId: null,
     kommentar: '',
     antallLinjer: 0,
   })
-  // Ukjent lukket-status regnes ikke som åpen.
+  // Ukjent lukket-status og ukjent prisvalg regnes ikke som åpen eller eks. mva.
   assert.equal(tolkOrdre({ value: { id: 77, version: 0, number: '1' } }).lukket, null)
+  assert.equal(tolkOrdre({ value: { id: 77, version: 0, number: '1' } }).prisInklMva, null)
   for (const j of [null, {}, { value: { version: 1, number: '1' } }, { value: { id: 1, number: '1' } }, { value: { id: 1, version: 1 } }]) {
     assert.equal(tolkOrdre(j), null, JSON.stringify(j))
   }
@@ -288,7 +319,7 @@ test('ordrer med kode: plukker ordrene med koden i kommentaren', () => {
     { id: 3, number: '12', internalComment: null },
     'søppel',
   ]
-  assert.deepEqual(ordrerMedKode(values, 'k7x2ab'), [{ id: 2, nummer: '11', antallLinjer: 2 }])
+  assert.deepEqual(ordrerMedKode(values, 'k7x2ab'), [{ id: 2, nummer: '11', antallLinjer: 2, nyOrdre: true }])
   assert.deepEqual(ordrerMedKode(values, 'zzzzzz'), [])
 })
 
@@ -302,4 +333,102 @@ test('linjene kom inn: like mange tilbake som sendt', () => {
 test('sum eks. mva med to desimaler', () => {
   assert.equal(sumEksMva([{ antall: 7.5, pris: 1250 }, { antall: 0.1, pris: 0.2 }]), 9375.02)
   assert.equal(sumEksMva([]), 0)
+})
+
+test('sum eks. mva trekker fra rabatten', () => {
+  assert.equal(sumEksMva([{ antall: 10, pris: 1000, rabatt: 10 }, { antall: 1, pris: 500, rabatt: 0 }]), 9500)
+  assert.equal(sumEksMva([{ antall: 2, pris: 100, rabatt: 100 }]), 0)
+})
+
+/* ── Overlappsjekk i biter ─────────────────────────────────── */
+
+test('biter: deler lista i biter på høyst n', () => {
+  assert.deepEqual(delIBiter([1, 2, 3, 4, 5], 2), [[1, 2], [3, 4], [5]])
+  assert.deepEqual(delIBiter([1, 2], 200), [[1, 2]])
+  assert.deepEqual(delIBiter([], 200), [])
+  const mange = Array.from({ length: 3000 }, (_, i) => i + 1)
+  const b = delIBiter(mange, 200)
+  assert.equal(b.length, 15)
+  assert.deepEqual(b.flat(), mange)
+})
+
+test('sending: høyst 3000 timer', () => {
+  const ider = (n) => Array.from({ length: n }, (_, i) => i + 1)
+  assert.equal(MAKS_TIMER, 3000)
+  assert.equal(typeof sjekkSending(gyldig({ timerIder: ider(3000) })), 'object')
+  assert.equal(typeof sjekkSending(gyldig({ timerIder: ider(3001) })), 'string')
+})
+
+/* ── Frist før linjene ─────────────────────────────────────── */
+
+test('frist: linjene sendes ikke etter 90 sekunder', () => {
+  assert.equal(FRIST_LINJER_MS, 90_000)
+  assert.equal(forSentForLinjer(1000, 1000 + 90_000), false)
+  assert.equal(forSentForLinjer(1000, 1000 + 90_001), true)
+})
+
+/* ── Ny eller eksisterende ordre, og merk etter ukjent utfall ── */
+
+test('kommentar: på eksisterende ordre har teksten et eget kjennetegn', () => {
+  assert.equal(
+    kommentar('k7x2ab', '2026-11-16', '2026-11-22', true),
+    'SmartDok til PDF k7x2ab på eksisterende ordre, 2026-11-16–2026-11-22',
+  )
+  assert.equal(harKode('Ring før SmartDok til PDF k7x2ab på eksisterende ordre, 2026-11-16–2026-11-22', 'k7x2ab'), true)
+})
+
+test('ny ordre: bare når kommentaren har koden uten kjennetegnet for eksisterende', () => {
+  assert.equal(erNyOrdre(kommentar('k7x2ab', '2026-11-16', '2026-11-22'), 'k7x2ab'), true)
+  assert.equal(erNyOrdre(kommentar('k7x2ab', '2026-11-16', '2026-11-22', true), 'k7x2ab'), false)
+  assert.equal(erNyOrdre(medKommentar('', kommentar('k7x2ab', 'a', 'b', true)), 'k7x2ab'), false)
+  assert.equal(erNyOrdre('Noe annet', 'k7x2ab'), false)
+  assert.equal(erNyOrdre(null, 'k7x2ab'), false)
+})
+
+test('ordrer med kode: forteller om ordren er ny', () => {
+  const values = [
+    { id: 2, number: '11', internalComment: 'x SmartDok til PDF k7x2ab på eksisterende ordre, a–b', orderLines: [{ id: 1 }] },
+  ]
+  assert.deepEqual(ordrerMedKode(values, 'k7x2ab'), [{ id: 2, nummer: '11', antallLinjer: 1, nyOrdre: false }])
+})
+
+test('kan merke: sendt uten merke kan alltid merkes', () => {
+  assert.equal(kanMerke('sendt_uten_merke', null), null)
+})
+
+test('kan merke: ukjent utfall bare på en ny ordre som er funnet og har linjer', () => {
+  assert.equal(kanMerke('ukjent_utfall', { funnet: true, nyOrdre: true, antallLinjer: 2, ordrenummer: '11' }), null)
+  for (const funn of [
+    null,
+    { funnet: false, nyOrdre: false, antallLinjer: 0, ordrenummer: null },
+    { funnet: true, nyOrdre: true, antallLinjer: 0, ordrenummer: '11' },
+    { funnet: true, nyOrdre: false, antallLinjer: 5, ordrenummer: '11' },
+  ]) {
+    const r = kanMerke('ukjent_utfall', funn)
+    assert.equal(typeof r, 'string', JSON.stringify(funn))
+    assert.ok(r.length > 0)
+  }
+})
+
+test('kan merke: eksisterende ordre sier hva brukeren må gjøre', () => {
+  const r = kanMerke('ukjent_utfall', { funnet: true, nyOrdre: false, antallLinjer: 5, ordrenummer: '11' })
+  assert.match(r, /eksisterende/)
+  assert.match(r, /Tripletex/)
+})
+
+test('kan merke: andre statuser kan ikke merkes', () => {
+  for (const s of ['startet', 'sendt', 'sendt_uten_vedlegg', 'feilet', 'angret']) {
+    assert.equal(typeof kanMerke(s, { funnet: true, nyOrdre: true, antallLinjer: 1, ordrenummer: '1' }), 'string', s)
+  }
+})
+
+/* ── Samtidige sendinger ───────────────────────────────────── */
+
+test('kollisjon: annen sending som pågår, gir egen melding', () => {
+  assert.equal(
+    kollisjonsmelding({ kode: 'aaaaaa', ordrenummer: null, status: 'startet' }),
+    'Timene sendes akkurat nå fra et annet sted. Prøv igjen.',
+  )
+  assert.match(kollisjonsmelding({ kode: 'aaaaaa', ordrenummer: '1234', status: 'sendt' }), /^Timene er alt sendt til ordre 1234/)
+  assert.match(kollisjonsmelding({ kode: 'aaaaaa', ordrenummer: null, status: 'ukjent_utfall' }), /^Timene er alt sendt til ordre/)
 })
