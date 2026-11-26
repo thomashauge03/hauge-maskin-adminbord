@@ -1,7 +1,7 @@
 // Tolkning av SmartDoks timer, brukere og maskiner. Kjøres med `npm test`.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { tolkTimer, delPeriode, sjekkPeriode, tolkNavn, tolkMaskiner } from './tolk-timer.ts'
+import { tolkTimer, delPeriode, sjekkPeriode, tolkNavn, tolkMaskiner, tolkMaskinliste } from './tolk-timer.ts'
 
 const rad = (felter) => ({
   WorkHourID: 101,
@@ -217,4 +217,22 @@ test('sidedelt svar der TotalCount er større enn Items gir feil', () => {
   assert.throws(() => tolk({ Items: [rad({})], TotalCount: 5 }), /1 av 5 rader/)
   assert.throws(() => tolkNavn({ Items: [], TotalCount: 2 }), /0 av 2 rader/)
   assert.equal(tolk({ Items: [rad({})], TotalCount: 1 }).length, 1)
+})
+
+test('tolkMaskinliste: aktive maskiner med nummer, navn og kategori', () => {
+  const m = tolkMaskinliste({ Items: [
+    { Id: 5, Name: 'CAT 320', InternalNumber: 'M-12', CategoryName: 'Gravemaskin', IsActive: true, Secret: 'x' },
+    { Id: 6, Name: 'Gammel', InternalNumber: 'M-1', CategoryName: 'Lastebil', IsActive: false },
+    { Id: 7, Name: 'Uten felt' },
+  ] })
+  assert.deepEqual(m, [
+    { id: 5, nummer: 'M-12', navn: 'CAT 320', kategori: 'Gravemaskin' },
+    { id: 7, nummer: '', navn: 'Uten felt', kategori: '' },
+  ])
+})
+
+test('tolkMaskinliste: uventet form gir feil', () => {
+  assert.throws(() => tolkMaskinliste({ feil: 1 }), /uventet format/)
+  assert.throws(() => tolkMaskinliste([null]), /uventet format/)
+  assert.throws(() => tolkMaskinliste([{ Name: 'x' }]), /uten Id/)
 })

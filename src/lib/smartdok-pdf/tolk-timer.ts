@@ -182,3 +182,18 @@ export function tolkMaskiner(maskiner: unknown): Map<number, string> {
   }
   return kart
 }
+
+/** Aktive maskiner til nedtrekkslista. Uventet form stopper i stedet for å gi en tom liste. */
+export function tolkMaskinliste(maskiner: unknown): { id: number; nummer: string; navn: string; kategori: string }[] {
+  const ut: { id: number; nummer: string; navn: string; kategori: string }[] = []
+  for (const element of liste(maskiner)) {
+    if (typeof element !== 'object' || element === null) throw new Error('SmartDok ga en maskin i et uventet format')
+    const m = element as Record<string, unknown>
+    if (m.IsActive === false) continue
+    const id = tallEllerNull(m.Id)
+    const navn = tekst(m.Name)
+    if (id === null || !navn) throw new Error('SmartDok ga en maskin uten Id eller Name')
+    ut.push({ id, nummer: tekst(m.InternalNumber), navn, kategori: tekst(m.CategoryName) })
+  }
+  return ut
+}
