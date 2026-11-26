@@ -249,11 +249,18 @@ export function kollisjonsmelding(
 /* ── Frister og biter ──────────────────────────────────────── */
 
 /**
- * Linjene sendes ikke senere enn dette etter start. maxDuration er 120 s, og
- * linjer, vedlegg og merke trenger tid etterpå; blir funksjonen drept etter
- * linjene, er utfallet ukjent. Før linjene er ingenting fakturerbart gjort.
+ * Linjene sendes ikke senere enn dette etter start. Før linjene er ingenting
+ * fakturerbart gjort, så å stoppe her er trygt; blir funksjonen drept ETTER
+ * linjene, er utfallet ukjent og må avklares for hånd.
+ *
+ * Regnestykket mot maxDuration 120 s, med tidsavbruddene som øvre grenser:
+ *   45 frist + 20 linjer + 20 vedlegg + 15 SmartDok-token + 15 merke = 115 s.
+ * Svarer SmartDok 429, kommer opptil 10 s pause og 15 s nytt kall i tillegg
+ * (140 s). Det går bare over når alle tjenestene henger samtidig, og da ender
+ * sendingen som ukjent utfall, ikke dobbelt. Skal også det tilfellet få plass,
+ * må fristen ned til 20 s.
  */
-export const FRIST_LINJER_MS = 90_000
+export const FRIST_LINJER_MS = 45_000
 
 export function forSentForLinjer(start: number, naa: number): boolean {
   return naa - start > FRIST_LINJER_MS

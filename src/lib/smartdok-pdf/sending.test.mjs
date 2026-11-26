@@ -360,10 +360,11 @@ test('sending: høyst 3000 timer', () => {
 
 /* ── Frist før linjene ─────────────────────────────────────── */
 
-test('frist: linjene sendes ikke etter 90 sekunder', () => {
-  assert.equal(FRIST_LINJER_MS, 90_000)
-  assert.equal(forSentForLinjer(1000, 1000 + 90_000), false)
-  assert.equal(forSentForLinjer(1000, 1000 + 90_001), true)
+test('frist: linjene sendes ikke etter 45 sekunder', () => {
+  assert.equal(FRIST_LINJER_MS, 45_000)
+  assert.equal(forSentForLinjer(1000, 1000 + 45_000), false)
+  assert.equal(forSentForLinjer(1000, 1000 + 45_001), true)
+  assert.equal(forSentForLinjer(1000, 1000 + 60_000), true)
 })
 
 /* ── Merk etter ukjent utfall ──────────────────────────────── */
