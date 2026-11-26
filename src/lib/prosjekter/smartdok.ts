@@ -350,3 +350,31 @@ export async function lesFraSmartdok(stier: string[]): Promise<unknown[]> {
   }
   return svar
 }
+
+/**
+ * Skriver til SmartDok for andre apper (POST med JSON). Samme økt og samme
+ * regler som lesingen: fornyer aldri nøkkelen, og feiler på norsk ved alt
+ * annet enn 2xx (kall() kaster da).
+ */
+export async function skrivTilSmartdok(sti: string, body: unknown): Promise<void> {
+  const { data } = await supabaseAdmin
+    .from('smartdok_tilkobling')
+    .select('nokkel_kryptert')
+    .eq('id', 1)
+    .maybeSingle()
+  if (!data?.nokkel_kryptert) throw new Error('SmartDok er ikke satt opp')
+
+  let nøkkel: string
+  try {
+    nøkkel = dekrypter(data.nokkel_kryptert as string)
+  } catch {
+    throw new Error('Den lagrede SmartDok-nøkkelen kan ikke leses')
+  }
+
+  const økt = await økttoken(nøkkel)
+  await kall(sti, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${økt}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
