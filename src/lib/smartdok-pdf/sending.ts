@@ -320,13 +320,17 @@ function verdi(json: unknown): Record<string, unknown> | null {
 }
 
 /**
- * Prisen fra orderLineTemplate. Manglende, null, 0 og negativ gir 0: ordren i
- * Tripletex er godkjenningen, så en linje uten pris fylles ut der i stedet for
- * å stoppe sendingen.
+ * Prisen fra orderLineTemplate. Ordren i Tripletex er godkjenningen, så et felt
+ * som mangler, er null eller 0 gir 0 i stedet for stopp. Mangler selve value, eller
+ * er prisen negativ eller ikke et tall, har svaret endret form: null stopper
+ * sendingen, ellers ville alle produktlinjer fått 0 kr uten at noen merket det.
  */
-export function tolkPris(json: unknown): number {
-  const p = verdi(json)?.unitPriceExcludingVatCurrency
-  return typeof p === 'number' && Number.isFinite(p) && p > 0 ? p : 0
+export function tolkPris(json: unknown): number | null {
+  const v = verdi(json)
+  if (v === null) return null
+  const p = v.unitPriceExcludingVatCurrency
+  if (p === undefined || p === null) return 0
+  return typeof p === 'number' && Number.isFinite(p) && p >= 0 ? p : null
 }
 
 /**
@@ -337,6 +341,7 @@ export function tolkPris(json: unknown): number {
  */
 export function tolkMal(json: unknown): { pris: number; rabatt: number } | null {
   const pris = tolkPris(json)
+  if (pris === null) return null
   const d = verdi(json)?.discount
   if (d === undefined || d === null) return { pris, rabatt: 0 }
   if (typeof d !== 'number' || !Number.isFinite(d) || d < 0 || d > 100) return null

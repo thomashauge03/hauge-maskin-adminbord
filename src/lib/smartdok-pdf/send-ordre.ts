@@ -381,7 +381,7 @@ export async function sendOrdre(inn: Sendeinput, bruker: Bruker): Promise<Result
       if (mal === null) {
         return avslutt(
           'feilet',
-          `Produkt ${l.produktId} har ugyldig rabatt i Tripletex for denne ordren. Rett det der og prøv igjen. ` +
+          `Produkt ${l.produktId} ga et uventet svar på pris eller rabatt fra Tripletex (ugyldig rabatt, negativ pris eller svar i annen form). Sjekk produktet i Tripletex og prøv igjen. ` +
             `Ingen linjer er lagt på.${tomOrdre()}`,
         )
       }

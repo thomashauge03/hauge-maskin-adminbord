@@ -264,24 +264,23 @@ test('mal: uten pris, med 0 eller negativ pris blir prisen 0, ikke stopp', () =>
   assert.deepEqual(tolkMal({ value: { discount: 10 } }), { pris: 0, rabatt: 10 })
   assert.deepEqual(tolkMal({ value: { unitPriceExcludingVatCurrency: 0, discount: 10 } }), { pris: 0, rabatt: 10 })
   assert.deepEqual(tolkMal({ value: { unitPriceExcludingVatCurrency: null } }), { pris: 0, rabatt: 0 })
-  assert.deepEqual(tolkMal({ value: { unitPriceExcludingVatCurrency: -5 } }), { pris: 0, rabatt: 0 })
-  assert.deepEqual(tolkMal(null), { pris: 0, rabatt: 0 })
+  assert.deepEqual(tolkMal({ value: {} }), { pris: 0, rabatt: 0 })
 })
 
-test('pris: positivt tall fra malen, ellers 0', () => {
+test('mal: uten value eller med negativ/ikke-tall som pris stopper', () => {
+  for (const j of [null, {}, { value: null }, { value: 'x' }, { value: [] }, { value: { unitPriceExcludingVatCurrency: -5 } }, { value: { unitPriceExcludingVatCurrency: '10' } }]) {
+    assert.equal(tolkMal(j), null, JSON.stringify(j))
+  }
+})
+
+test('pris: tall fra malen, 0 når feltet mangler, null når svaret er uventet', () => {
   assert.equal(tolkPris({ value: { unitPriceExcludingVatCurrency: 1250 } }), 1250)
   assert.equal(tolkPris({ value: { unitPriceExcludingVatCurrency: 99.5 } }), 99.5)
-  for (const j of [
-    null,
-    {},
-    { value: {} },
-    { value: { unitPriceExcludingVatCurrency: 0 } },
-    { value: { unitPriceExcludingVatCurrency: -1 } },
-    { value: { unitPriceExcludingVatCurrency: '1250' } },
-    { value: { unitPriceExcludingVatCurrency: null } },
-    { value: { unitPriceIncludingVatCurrency: 1250 } },
-  ]) {
+  for (const j of [{ value: {} }, { value: { unitPriceExcludingVatCurrency: 0 } }, { value: { unitPriceExcludingVatCurrency: null } }, { value: { unitPriceIncludingVatCurrency: 1250 } }]) {
     assert.equal(tolkPris(j), 0, JSON.stringify(j))
+  }
+  for (const j of [null, {}, { value: 5 }, { value: { unitPriceExcludingVatCurrency: -1 } }, { value: { unitPriceExcludingVatCurrency: '1250' } }, { value: { unitPriceExcludingVatCurrency: NaN } }]) {
+    assert.equal(tolkPris(j), null, JSON.stringify(j))
   }
 })
 
